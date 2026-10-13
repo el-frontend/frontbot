@@ -23,6 +23,8 @@ final class AppModel {
     private let credentials = CredentialStore()
     private let client: AgentClient
     private var currentRunId: String?
+    /// Runs que terminaron antes de que `run()` devolviera su id (no deben perderse).
+    private var earlyFinished: [String: AgentRun] = [:]
     private var keyAccount: String { "\(workspace.id).\(CredentialStore.anthropicKey)" }
 
     init() throws {
@@ -65,7 +67,8 @@ final class AppModel {
         isRunning = true
         Task {
             do {
-                currentRunId = try await client.run(prompt: text, brand: selectedBrand).id
+                let id = try await client.run(prompt: text, brand: selectedBrand).id
+                if let run = earlyFinished.removeValue(forKey: id) { finish(run) } else { currentRunId = id }
             } catch {
                 isRunning = false
                 messages.append(ChatMessage(role: .error, text: error.localizedDescription))
@@ -78,12 +81,25 @@ final class AppModel {
         Task { await client.cancel(runId: id) }
     }
 
-    func saveApiKey(_ key: String) {
+    @discardableResult
+    func saveApiKey(_ key: String) -> Bool {
+        guard let key = CredentialStore.normalizedApiKey(key) else {
+            errorMessage = "La API key está vacía."
+            return false
+        }
         do {
-            try credentials.set(keyAccount, value: key.trimmingCharacters(in: .whitespacesAndNewlines))
+            try credentials.set(keyAccount, value: key)
             apiKeyPresent = true
             Task { await client.setConfig(Self.makeConfig(apiKey: key)) }
-        } catch let e as ValidationError { errorMessage = e.message } catch { errorMessage = error.localizedDescription }
+            return true
+        } catch let e as ValidationError { errorMessage = e.message; return false } catch { errorMessage = error.localizedDescription; return false }
+    }
+
+    private func finish(_ run: AgentRun) {
+        isRunning = false
+        currentRunId = nil
+        if run.status == .failed { messages.append(ChatMessage(role: .error, text: run.resultSummary ?? "Error")) }
+        brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
     }
 
     private func listen() async {
@@ -93,10 +109,9 @@ final class AppModel {
                 if type == "text" { messages.append(ChatMessage(role: .agent, text: text)) }
                 if type == "tool_call" { messages.append(ChatMessage(role: .tool, text: "→ \(text)")) }
             case .finished(let run) where run.id == currentRunId:
-                isRunning = false
-                currentRunId = nil
-                if run.status == .failed { messages.append(ChatMessage(role: .error, text: run.resultSummary ?? "Error")) }
-                brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
+                finish(run)
+            case .finished(let run) where isRunning && currentRunId == nil:
+                earlyFinished[run.id] = run
             default:
                 break
             }

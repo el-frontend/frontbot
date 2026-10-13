@@ -8,6 +8,12 @@ public struct CredentialStore: Sendable {
 
     public init(service: String = "app.frontbot.credentials") { self.service = service }
 
+    /// Key sin espacios ni saltos de línea alrededor; nil si queda vacía.
+    public static func normalizedApiKey(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
     private func base(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
     }
