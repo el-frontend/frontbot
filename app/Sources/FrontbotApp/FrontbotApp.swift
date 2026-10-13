@@ -1,0 +1,2 @@
+import FrontbotCore
+print("Frontbot")
