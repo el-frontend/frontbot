@@ -1,0 +1,43 @@
+import Foundation
+import Security
+
+/// Secretos en el Keychain del usuario. Nunca en disco ni en git.
+public struct CredentialStore: Sendable {
+    public static let anthropicKey = "anthropic_api_key"
+    let service: String
+
+    public init(service: String = "app.frontbot.credentials") { self.service = service }
+
+    private func base(_ account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+    }
+
+    public func get(_ account: String) throws -> String? {
+        var query = base(account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = item as? Data else { throw ValidationError("Error de Keychain \(status).") }
+        return String(data: data, encoding: .utf8)
+    }
+
+    public func set(_ account: String, value: String) throws {
+        let data = Data(value.utf8)
+        let status = SecItemUpdate(base(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var add = base(account)
+            add[kSecValueData as String] = data
+            let addStatus = SecItemAdd(add as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw ValidationError("Error de Keychain \(addStatus).") }
+        } else if status != errSecSuccess {
+            throw ValidationError("Error de Keychain \(status).")
+        }
+    }
+
+    public func delete(_ account: String) throws {
+        let status = SecItemDelete(base(account) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw ValidationError("Error de Keychain \(status).") }
+    }
+}
