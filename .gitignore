@@ -1,0 +1,7 @@
+.DS_Store
+app/.build/
+app/.swiftpm/
+agent/node_modules/
+agent/dist/
+*.log
+.superpowers/
