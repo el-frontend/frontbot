@@ -32,6 +32,17 @@ describe("agent server with FakeRunner", () => {
     expect(result).toMatchObject({ run_id: "r1", ok: true, summary: "Tienes 1 marca(s)." });
   });
 
+  it("cancel that arrives before the runner starts waiting still cancels", async () => {
+    const app = setup();
+    let releaseBrands!: () => void;
+    app.onRequest("tool.brands_list", () => new Promise((resolve) => { releaseBrands = () => resolve({ brands: [] }); }));
+    const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
+    await app.request("agent.run", { run_id: "r3", prompt: "lento", model: "m" });
+    await app.request("agent.cancel", { run_id: "r3" }); // el runner aún espera brands_list
+    releaseBrands();
+    await expect(done).resolves.toMatchObject({ run_id: "r3", ok: false, error: "Cancelado" });
+  });
+
   it("cancel stops a slow run with ok=false", async () => {
     const app = setup();
     app.onRequest("tool.brands_list", async () => ({ brands: [] }));
