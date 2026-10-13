@@ -17,6 +17,7 @@ export class RealRunner implements Runner {
   constructor(private call: AppCall) {}
 
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
+    if (signal.aborted) return cancelled(params.run_id);
     const abortController = new AbortController();
     signal.addEventListener("abort", () => abortController.abort());
     const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: buildTools(this.call) });
@@ -74,7 +75,7 @@ export class FakeRunner implements Runner {
       emit({ run_id: params.run_id, type: "tool_call", text: "posts_create_draft" });
     }
     if (params.prompt.includes("lento")) {
-      const aborted = await new Promise<boolean>((resolve) => {
+      const aborted = signal.aborted || await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => resolve(false), 5000);
         signal.addEventListener("abort", () => { clearTimeout(timer); resolve(true); });
       });
