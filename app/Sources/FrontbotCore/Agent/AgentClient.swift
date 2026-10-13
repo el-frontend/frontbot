@@ -49,7 +49,10 @@ public actor AgentClient {
     private var launches: [Date] = []
     private var subscribers: [UUID: AsyncStream<AgentUpdate>.Continuation] = [:]
 
-    public init(config: AgentConfig, db: AppDatabase, files: BrandFiles, workspaceId: String) {
+    private let cancelGrace: Duration
+
+    public init(config: AgentConfig, db: AppDatabase, files: BrandFiles, workspaceId: String, cancelGrace: Duration = .seconds(10)) {
+        self.cancelGrace = cancelGrace
         self.config = config
         self.db = db
         self.files = files
@@ -77,23 +80,48 @@ public actor AgentClient {
     }
 
     public func run(prompt: String, brand: Brand?) async throws -> AgentRun {
-        if !config.fakeAgent, (config.apiKey ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+        if !config.fakeAgent, CredentialStore.normalizedApiKey(config.apiKey) == nil {
             throw AgentClientError.missingApiKey
         }
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
-        var params: [String: JSONValue] = ["run_id": .string(run.id), "prompt": .string(prompt), "model": .string(config.model)]
-        if let brand {
-            let guide = try files.readGuide(brandId: brand.id)
-            params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
+        do {
+            var params: [String: JSONValue] = ["run_id": .string(run.id), "prompt": .string(prompt), "model": .string(config.model)]
+            if let brand {
+                let guide = try files.readGuide(brandId: brand.id)
+                params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
+            }
+            try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
+            return run
+        } catch {
+            // No dejar el run en "running" si no llegó a enviarse.
+            fail(runId: run.id, summary: error.localizedDescription)
+            throw error
         }
-        try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
-        return run
     }
 
     public func cancel(runId: String) async {
         try? send(.request(id: takeId(), method: "agent.cancel", params: ["run_id": .string(runId)]))
+        // Si el sidecar no confirma a tiempo (runner colgado), se da por cancelado y se reinicia el proceso.
+        let grace = cancelGrace
+        Task { [weak self] in
+            try? await Task.sleep(for: grace)
+            await self?.forceCancelIfStillActive(runId: runId)
+        }
+    }
+
+    private func forceCancelIfStillActive(runId: String) {
+        guard activeRuns.contains(runId) else { return }
+        fail(runId: runId, summary: "Cancelado")
+        stop()
+    }
+
+    private func fail(runId: String, summary: String) {
+        activeRuns.remove(runId)
+        if let run = try? db.finishRun(id: runId, status: .failed, summary: summary, inputTokens: 0, outputTokens: 0, costUsd: 0) {
+            broadcast(.finished(run))
+        }
     }
 
     public func stop() {
@@ -111,6 +139,12 @@ public actor AgentClient {
 
     private func ensureProcess() throws {
         if let process, process.isRunning { return }
+        if process != nil {
+            // Murió pero su EOF aún no se procesó: sus runs fallan antes de relanzar.
+            process = nil
+            stdin = nil
+            handleExit()
+        }
         let now = Date()
         launches = launches.filter { now.timeIntervalSince($0) < 60 }
         guard launches.count < 3 else { throw AgentClientError.restartLimit }
@@ -121,7 +155,7 @@ public actor AgentClient {
         p.arguments = [config.scriptPath]
         var env = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "USER"].contains($0.key) }
         env["CLAUDE_AGENT_SDK_CLIENT_APP"] = "frontbot/0.1.0"
-        if let key = config.apiKey, !key.isEmpty { env["ANTHROPIC_API_KEY"] = key }
+        if let key = CredentialStore.normalizedApiKey(config.apiKey) { env["ANTHROPIC_API_KEY"] = key }
         if config.fakeAgent { env["FRONTBOT_FAKE_AGENT"] = "1" }
         p.environment = env
 
@@ -129,6 +163,7 @@ public actor AgentClient {
         p.standardInput = inPipe
         p.standardOutput = outPipe
         p.standardError = FileHandle.nullDevice
+        inPipe.disableSigpipe()
 
         // Un único stream ordenado: lanzar un Task por chunk podría reordenar los datos.
         let (chunks, chunkSink) = AsyncStream<Data>.makeStream()
@@ -148,7 +183,7 @@ public actor AgentClient {
         process = p
         stdin = inPipe.fileHandleForWriting
         Task { [weak self] in
-            for await data in chunks { await self?.receive(data) }
+            for await data in chunks { await self?.receive(data, generation: gen) }
             // Se procesa todo lo leído antes de declarar el proceso muerto.
             await self?.processExited(generation: gen)
         }
@@ -162,12 +197,7 @@ public actor AgentClient {
     }
 
     private func handleExit() {
-        for runId in activeRuns {
-            if let run = try? db.finishRun(id: runId, status: .failed, summary: "El agente se detuvo inesperadamente.", inputTokens: 0, outputTokens: 0, costUsd: 0) {
-                broadcast(.finished(run))
-            }
-        }
-        activeRuns.removeAll()
+        for runId in activeRuns { fail(runId: runId, summary: "El agente se detuvo inesperadamente.") }
     }
 
     private func send(_ message: RPCMessage) throws {
@@ -177,7 +207,9 @@ public actor AgentClient {
 
     // MARK: Mensajes entrantes
 
-    private func receive(_ data: Data) {
+    /// Solo procesa la salida del proceso actual; lo que quede de uno ya detenido se descarta.
+    func receive(_ data: Data, generation gen: Int) {
+        guard gen == generation else { return }
         for line in framer.append(data) {
             guard let message = try? RPCMessage.decode(line) else { continue }
             handle(message)
@@ -198,7 +230,7 @@ public actor AgentClient {
         case .notification("agent.event", let params):
             broadcast(.event(runId: params["run_id"]?.stringValue ?? "", type: params["type"]?.stringValue ?? "", text: params["text"]?.stringValue ?? ""))
         case .notification("agent.done", let params):
-            guard let runId = params["run_id"]?.stringValue else { return }
+            guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId) else { return }
             activeRuns.remove(runId)
             let ok = params["ok"]?.boolValue ?? false
             let summary = ok ? params["summary"]?.stringValue : (params["error"]?.stringValue ?? "Error desconocido")

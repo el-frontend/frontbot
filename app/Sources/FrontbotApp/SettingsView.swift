@@ -11,12 +11,12 @@ struct SettingsView: View {
             Text(model.apiKeyPresent ? "Hay una key guardada en el Keychain." : "No hay key guardada.")
                 .font(.caption).foregroundStyle(.secondary)
             Button("Guardar") {
-                model.saveApiKey(key)
-                key = ""
-                saved = true
+                saved = model.saveApiKey(key)
+                if saved { key = "" }
             }
-            .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             if saved { Text("Guardada.").font(.caption) }
+            if !saved, let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
         }
         .padding()
         .frame(width: 420)

@@ -1,4 +1,4 @@
-import { query, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
+import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, ALLOWED_TOOLS, type AppCall } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
 
@@ -13,6 +13,23 @@ export interface Runner {
 
 const cancelled = (run_id: string): RunDone => ({ run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0, error: "Cancelado" });
 
+/** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude. */
+export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string): Options {
+  return {
+    model: params.model,
+    systemPrompt: buildSystemPrompt({ today, brand: params.brand }),
+    tools: ["WebSearch", "WebFetch"],
+    allowedTools: ALLOWED_TOOLS,
+    mcpServers: { frontbot: server },
+    strictMcpConfig: true,
+    settingSources: [],
+    permissionMode: "dontAsk",
+    persistSession: false,
+    maxTurns: 30,
+    abortController,
+  };
+}
+
 export class RealRunner implements Runner {
   constructor(private call: AppCall) {}
 
@@ -24,21 +41,7 @@ export class RealRunner implements Runner {
     const today = new Date().toISOString().slice(0, 10);
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
-      const stream = query({
-        prompt: params.prompt,
-        options: {
-          model: params.model,
-          systemPrompt: buildSystemPrompt({ today, brand: params.brand }),
-          tools: ["WebSearch", "WebFetch"],
-          allowedTools: ALLOWED_TOOLS,
-          mcpServers: { frontbot: server },
-          strictMcpConfig: true,
-          settingSources: [],
-          permissionMode: "dontAsk",
-          maxTurns: 30,
-          abortController,
-        },
-      });
+      const stream = query({ prompt: params.prompt, options: buildQueryOptions(params, server, abortController, today) });
       for await (const msg of stream) {
         if (msg.type === "assistant") {
           for (const block of msg.message.content) {
@@ -66,6 +69,7 @@ export class FakeRunner implements Runner {
 
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (params.prompt === "crash") process.exit(1);
+    if (params.prompt === "colgado") await new Promise(() => {}); // nunca termina e ignora cancel
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     const { brands } = (await this.call("tool.brands_list", {})) as { brands: unknown[] };
     const summary = `Tienes ${brands.length} marca(s).`;
