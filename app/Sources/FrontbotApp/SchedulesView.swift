@@ -97,6 +97,18 @@ struct TaskRow: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.draft).fixedSize(horizontal: false, vertical: true)
             }
             Text(task.instruction).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(expanded ? nil : 2)
+            if !expanded, let last = model.taskRuns(task).first, last.status != .running {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(last.status == .failed ? "✗" : last.notified ? "🔔" : "✓").foregroundStyle(last.status == .failed ? Theme.danger : Theme.approved)
+                    Text("Último resultado · \(last.startedAt.formatted(.relative(presentation: .named))): \(last.summary ?? "sin resumen")")
+                        .font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                    Spacer()
+                    if let conversationId = last.conversationId {
+                        Button("Abrir") { model.openConversation(id: conversationId) }.buttonStyle(OutlineButtonStyle())
+                    }
+                }
+                .padding(8).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 8, fill: Theme.raised)
+            }
             if expanded { history }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 10)

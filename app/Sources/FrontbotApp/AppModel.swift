@@ -418,12 +418,13 @@ final class AppModel {
 
     func runTaskNow(_ task: ScheduledTask) {
         guard !isTaskRunning(task) else { return }
-        start(task)
+        start(task, manual: true)
     }
 
     private func startScheduler() {
         notifications.model = self
         UNUserNotificationCenter.current().delegate = notifications
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } // macOS lo pregunta una vez
         schedulerTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tickScheduler() }
         }
@@ -447,7 +448,7 @@ final class AppModel {
         reloadTasks()
     }
 
-    private func start(_ task: ScheduledTask) {
+    private func start(_ task: ScheduledTask, manual: Bool = false) {
         guard let agent = agent(id: task.agentId), agent.status == .active, !isTaskRunning(task) else { return }
         let taskRun: TaskRun
         do { taskRun = try db.startTaskRun(taskId: task.id) } catch { return }
@@ -458,7 +459,7 @@ final class AppModel {
             do {
                 let run = try await client.run(prompt: task.instruction, agent: agent, brand: nil, model: task.model, task: task)
                 try? db.attachAgentRun(taskRunId: taskRun.id, agentRunId: run.id)
-                scheduledRuns[run.id] = ScheduledRunLog(taskRunId: taskRun.id, task: task, startedAt: taskRun.startedAt)
+                scheduledRuns[run.id] = ScheduledRunLog(taskRunId: taskRun.id, task: task, startedAt: taskRun.startedAt, manual: manual)
                 for update in orphanUpdates.removeValue(forKey: run.id) ?? [] { handleScheduled(update) }
                 Task { [weak self] in
                     try? await Task.sleep(for: Self.scheduledRunDeadline)
@@ -490,6 +491,9 @@ final class AppModel {
             guard let log = scheduledRuns.removeValue(forKey: run.id) else { return false }
             let proposals = (try? db.proposalsCount(agentId: log.task.agentId, since: log.startedAt)) ?? 0
             let result = try? db.completeScheduledRun(log, run: run, workspaceId: workspace.id, proposalsCreated: proposals)
+            if log.manual, let conversationId = result?.conversationId, !isRunning {
+                openConversation(id: conversationId) // la lanzaste tú: te llevo al resultado
+            }
             if let note = log.notification {
                 deliverNotification(title: note.title, body: note.message, conversationId: result?.conversationId)
             } else if run.status == .failed {

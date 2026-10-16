@@ -5,13 +5,16 @@ public struct ScheduledRunLog: Sendable {
     public let taskRunId: String
     public let task: ScheduledTask
     public let startedAt: Date
+    /// Lanzada con "Ejecutar ahora": el usuario está mirando y quiere ver el resultado.
+    public let manual: Bool
     public private(set) var transcript: [(role: ChatRole, text: String)] = []
     public var notification: (title: String, message: String)?
 
-    public init(taskRunId: String, task: ScheduledTask, startedAt: Date) {
+    public init(taskRunId: String, task: ScheduledTask, startedAt: Date, manual: Bool = false) {
         self.taskRunId = taskRunId
         self.task = task
         self.startedAt = startedAt
+        self.manual = manual
     }
 
     public mutating func record(_ role: ChatRole, _ text: String) {
@@ -25,7 +28,7 @@ extension AppDatabase {
                                      proposalsCreated: Int) throws -> (conversationId: String?, surfaced: Bool) {
         let surfaced = log.notification != nil || proposalsCreated > 0
         var conversationId: String?
-        if surfaced {
+        if surfaced || log.manual {
             let conversation = try createConversation(workspaceId: workspaceId, agentId: log.task.agentId, brandId: nil,
                                                       firstPrompt: "🕒 " + log.task.name)
             try appendMessage(conversationId: conversation.id, role: .user, text: "🕒 Tarea programada «\(log.task.name)»: \(log.task.instruction)")
