@@ -1,6 +1,6 @@
 import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, ALLOWED_TOOLS, type AppCall } from "./tools.js";
-import { buildSystemPrompt, buildUserPrompt, type HistoryTurn } from "./prompt.js";
+import { buildSystemPrompt, buildUserPrompt, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
 export type RunParams = { run_id: string; prompt: string; model: string; brand?: Brand; history?: HistoryTurn[] };
@@ -17,7 +17,7 @@ const cancelled = (run_id: string): RunDone => ({ run_id, ok: false, summary: ""
 export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string): Options {
   return {
     model: params.model,
-    systemPrompt: buildSystemPrompt({ today, brand: params.brand }),
+    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand }),
     tools: ["WebSearch", "WebFetch"],
     allowedTools: ALLOWED_TOOLS,
     mcpServers: { frontbot: server },
@@ -38,7 +38,7 @@ export class RealRunner implements Runner {
     const abortController = new AbortController();
     signal.addEventListener("abort", () => abortController.abort());
     const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: buildTools(this.call) });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localToday();
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
       const stream = query({ prompt: buildUserPrompt(params.history ?? [], params.prompt), options: buildQueryOptions(params, server, abortController, today) });

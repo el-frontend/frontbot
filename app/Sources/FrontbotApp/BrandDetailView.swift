@@ -8,8 +8,10 @@ struct BrandDetailView: View {
     let brand: Brand
     @State private var editingGuide = false
     @State private var guideDraft = ""
-    @State private var pickingImages = false
-    @State private var pickingPDF = false
+    /// Un solo fileImporter: SwiftUI solo respeta el último si hay dos en la misma vista.
+    private enum ImportMode { case images, pdf }
+    @State private var importMode: ImportMode = .images
+    @State private var importing = false
 
     var body: some View {
         ScrollView {
@@ -37,7 +39,7 @@ struct BrandDetailView: View {
                         if !editingGuide {
                             HStack {
                                 Button("Entrevístame") { model.startInterview() }.disabled(model.isRunning)
-                                Button("Desde un PDF…") { pickingPDF = true }.disabled(model.isRunning)
+                                Button("Desde un PDF…") { importMode = .pdf; importing = true }.disabled(model.isRunning)
                                 Button(model.guide == nil ? "Escribirla a mano" : "Editar") {
                                     guideDraft = model.guide ?? ""
                                     editingGuide = true
@@ -58,18 +60,21 @@ struct BrandDetailView: View {
                                 AssetThumbnail(path: asset.path)
                             }
                         }
-                        Button("Subir imágenes…") { pickingImages = true }
+                        Button("Subir imágenes…") { importMode = .images; importing = true }
                     }
                     .padding(8)
                 }
             }
             .padding(24)
         }
-        .fileImporter(isPresented: $pickingImages, allowedContentTypes: [.jpeg, .png], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { model.importImages(withAccess(urls)) }
-        }
-        .fileImporter(isPresented: $pickingPDF, allowedContentTypes: [.pdf]) { result in
-            if case .success(let url) = result, let local = withAccess([url]).first { model.guideFromPDF(local) }
+        .fileImporter(isPresented: $importing,
+                      allowedContentTypes: importMode == .images ? [.jpeg, .png] : [.pdf],
+                      allowsMultipleSelection: importMode == .images) { result in
+            guard case .success(let urls) = result else { return }
+            switch importMode {
+            case .images: model.importImages(withAccess(urls))
+            case .pdf: if let local = withAccess(urls).first { model.guideFromPDF(local) }
+            }
         }
     }
 

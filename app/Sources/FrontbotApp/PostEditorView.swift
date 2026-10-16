@@ -37,6 +37,8 @@ struct PostEditorView: View {
                     .font(.caption).foregroundStyle(text.count > PostRules.maxLength(for: post.network) ? .red : .secondary)
                 if let validationError { Text(validationError).font(.caption).foregroundStyle(.red) }
             }
+            // La alerta de la ventana no se ve mientras la hoja está abierta: errores al guardar van aquí.
+            if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
 
             Text("Imágenes").font(.subheadline).bold()
             ScrollView(.horizontal) {
@@ -75,6 +77,8 @@ struct PostEditorView: View {
         }
         .padding(20)
         .frame(width: 560)
+        .onAppear { model.errorMessage = nil }
+        .onDisappear { model.errorMessage = nil }
     }
 
     private func save() -> Bool {

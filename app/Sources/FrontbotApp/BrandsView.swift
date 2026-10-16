@@ -45,6 +45,8 @@ struct NewBrandSheet: View {
             TextField("Rubro", text: $industry)
             Toggle("Instagram", isOn: $instagram)
             Toggle("LinkedIn", isOn: $linkedin)
+            // La alerta de la ventana no se ve mientras hay una hoja abierta: el error va aquí.
+            if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
             HStack {
                 Button("Cancelar") { dismiss() }
                 Spacer()
@@ -60,5 +62,7 @@ struct NewBrandSheet: View {
         }
         .padding()
         .frame(width: 360)
+        .onAppear { model.errorMessage = nil }
+        .onDisappear { model.errorMessage = nil }
     }
 }

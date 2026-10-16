@@ -10,7 +10,8 @@ struct RootView: View {
         } detail: {
             switch model.section {
             case .brand(let id):
-                if let brand = model.brand(id: id) { BrandDetailView(model: model, brand: brand) }
+                // .id: cada marca tiene su propio estado (si no, el editor de guía de una marca se queda abierto en otra).
+                if let brand = model.brand(id: id) { BrandDetailView(model: model, brand: brand).id(brand.id) }
             case .calendar:
                 CalendarView(model: model)
             case .chat:
