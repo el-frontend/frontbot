@@ -145,12 +145,20 @@ extension AppDatabase {
     }
 
     public func completeTask(id: String) throws -> TaskItem {
+        try setTaskDone(id: id, done: true)
+    }
+
+    public func setTaskDone(id: String, done: Bool) throws -> TaskItem {
         try writer.write { db in
             guard var task = try TaskItem.fetchOne(db, key: id) else { throw notFound("tarea", id) }
-            task.done = true
+            task.done = done
             try task.update(db)
             return task
         }
+    }
+
+    public func deleteTask(id: String) throws {
+        _ = try writer.write { try TaskItem.deleteOne($0, key: id) }
     }
 
     // MARK: Ideas
@@ -160,6 +168,20 @@ extension AppDatabase {
         let idea = BusinessIdea(id: UUID().uuidString, workspaceId: workspaceId, title: title, summary: summary, sources: sources, score: score, reportPath: nil, createdAt: .dbNow())
         try writer.write { try idea.insert($0) }
         return idea
+    }
+
+    public func ideas(workspaceId: String) throws -> [BusinessIdea] {
+        try writer.read { try BusinessIdea.filter(Column("workspaceId") == workspaceId)
+            .order(Column("score").desc, Column("createdAt").desc).fetchAll($0) }
+    }
+
+    @discardableResult
+    public func deleteIdea(id: String) throws -> BusinessIdea? {
+        try writer.write { db in
+            let idea = try BusinessIdea.fetchOne(db, key: id)
+            _ = try BusinessIdea.deleteOne(db, key: id)
+            return idea
+        }
     }
 
     public func setIdeaReportPath(id: String, path: String) throws {
