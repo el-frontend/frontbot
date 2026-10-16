@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTools, ALLOWED_TOOLS, TOOL_SPECS } from "../src/tools.js";
+import { buildTools, ALLOWED_TOOLS, TOOL_SPECS, allowedToolsFor } from "../src/tools.js";
 
 describe("tools", () => {
   it("allows only web tools plus frontbot tools, never publish/approve", () => {
@@ -35,5 +35,22 @@ describe("tools", () => {
     const update = TOOL_SPECS.find((t) => t.name === "posts_update_draft")!;
     expect(Object.keys(create.shape)).toContain("media");
     expect(Object.keys(update.shape)).toContain("media");
+  });
+});
+
+describe("tools per agent", () => {
+  it("injects the run's agent_id so the model cannot choose it", async () => {
+    const calls: [string, unknown][] = [];
+    const tools = buildTools(async (m, p) => { calls.push([m, p]); return {}; }, { agentId: "a1", isDefault: false });
+    await tools.find((t) => t.name === "tasks_list")!.handler({ agent_id: "otro" } as never, {});
+    expect(calls[0]).toEqual(["tool.tasks_list", { agent_id: "a1" }]);
+  });
+
+  it("only the default agent can create agents", () => {
+    const names = (isDefault: boolean) => buildTools(async () => ({}), { agentId: "a", isDefault }).map((t) => t.name);
+    expect(names(true)).toContain("agents_create_draft");
+    expect(names(false)).not.toContain("agents_create_draft");
+    expect(allowedToolsFor({ agentId: "a", isDefault: false })).not.toContain("mcp__frontbot__agents_create_draft");
+    expect(allowedToolsFor({ agentId: "a", isDefault: true })).toContain("mcp__frontbot__agents_create_draft");
   });
 });

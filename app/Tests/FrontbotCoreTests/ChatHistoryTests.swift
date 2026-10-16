@@ -50,7 +50,9 @@ final class ChatHistoryTests: XCTestCase {
         let client = AgentClient(config: AgentConfig(nodePath: node, scriptPath: script, apiKey: nil, model: "m", fakeAgent: true),
                                  db: db, files: BrandFiles(paths: AppPaths(root: root)), workspaceId: ws.id)
         let stream = await client.updates()
-        let run = try await client.run(prompt: "hola", brand: nil, useBrowser: true)
+        var agent = try db.ensureDefaultAgent(workspaceId: ws.id)
+        agent.browser = true
+        let run = try await client.run(prompt: "hola", agent: agent, brand: nil)
         var texts: [String] = []
         for await update in stream {
             if case .event(let id, "text", let text) = update, id == run.id { texts.append(text) }
@@ -77,6 +79,27 @@ final class ChatHistoryTests: XCTestCase {
             if case .finished(let r) = update, r.id == run.id { break }
         }
         XCTAssertTrue(texts.contains("Modelo: claude-opus-5-5"))
+        await client.stop()
+    }
+
+    func testRunCarriesTheAgent() async throws {
+        let db = try AppDatabase.inMemory()
+        let ws = try db.ensureDefaultWorkspace()
+        let node = ProcessInfo.processInfo.environment["FRONTBOT_NODE"] ?? "/opt/homebrew/bin/node"
+        let script = AgentClientTests.repoRoot.appendingPathComponent("agent/dist/main.js").path
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: node), "usa FRONTBOT_NODE=$(which node)")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let client = AgentClient(config: AgentConfig(nodePath: node, scriptPath: script, apiKey: nil, model: "m", fakeAgent: true),
+                                 db: db, files: BrandFiles(paths: AppPaths(root: root)), workspaceId: ws.id)
+        let trader = try db.createAgent(workspaceId: ws.id, draft: AgentTemplate.cryptoTrader.draft, status: .active)
+        let stream = await client.updates()
+        let run = try await client.run(prompt: "agente", agent: trader, brand: nil)
+        var texts: [String] = []
+        for await update in stream {
+            if case .event(let id, "text", let text) = update, id == run.id { texts.append(text) }
+            if case .finished(let r) = update, r.id == run.id { break }
+        }
+        XCTAssertTrue(texts.contains("Agente: Crypto Trader"))
         await client.stop()
     }
 }

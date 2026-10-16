@@ -12,13 +12,13 @@ final class ConversationStoreTests: XCTestCase {
 
     func testCreateTitlesFromTheFirstPrompt() throws {
         let long = String(repeating: "a", count: 80)
-        let c = try db.createConversation(workspaceId: ws.id, brandId: nil, firstPrompt: "  Ideas para\nInstagram  ")
+        let c = try db.createConversation(workspaceId: ws.id, agentId: try db.ensureDefaultAgent(workspaceId: ws.id).id, brandId: nil, firstPrompt: "  Ideas para\nInstagram  ")
         XCTAssertEqual(c.title, "Ideas para Instagram")
-        XCTAssertEqual(try db.createConversation(workspaceId: ws.id, brandId: nil, firstPrompt: long).title.count, 61)
+        XCTAssertEqual(try db.createConversation(workspaceId: ws.id, agentId: try db.ensureDefaultAgent(workspaceId: ws.id).id, brandId: nil, firstPrompt: long).title.count, 61)
     }
 
     func testMessagesKeepTheirOrderAndRole() throws {
-        let c = try db.createConversation(workspaceId: ws.id, brandId: nil, firstPrompt: "hola")
+        let c = try db.createConversation(workspaceId: ws.id, agentId: try db.ensureDefaultAgent(workspaceId: ws.id).id, brandId: nil, firstPrompt: "hola")
         try db.appendMessage(conversationId: c.id, role: .user, text: "hola")
         try db.appendMessage(conversationId: c.id, role: .tool, text: "→ brands_list")
         try db.appendMessage(conversationId: c.id, role: .agent, text: "¡Hola!")
@@ -28,8 +28,8 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testRecentConversationsAreOrderedByLastActivity() throws {
-        let old = try db.createConversation(workspaceId: ws.id, brandId: nil, firstPrompt: "vieja")
-        let new = try db.createConversation(workspaceId: ws.id, brandId: nil, firstPrompt: "nueva")
+        let old = try db.createConversation(workspaceId: ws.id, agentId: try db.ensureDefaultAgent(workspaceId: ws.id).id, brandId: nil, firstPrompt: "vieja")
+        let new = try db.createConversation(workspaceId: ws.id, agentId: try db.ensureDefaultAgent(workspaceId: ws.id).id, brandId: nil, firstPrompt: "nueva")
         XCTAssertEqual(try db.conversations(workspaceId: ws.id, limit: 10).map(\.id), [new.id, old.id])
         try db.appendMessage(conversationId: old.id, role: .user, text: "sigo aquí")
         XCTAssertEqual(try db.conversations(workspaceId: ws.id, limit: 10).map(\.id), [old.id, new.id])
@@ -37,7 +37,7 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testDeletingAConversationDeletesItsMessages() throws {
-        let c = try db.createConversation(workspaceId: ws.id, brandId: nil, firstPrompt: "hola")
+        let c = try db.createConversation(workspaceId: ws.id, agentId: try db.ensureDefaultAgent(workspaceId: ws.id).id, brandId: nil, firstPrompt: "hola")
         try db.appendMessage(conversationId: c.id, role: .user, text: "hola")
         try db.deleteConversation(id: c.id)
         XCTAssertTrue(try db.conversations(workspaceId: ws.id, limit: 10).isEmpty)

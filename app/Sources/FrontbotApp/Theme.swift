@@ -133,3 +133,23 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: radius).stroke(Theme.border))
     }
 }
+
+/// Icono del agente (SF Symbol) sobre un tono estable derivado de su id.
+struct AgentAvatar: View {
+    let agent: Agent
+    var size: CGFloat = 18
+
+    private static let tones: [(UInt32, UInt32)] = [
+        (0x3A1C2A, 0xF2A3C9), (0x1C2A3A, 0x6AA7FF), (0x1C3A2A, 0x5FD08A), (0x2E1C3A, 0xB58CFF), (0x3A2A1C, 0xF5B454),
+    ]
+
+    var body: some View {
+        let tone = agent.isDefault ? Self.tones[0] : Self.tones[abs(agent.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }) % Self.tones.count]
+        Image(systemName: agent.icon)
+            .font(.system(size: size * 0.52, weight: .semibold))
+            .foregroundStyle(Color(hex: tone.1))
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: size * 0.28).fill(Color(hex: tone.0)))
+            .opacity(agent.status == .draft ? 0.55 : 1)
+    }
+}

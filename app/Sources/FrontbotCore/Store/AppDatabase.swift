@@ -105,6 +105,28 @@ public final class AppDatabase: Sendable {
                 t.column("createdAt", .datetime).notNull()
             }
         }
+        m.registerMigration("v3-agents") { db in
+            try db.create(table: "agent") { t in
+                t.primaryKey("id", .text)
+                t.column("workspaceId", .text).notNull().references("workspace", onDelete: .cascade)
+                t.column("name", .text).notNull()
+                t.column("icon", .text).notNull()
+                t.column("description", .text).notNull()
+                t.column("instructions", .text).notNull()
+                t.column("model", .text).notNull()
+                t.column("browser", .boolean).notNull()
+                t.column("trading", .boolean).notNull()
+                t.column("status", .text).notNull()
+                t.column("isDefault", .boolean).notNull()
+                t.column("templateId", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.alter(table: "conversation") { t in
+                t.add(column: "agentId", .text).indexed().references("agent", onDelete: .cascade)
+                t.add(column: "summarizedAt", .datetime)
+            }
+        }
         return m
     }
 

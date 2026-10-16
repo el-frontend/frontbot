@@ -9,6 +9,7 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
+                if let agent = model.selectedAgent { AgentAvatar(agent: agent, size: 20) }
                 Text(model.conversations.first { $0.id == model.currentConversationId }?.title ?? "Nueva conversación")
                     .font(.system(size: 13, weight: .medium)).lineLimit(1)
                 if let brand = model.selectedBrand {
@@ -49,9 +50,16 @@ struct ChatView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("¿Qué hacemos hoy?").font(.system(size: 22, weight: .semibold))
-            Text("Pídele posts para una marca, que investigue un tema, que te recuerde algo o que busque oportunidades de negocio.")
-                .foregroundStyle(Theme.muted).lineSpacing(3)
+            if let agent = model.selectedAgent, !agent.isDefault {
+                AgentAvatar(agent: agent, size: 36)
+                Text("Hablas con \(agent.name)").font(.system(size: 22, weight: .semibold))
+                Text(agent.description.isEmpty ? "Un agente especializado de Frontbot." : agent.description)
+                    .foregroundStyle(Theme.muted).lineSpacing(3)
+            } else {
+                Text("¿Qué hacemos hoy?").font(.system(size: 22, weight: .semibold))
+                Text("Pídele posts para una marca, que investigue un tema, que te recuerde algo o que busque oportunidades de negocio.")
+                    .foregroundStyle(Theme.muted).lineSpacing(3)
+            }
         }
         .padding(.top, 80)
     }
@@ -81,12 +89,13 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField(model.selectedBrand.map { "Pídele algo para \($0.name)…" } ?? "Pídele algo a Frontbot…",
+            TextField(model.selectedBrand.map { "Pídele algo para \($0.name)…" } ?? "Pídele algo a \(model.selectedAgent?.name ?? "Frontbot")…",
                       text: $draft, axis: .vertical)
                 .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(1...6)
                 .focused($focused)
                 .onSubmit(submit)
             HStack(spacing: 8) {
+                agentMenu
                 Menu {
                     Button("Sin marca") { model.selectedBrandId = nil }
                     ForEach(model.brands) { brand in Button(brand.name) { model.selectedBrandId = brand.id } }
@@ -125,11 +134,11 @@ struct ChatView: View {
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
                 .fixedSize()
                 .help("Modelo del agente")
-                if model.useBrowser {
+                if model.selectedAgent?.browser == true {
                     Label("Chrome", systemImage: "globe").font(Theme.mono()).foregroundStyle(Theme.muted)
                         .padding(.horizontal, 10).frame(height: 28)
                         .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.borderStrong))
-                        .help("Frontbot puede usar tu Chrome con tus sesiones (Ajustes)")
+                        .help("Este agente puede usar tu Chrome con tus sesiones (se cambia en su página)")
                 }
 
                 Spacer()
@@ -153,6 +162,32 @@ struct ChatView: View {
         .frame(maxWidth: 760)
         .panel(radius: 14)
         .frame(maxWidth: .infinity)
+    }
+
+    /// Cambiar de agente empieza una conversación nueva con él.
+    private var agentMenu: some View {
+        Menu {
+            ForEach(model.agents.filter { $0.status == .active }) { agent in
+                Button { model.newConversation(agentId: agent.id) } label: {
+                    if agent.id == model.selectedAgentId { Label(agent.name, systemImage: "checkmark") } else { Text(agent.name) }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if let agent = model.selectedAgent { AgentAvatar(agent: agent, size: 14) }
+                Text(model.selectedAgent?.name ?? "Agente").lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.muted)
+            }
+            .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 10).frame(height: 28)
+            .frame(maxWidth: 180)
+            .panel(radius: 7, fill: Theme.raised)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(model.isRunning)
+        .help("Agente")
     }
 
     private func submit() {

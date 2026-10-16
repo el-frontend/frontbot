@@ -1,8 +1,18 @@
-export function buildSystemPrompt(input: { today: string; timeZone?: string; brand?: { id: string; name: string; guide: string | null }; browser?: boolean }): string {
+export type AgentInfo = { name: string; instructions: string };
+
+const FRONTBOT: AgentInfo = {
+  name: "Frontbot",
+  instructions: "Ayudas a gestionar marcas y redes sociales (Instagram y LinkedIn), tareas diarias e investigación de oportunidades de negocio.",
+};
+
+export function buildSystemPrompt(input: { today: string; timeZone?: string; brand?: { id: string; name: string; guide: string | null }; browser?: boolean; agent?: AgentInfo }): string {
+  const agent = input.agent ?? FRONTBOT;
   const parts = [
-    "Eres Frontbot, un agente que ayuda a gestionar marcas y redes sociales (Instagram y LinkedIn), tareas diarias e investigación de oportunidades de negocio.",
+    `Eres ${agent.name}, un agente de Frontbot (una app de escritorio del usuario).`,
+    agent.instructions,
+    "",
     `Hoy es ${input.today}${input.timeZone ? ` (zona horaria ${input.timeZone})` : ""}. Escribe las fechas con esa zona horaria.`,
-    "Reglas:",
+    "Reglas comunes:",
     "- Nunca publicas ni apruebas nada. Creas borradores con posts_create_draft; el usuario los revisa, aprueba y publica.",
     "- Investiga en la web (WebSearch, WebFetch) antes de escribir contenido o evaluar negocios, y cita fuentes.",
     "- Respeta los límites: Instagram 2200 caracteres y máximo 30 hashtags; LinkedIn 3000 caracteres.",
@@ -35,9 +45,9 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
 export type HistoryTurn = { role: "user" | "agent"; text: string };
 
 /** Antepone la conversación previa al mensaje nuevo: cada run del SDK empieza sin memoria. */
-export function buildUserPrompt(history: HistoryTurn[], prompt: string): string {
+export function buildUserPrompt(history: HistoryTurn[], prompt: string, agentName = "Frontbot"): string {
   if (history.length === 0) return prompt;
-  const lines = history.map((t) => `${t.role === "user" ? "Usuario" : "Frontbot"}: ${t.text}`);
+  const lines = history.map((t) => `${t.role === "user" ? "Usuario" : agentName}: ${t.text}`);
   return `Conversación hasta ahora:\n${lines.join("\n")}\n\nMensaje nuevo del usuario:\n${prompt}`;
 }
 

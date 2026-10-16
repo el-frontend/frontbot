@@ -98,9 +98,9 @@ public actor AgentClient {
         for c in subscribers.values { c.yield(update) }
     }
 
-    /// `model`: el elegido en la app (si no, el de la configuración).
-    /// `useBrowser`: el agente puede usar el Chrome del usuario (Claude in Chrome) detrás del guardián del sidecar.
-    public func run(prompt: String, brand: Brand?, history: [ChatTurn] = [], model: String? = nil, useBrowser: Bool = false) async throws -> AgentRun {
+    /// `agent`: quién responde (sin agente, el sidecar usa Frontbot). Su `browser` activa el Chrome del usuario
+    /// detrás del guardián del sidecar. `model`: el elegido en la app (si no, el de la configuración).
+    public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil) async throws -> AgentRun {
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
@@ -111,7 +111,11 @@ public actor AgentClient {
                 params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
             }
             if !history.isEmpty { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
-            if useBrowser { params["browser"] = .bool(true) }
+            if let agent {
+                params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
+                                   "is_default": .bool(agent.isDefault)]
+                if agent.browser { params["browser"] = .bool(true) }
+            }
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
             return run
         } catch {
