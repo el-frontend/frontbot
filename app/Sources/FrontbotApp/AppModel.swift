@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Observation
+import UserNotifications
 import FrontbotCore
 
 struct ChatMessage: Identifiable, Equatable {
@@ -12,7 +13,7 @@ struct ChatMessage: Identifiable, Equatable {
 
 @MainActor @Observable
 final class AppModel {
-    enum Section: Hashable { case agent(String), brand(String), calendar, chat, tasks, ideas, skills }
+    enum Section: Hashable { case agent(String), brand(String), calendar, chat, tasks, ideas, skills, trades }
 
     var section: Section = .chat
     var brands: [Brand] = []
@@ -71,6 +72,7 @@ final class AppModel {
         paths = AppPaths.standard()
         db = try AppDatabase.open(at: paths.database)
         try db.failRunningRuns() // runs que quedaron "running" de una sesión anterior
+        try db.flagInterruptedSends() // órdenes que quedaron a medio enviar
         workspace = try db.ensureDefaultWorkspace()
         let key = try? credentials.get("\(workspace.id).\(CredentialStore.anthropicKey)")
         apiKeyPresent = CredentialStore.normalizedApiKey(key) != nil
@@ -88,7 +90,9 @@ final class AppModel {
             errorMessage = AgentLocator.notFoundMessage
         }
         Task { await listen() }
+        reloadProposals()
         Task { [weak self] in
+            await self?.client.setTradeKeys(KeychainTradeKeys())
             await self?.client.setScriptApprover { [weak self] request in await self?.askScriptApproval(request) ?? false }
         }
     }
@@ -343,6 +347,103 @@ final class AppModel {
         reloadSkills()
     }
 
+    // MARK: Trading
+
+    var proposals: [TradeProposal] = []
+    var pendingProposals: [TradeProposal] { proposals.filter { $0.status == .proposed } }
+    var hasTradingAgents: Bool { agents.contains { $0.trading } }
+    /// Propuesta que se está enviando o cerrando (para deshabilitar botones).
+    var busyProposalId: String?
+    private let tradeKeys = KeychainTradeKeys()
+
+    func reloadProposals() { proposals = (try? db.proposals()) ?? proposals }
+
+    func mandate(agentId: String) -> TradingMandate {
+        _ = proposals
+        return (try? db.mandate(agentId: agentId)) ?? .default(agentId: agentId)
+    }
+
+    @discardableResult
+    func saveMandate(_ mandate: TradingMandate) -> Bool {
+        let ok = perform { try db.saveMandate(mandate) }
+        reloadProposals()
+        return ok
+    }
+
+    func hasTradingKey(agentId: String, network: TradeNetwork) -> Bool {
+        _ = proposals
+        return tradeKeys.privateKey(agentId: agentId, network: network) != nil
+    }
+
+    @discardableResult
+    func saveTradingKey(agentId: String, network: TradeNetwork, key: String) -> Bool {
+        let ok = perform { try tradeKeys.save(agentId: agentId, network: network, privateKey: key) }
+        reloadProposals()
+        return ok
+    }
+
+    func removeTradingKey(agentId: String, network: TradeNetwork) {
+        perform { try tradeKeys.remove(agentId: agentId, network: network) }
+        reloadProposals()
+    }
+
+    func approveProposal(_ p: TradeProposal) { runTrade(p) { try await $0.approve(id: p.id) } }
+    func closeTrade(_ p: TradeProposal) { runTrade(p) { try await $0.close(id: p.id) } }
+
+    func rejectProposal(_ p: TradeProposal) {
+        perform { _ = try client.tradingService(db: db).reject(id: p.id) }
+        reloadProposals()
+    }
+
+    func pauseAllTrading() {
+        perform { try db.pauseAllTrading() }
+        reloadProposals()
+    }
+
+    /// Posiciones y órdenes abiertas en Hyperliquid (lectura bajo demanda).
+    func accountOverview(agentId: String) async -> (JSONValue?, String?) {
+        let m = mandate(agentId: agentId)
+        guard let address = m.address else { return (nil, "Conecta la wallet del agente para ver sus posiciones.") }
+        do { return (try await client.accountOverview(network: m.network, address: address), nil) }
+        catch { return (nil, error.localizedDescription) }
+    }
+
+    private func runTrade(_ p: TradeProposal, _ work: @escaping (TradingService) async throws -> TradeProposal) {
+        guard busyProposalId == nil else { return }
+        busyProposalId = p.id
+        Task {
+            defer { busyProposalId = nil }
+            do {
+                let done = try await work(await client.trading)
+                if done.status == .failed { errorMessage = done.error ?? "No se pudo enviar el trade." }
+            } catch let e as ValidationError {
+                errorMessage = e.message
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            reloadProposals()
+        }
+    }
+
+    private func notifyTrade(_ p: TradeProposal) {
+        let agentName = agent(id: p.agentId)?.name ?? "Un agente"
+        let title: String
+        switch p.status {
+        case .proposed: title = "\(agentName) propone un trade"
+        case .open where p.auto: title = "Trade automático ejecutado"
+        case .failed: title = "Falló un trade"
+        default: return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = "\(p.side == .long ? "Long" : "Short") \(p.coin) · \(Int(p.sizeUsd)) USD · \(p.leverage)x · SL \(p.stopLoss.formatted())\(p.network == .mainnet ? " · MAINNET" : "")"
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            center.add(UNNotificationRequest(identifier: p.id + p.status.rawValue, content: content, trigger: nil))
+        }
+    }
+
     // MARK: Aprobación de scripts
 
     /// Petición de script esperando al usuario (hoja modal); solo una a la vez.
@@ -590,6 +691,9 @@ final class AppModel {
                 finish(run)
             case .finished(let run) where isRunning && currentRunId == nil:
                 earlyFinished[run.id] = run
+            case .tradesChanged(let proposal):
+                reloadProposals()
+                notifyTrade(proposal)
             case .finished:
                 memoryVersion += 1 // p. ej. el resumen en segundo plano
             default:

@@ -52,3 +52,30 @@ describe("agent server with FakeRunner", () => {
     await expect(done).resolves.toMatchObject({ run_id: "r2", ok: false, error: "Cancelado" });
   });
 });
+
+import { FakeTrader } from "../src/trader.js";
+
+describe("trade.* RPC (app → sidecar)", () => {
+  function setupTrader() {
+    const appToAgent = new PassThrough();
+    const agentToApp = new PassThrough();
+    const app = new RpcPeer(agentToApp, appToAgent);
+    const agent = new RpcPeer(appToAgent, agentToApp);
+    startServer(agent, new FakeRunner((m, p) => agent.request(m, p)), new FakeTrader());
+    return app;
+  }
+
+  it("executes, snapshots and closes through the trader", async () => {
+    const app = setupTrader();
+    await expect(app.request("market.snapshot", { network: "testnet", coin: "BTC", address: "0x1" })).resolves.toEqual({ price: 60_000, account_value: 1_000 });
+    await expect(app.request("trade.execute", { network: "testnet", private_key: "k", coin: "BTC", side: "long", size_usd: 500, leverage: 3, entry_type: "market", stop_loss: 58_800 }))
+      .resolves.toMatchObject({ status: "open", filledSize: "0.00833" });
+    await expect(app.request("trade.close", { network: "testnet", private_key: "k", address: "0x1", coin: "BTC" })).resolves.toEqual({ closed: true, cancelled_orders: 2 });
+  });
+
+  it("errors from the exchange reach the app", async () => {
+    const app = setupTrader();
+    await expect(app.request("trade.execute", { network: "testnet", private_key: "k", coin: "FALLA", side: "long", size_usd: 500, leverage: 3, entry_type: "market", stop_loss: 1 }))
+      .rejects.toThrow("Hyperliquid no responde");
+  });
+});

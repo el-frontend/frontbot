@@ -156,6 +156,45 @@ public final class AppDatabase: Sendable {
                 t.primaryKey(["agentId", "skillId"])
             }
         }
+        m.registerMigration("v6-trading") { db in
+            try db.create(table: "tradingMandate") { t in
+                t.primaryKey("agentId", .text).references("agent", onDelete: .cascade)
+                t.column("network", .text).notNull()
+                t.column("mode", .text).notNull()
+                t.column("maxRiskPct", .double).notNull()
+                t.column("maxLeverage", .integer).notNull()
+                t.column("coins", .text).notNull()
+                t.column("maxTradesPerDay", .integer).notNull()
+                t.column("paused", .boolean).notNull()
+                t.column("address", .text)
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(table: "tradeProposal") { t in
+                t.primaryKey("id", .text)
+                t.column("agentId", .text).notNull().indexed().references("agent", onDelete: .cascade)
+                t.column("network", .text).notNull()
+                t.column("coin", .text).notNull()
+                t.column("side", .text).notNull()
+                t.column("sizeUsd", .double).notNull()
+                t.column("leverage", .integer).notNull()
+                t.column("entryType", .text).notNull()
+                t.column("entryPrice", .double)
+                t.column("stopLoss", .double).notNull()
+                t.column("takeProfit", .double)
+                t.column("rationale", .text).notNull()
+                t.column("riskUsd", .double).notNull()
+                t.column("referencePrice", .double).notNull()
+                t.column("status", .text).notNull()
+                t.column("auto", .boolean).notNull()
+                t.column("orderIds", .text).notNull()
+                t.column("filledSize", .text)
+                t.column("avgPrice", .text)
+                t.column("error", .text)
+                t.column("executedAt", .datetime)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+        }
         return m
     }
 

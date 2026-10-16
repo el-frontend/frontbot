@@ -1,0 +1,99 @@
+import { describe, it, expect } from "vitest";
+import { formatPrice, formatSize, buildBracket } from "../src/hyperliquid/format.js";
+import { executeBracket, type Exchange } from "../src/hyperliquid/execute.js";
+
+describe("format", () => {
+  it("prices: max 5 significant figures and 6 - szDecimals decimals; integers allowed", () => {
+    expect(formatPrice(60123.456, 5)).toBe("60123");
+    expect(formatPrice(123456.7, 5)).toBe("123457");
+    expect(formatPrice(3456.789, 4)).toBe("3456.8");
+    expect(formatPrice(1.234567, 2)).toBe("1.2346");
+    expect(formatPrice(0.000123456, 0)).toBe("0.000123");
+  });
+
+  it("sizes round down to szDecimals", () => {
+    expect(formatSize(0.0123456, 5)).toBe("0.01234");
+    expect(formatSize(2.999, 0)).toBe("2");
+  });
+});
+
+describe("buildBracket", () => {
+  const base = { asset: 0, szDecimals: 5, refPrice: 60_000, slippage: 0.03 };
+
+  it("market long: IOC entry with slippage plus reduce-only SL and TP triggers", () => {
+    const b = buildBracket({ ...base, side: "long", sizeUsd: 600, entryType: "market", stopLoss: 58_800, takeProfit: 63_000 });
+    expect(b.size).toBe("0.01");
+    const [entry, sl, tp] = b.orders;
+    expect(entry).toMatchObject({ a: 0, b: true, p: "61800", s: "0.01", r: false, t: { limit: { tif: "Ioc" } } });
+    expect(sl).toMatchObject({ b: false, r: true, s: "0.01", t: { trigger: { isMarket: true, triggerPx: "58800", tpsl: "sl" } } });
+    expect(tp).toMatchObject({ b: false, r: true, t: { trigger: { isMarket: true, triggerPx: "63000", tpsl: "tp" } } });
+    expect(b.grouping).toBe("normalTpsl");
+  });
+
+  it("limit short without take profit: GTC entry and only the stop", () => {
+    const b = buildBracket({ ...base, side: "short", sizeUsd: 600, entryType: "limit", entryPrice: 61_000, stopLoss: 62_000 });
+    expect(b.orders).toHaveLength(2);
+    expect(b.orders[0]).toMatchObject({ b: false, p: "61000", t: { limit: { tif: "Gtc" } } });
+    expect(b.orders[1]).toMatchObject({ b: true, r: true, t: { trigger: { tpsl: "sl", triggerPx: "62000" } } });
+  });
+
+  it("refuses orders below Hyperliquid's 10 USD minimum or without a stop", () => {
+    expect(() => buildBracket({ ...base, side: "long", sizeUsd: 5, entryType: "market", stopLoss: 59_000 })).toThrow(/10 USD/);
+    expect(() => buildBracket({ ...base, side: "long", sizeUsd: 600, entryType: "market", stopLoss: 0 })).toThrow(/stop loss/);
+  });
+});
+
+function fakeExchange(statuses: unknown[], opts: { throwOnOrder?: boolean } = {}) {
+  const calls: { method: string; args: unknown }[] = [];
+  const ex: Exchange = {
+    async updateLeverage(args) { calls.push({ method: "updateLeverage", args }); },
+    async order(args) {
+      calls.push({ method: "order", args });
+      if (args.grouping === "na") return { statuses: [{ filled: { totalSz: "0.01", avgPx: "58000", oid: 99 } }] }; // cierre de emergencia
+      if (opts.throwOnOrder) { const e = new Error("order 1: Invalid TP/SL price") as Error & { response?: unknown }; e.response = { response: { data: { statuses } } }; throw e; }
+      return { statuses };
+    },
+    async cancel(args) { calls.push({ method: "cancel", args }); },
+  };
+  return { ex, calls };
+}
+
+describe("executeBracket", () => {
+  const bracket = buildBracket({ asset: 0, szDecimals: 5, refPrice: 60_000, slippage: 0.03, side: "long", sizeUsd: 600, entryType: "market", stopLoss: 58_800, takeProfit: 63_000 });
+
+  it("sets isolated leverage, then sends entry + SL + TP", async () => {
+    const { ex, calls } = fakeExchange([{ filled: { totalSz: "0.01", avgPx: "60010", oid: 1 } }, "waitingForTrigger", "waitingForTrigger"]);
+    const r = await executeBracket(ex, bracket, 3);
+    expect(calls[0]).toEqual({ method: "updateLeverage", args: { asset: 0, isCross: false, leverage: 3 } });
+    expect(r).toMatchObject({ status: "open", filledSize: "0.01", avgPrice: "60010", orderIds: [1] });
+  });
+
+  it("if the entry fills but the stop is rejected, closes the position at market", async () => {
+    const { ex, calls } = fakeExchange([{ filled: { totalSz: "0.01", avgPx: "60010", oid: 1 } }, { error: "Invalid TP/SL price" }, "waitingForTrigger"], { throwOnOrder: true });
+    const r = await executeBracket(ex, bracket, 3);
+    expect(r.status).toBe("failed");
+    expect(r.error).toContain("cerrada a mercado");
+    const close = calls.find((c) => c.method === "order" && (c.args as { grouping: string }).grouping === "na");
+    expect(close?.args).toMatchObject({ orders: [{ b: false, r: true, s: "0.01", t: { limit: { tif: "Ioc" } } }] });
+  });
+
+  it("if a resting limit entry cannot get its stop, cancels the entry", async () => {
+    const limit = buildBracket({ asset: 0, szDecimals: 5, refPrice: 60_000, slippage: 0.03, side: "long", sizeUsd: 600, entryType: "limit", entryPrice: 59_500, stopLoss: 58_800 });
+    const { ex, calls } = fakeExchange([{ resting: { oid: 7 } }, { error: "bad" }], { throwOnOrder: true });
+    const r = await executeBracket(ex, limit, 3);
+    expect(r.status).toBe("failed");
+    expect(calls.find((c) => c.method === "cancel")?.args).toEqual({ cancels: [{ a: 0, o: 7 }] });
+  });
+
+  it("a rejected entry is a plain failure", async () => {
+    const { ex } = fakeExchange([{ error: "Insufficient margin" }, "waitingForFill", "waitingForFill"], { throwOnOrder: true });
+    const r = await executeBracket(ex, bracket, 3);
+    expect(r).toMatchObject({ status: "failed" });
+    expect(r.error).toContain("Insufficient margin");
+  });
+
+  it("a resting limit entry with its stop accepted is pending", async () => {
+    const { ex } = fakeExchange([{ resting: { oid: 7 } }, "waitingForFill", "waitingForFill"]);
+    expect((await executeBracket(ex, bracket, 3)).status).toBe("resting");
+  });
+});

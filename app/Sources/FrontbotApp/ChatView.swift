@@ -29,6 +29,9 @@ struct ChatView: View {
                         ForEach(model.messages) { message in
                             row(message).id(message.id)
                         }
+                        ForEach(model.pendingProposals.filter { $0.agentId == model.selectedAgentId }) { p in
+                            ProposalCard(model: model, proposal: p)
+                        }
                         if model.isRunning {
                             HStack(spacing: 8) { ProgressView().controlSize(.small); Text("pensando…").font(Theme.mono(12)).foregroundStyle(Theme.muted) }
                         }
