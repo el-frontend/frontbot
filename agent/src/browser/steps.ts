@@ -44,11 +44,16 @@ export async function runSteps(page: Page, steps: Step[], input: StepInput, opts
       if (step.optional) continue;
       throw new StepError(step.label);
     }
-    if (step.kind === "click") await loc.click();
-    if (step.kind === "upload") await loc.setInputFiles(input.media);
-    if (step.kind === "fill") {
-      await loc.click();
-      await page.keyboard.insertText(input.body);
+    try {
+      // Mismo límite que la búsqueda: sin él, Playwright espera 30 s (p. ej. si un aviso tapa el botón).
+      if (step.kind === "click") await loc.click({ timeout: timeoutMs });
+      if (step.kind === "upload") await loc.setInputFiles(input.media, { timeout: timeoutMs });
+      if (step.kind === "fill") {
+        await loc.click({ timeout: timeoutMs });
+        await page.keyboard.insertText(input.body);
+      }
+    } catch {
+      throw new StepError(step.label);
     }
   }
 }
