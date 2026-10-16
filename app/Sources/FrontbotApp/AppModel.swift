@@ -33,6 +33,9 @@ final class AppModel {
     var calendarNetwork: Network?
     var calendarBrandId: String?
     var preparingPostId: String?
+    var notchExpanded = false
+    var lastAgentReply: String?
+    var hotKeyRegistered = true
     var preparationMessage: String?
 
     private let db: AppDatabase
@@ -161,6 +164,12 @@ final class AppModel {
     func archive(_ post: Post) {
         perform { _ = try db.transitionPost(id: post.id, to: .archived, actor: .user) }
         reloadContent()
+    }
+
+    func showMainWindow(section: Section) {
+        self.section = section
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
     }
 
     func currentPost(_ id: String) -> Post? { posts.first { $0.id == id } }
@@ -319,7 +328,10 @@ final class AppModel {
         for await update in await client.updates() {
             switch update {
             case .event(let runId, let type, let text) where runId == currentRunId:
-                if type == "text" { messages.append(ChatMessage(role: .agent, text: text)) }
+                if type == "text" {
+                    messages.append(ChatMessage(role: .agent, text: text))
+                    lastAgentReply = text
+                }
                 if type == "tool_call" {
                     messages.append(ChatMessage(role: .tool, text: "→ \(text)"))
                     reloadContent()
