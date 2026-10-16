@@ -83,6 +83,14 @@ public enum Schedule: Codable, Equatable, Hashable, Sendable {
         }
     }
 
+    /// ¿Puede correr ahora? Solo los intervalos con horario restringen (p. ej. al recuperar lo atrasado de madrugada).
+    public func allows(_ date: Date, calendar: Calendar = .current) -> Bool {
+        guard case .interval(_, let window?) = self else { return true }
+        let c = calendar.dateComponents([.hour, .minute], from: date)
+        let minutes = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        return minutes >= window.start.minutes && minutes <= window.end.minutes
+    }
+
     public var summary: String {
         switch self {
         case .interval(let minutes, let window):

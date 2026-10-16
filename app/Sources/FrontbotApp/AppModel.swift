@@ -360,6 +360,10 @@ final class AppModel {
     /// Eventos de runs que aún no están registrados (llegan antes de que `run()` devuelva el id).
     private var orphanUpdates: [String: [AgentUpdate]] = [:]
     private var schedulerTimer: Timer?
+    /// Tareas que están arrancando (entre startTaskRun y que el run tenga id): evita dobles ejecuciones.
+    private var startingTaskIds: Set<String> = []
+    /// Una ejecución programada que no termina en este plazo se cancela.
+    static let scheduledRunDeadline: Duration = .seconds(15 * 60)
     let notifications = NotificationRouter()
 
     func reloadTasks() { scheduledTasks = (try? db.tasks()) ?? scheduledTasks }
@@ -371,7 +375,15 @@ final class AppModel {
         return (try? db.taskRuns(taskId: task.id)) ?? []
     }
 
-    func isTaskRunning(_ task: ScheduledTask) -> Bool { scheduledRuns.values.contains { $0.task.id == task.id } }
+    func isTaskRunning(_ task: ScheduledTask) -> Bool {
+        startingTaskIds.contains(task.id) || scheduledRuns.values.contains { $0.task.id == task.id }
+            || ((try? db.hasRunningRun(taskId: task.id)) ?? false)
+    }
+
+    func cancelTaskRun(_ task: ScheduledTask) {
+        guard let runId = scheduledRuns.first(where: { $0.value.task.id == task.id })?.key else { return }
+        Task { await client.cancel(runId: runId) }
+    }
 
     /// La próxima ejecución entre todas las tareas activas (para el notch).
     var nextScheduled: (task: ScheduledTask, agent: Agent)? {
@@ -426,20 +438,33 @@ final class AppModel {
 
     func tickScheduler() {
         guard let due = try? db.dueTasks() else { return }
-        for task in due where !isTaskRunning(task) { start(task) }
+        let now = Date()
+        for task in due where !isTaskRunning(task) {
+            // Lo atrasado fuera de horario (p. ej. al despertar de madrugada) no corre: se mueve a la próxima ventana.
+            guard task.schedule.allows(now) else { try? db.skipTask(id: task.id, now: now); continue }
+            start(task)
+        }
+        reloadTasks()
     }
 
     private func start(_ task: ScheduledTask) {
-        guard let agent = agent(id: task.agentId), agent.status == .active else { return }
+        guard let agent = agent(id: task.agentId), agent.status == .active, !isTaskRunning(task) else { return }
         let taskRun: TaskRun
         do { taskRun = try db.startTaskRun(taskId: task.id) } catch { return }
+        startingTaskIds.insert(task.id)
         reloadTasks()
         Task {
+            defer { startingTaskIds.remove(task.id) }
             do {
                 let run = try await client.run(prompt: task.instruction, agent: agent, brand: nil, model: task.model, task: task)
                 try? db.attachAgentRun(taskRunId: taskRun.id, agentRunId: run.id)
                 scheduledRuns[run.id] = ScheduledRunLog(taskRunId: taskRun.id, task: task, startedAt: taskRun.startedAt)
                 for update in orphanUpdates.removeValue(forKey: run.id) ?? [] { handleScheduled(update) }
+                Task { [weak self] in
+                    try? await Task.sleep(for: Self.scheduledRunDeadline)
+                    guard let self, self.scheduledRuns[run.id] != nil else { return }
+                    await self.client.cancel(runId: run.id) // nadie mira: un run colgado no puede bloquear la tarea
+                }
             } catch {
                 try? db.finishTaskRun(id: taskRun.id, status: .failed, summary: error.localizedDescription, notified: false,
                                       conversationId: nil, costUsd: 0)
@@ -470,6 +495,11 @@ final class AppModel {
             } else if run.status == .failed {
                 deliverNotification(title: "Falló «\(log.task.name)»", body: run.resultSummary ?? "Error", conversationId: result?.conversationId)
             }
+            memoryVersion += 1
+            brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
+            reloadAgents()
+            reloadSkills()
+            reloadContent()
             reloadTasks()
             reloadConversations()
             return true
@@ -852,6 +882,7 @@ final class AppModel {
         brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
         reloadAgents()
         reloadSkills()
+        reloadTasks() // p. ej. una tarea que el agente dejó en borrador desde el chat
         reloadContent()
     }
 

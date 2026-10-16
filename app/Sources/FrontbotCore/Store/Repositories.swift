@@ -564,6 +564,20 @@ extension AppDatabase {
         }
     }
 
+    /// Salta esta ejecución (fuera de horario): solo mueve la próxima.
+    public func skipTask(id: String, now: Date = Date()) throws {
+        try writer.write { db in
+            guard var t = try ScheduledTask.fetchOne(db, key: id) else { return }
+            t.nextRunAt = t.schedule.next(after: now)
+            t.updatedAt = .dbNow()
+            try t.update(db)
+        }
+    }
+
+    public func hasRunningRun(taskId: String) throws -> Bool {
+        try writer.read { try TaskRun.filter(Column("taskId") == taskId && Column("status") == "running").fetchCount($0) > 0 }
+    }
+
     public func attachAgentRun(taskRunId: String, agentRunId: String) throws {
         try writer.write { try $0.execute(sql: "UPDATE taskRun SET agentRunId = ? WHERE id = ?", arguments: [agentRunId, taskRunId]) }
     }
