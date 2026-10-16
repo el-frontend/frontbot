@@ -1,9 +1,10 @@
 import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, ALLOWED_TOOLS, type AppCall } from "./tools.js";
+import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
 import { buildSystemPrompt, buildUserPrompt, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
-export type RunParams = { run_id: string; prompt: string; model: string; brand?: Brand; history?: HistoryTurn[] };
+export type RunParams = { run_id: string; prompt: string; model: string; brand?: Brand; history?: HistoryTurn[]; browser?: boolean };
 export type RunEvent = { run_id: string; type: "text" | "tool_call" | "status"; text: string };
 export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number; error?: string };
 
@@ -13,13 +14,32 @@ export interface Runner {
 
 const cancelled = (run_id: string): RunDone => ({ run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0, error: "Cancelado" });
 
-/** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude. */
+/** Hooks que pasan cada herramienta del navegador por el guardián (no publicar en redes). */
+function browserHooks(guard: BrowserGuard): Options["hooks"] {
+  return {
+    PreToolUse: [{ hooks: [async (input) => {
+      if (input.hook_event_name !== "PreToolUse") return {};
+      const decision = guard.beforeTool(input.tool_name, input.tool_input);
+      if (decision.allow) return {};
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: decision.reason } };
+    }] }],
+    PostToolUse: [{ hooks: [async (input) => {
+      if (input.hook_event_name === "PostToolUse") guard.afterTool(input.tool_name, input.tool_response);
+      return {};
+    }] }],
+  };
+}
+
+/** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude.
+ *  Con `browser`, añade el Chrome del usuario (Claude in Chrome) detrás del guardián. */
 export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string): Options {
+  const browser = params.browser === true;
   return {
     model: params.model,
-    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand }),
+    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser }),
     tools: ["WebSearch", "WebFetch"],
-    allowedTools: ALLOWED_TOOLS,
+    allowedTools: browser ? [...ALLOWED_TOOLS, ...BROWSER_ALLOWED_TOOLS] : ALLOWED_TOOLS,
+    ...(browser ? { extraArgs: { chrome: null }, hooks: browserHooks(new BrowserGuard()) } : {}),
     mcpServers: { frontbot: server },
     strictMcpConfig: true,
     settingSources: [],
@@ -46,7 +66,7 @@ export class RealRunner implements Runner {
         if (msg.type === "assistant") {
           for (const block of msg.message.content) {
             if (block.type === "text") emit({ run_id: params.run_id, type: "text", text: block.text });
-            if (block.type === "tool_use") emit({ run_id: params.run_id, type: "tool_call", text: block.name.replace("mcp__frontbot__", "") });
+            if (block.type === "tool_use") emit({ run_id: params.run_id, type: "tool_call", text: block.name.replace("mcp__frontbot__", "").replace("mcp__claude-in-chrome__", "chrome · ") });
           }
         } else if (msg.type === "result") {
           const usage = msg.usage as { input_tokens?: number; output_tokens?: number };
@@ -74,6 +94,7 @@ export class FakeRunner implements Runner {
     const { brands } = (await this.call("tool.brands_list", {})) as { brands: unknown[] };
     const summary = `Tienes ${brands.length} marca(s).`;
     emit({ run_id: params.run_id, type: "text", text: summary });
+    if (params.browser) emit({ run_id: params.run_id, type: "text", text: "Navegador: activado" });
     if (params.history?.length) emit({ run_id: params.run_id, type: "text", text: `Historial: ${params.history.length}` });
     if (params.prompt.includes("crear post") && params.brand) {
       await this.call("tool.posts_create_draft", { brand_id: params.brand.id, network: "instagram", body: "Post de prueba" });
