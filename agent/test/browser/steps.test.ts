@@ -26,6 +26,12 @@ describe.skipIf(!hasChrome)("runSteps", () => {
     expect(await page.evaluate(() => document.body.dataset.done)).toBe("b");
   });
 
+  it("picks the visible element when a selector matches a hidden one first", async () => {
+    const page = await pageWith(`<button class="n" style="display:none">Siguiente</button><button class="n" onclick="document.body.dataset.done='2'">Siguiente</button>`);
+    await runSteps(page, [{ kind: "click", label: "Siguiente", candidates: [".n"] }], { body: "", media: [] }, fast);
+    expect(await page.evaluate(() => document.body.dataset.done)).toBe("2");
+  });
+
   it("fills a contenteditable with unicode", async () => {
     const page = await pageWith(`<div id="t" role="textbox" contenteditable="true"></div>`);
     await runSteps(page, [{ kind: "fill", label: "texto", candidates: ["#t"] }], { body: "Lunes de café ☕️ #cafe", media: [] }, fast);

@@ -20,10 +20,12 @@ async function find(page: Page, step: Step, timeoutMs: number): Promise<Locator 
   const deadline = Date.now() + timeoutMs;
   do {
     for (const selector of step.candidates) {
-      const loc = page.locator(selector).first();
-      const ok = step.kind === "upload"
-        ? (await loc.count().catch(() => 0)) > 0
-        : await loc.isVisible().catch(() => false);
+      // click/fill: solo elementos visibles (las redes dejan botones duplicados ocultos en el DOM).
+      // upload: los input[type=file] suelen estar ocultos, basta con que existan.
+      const loc = step.kind === "upload"
+        ? page.locator(selector).first()
+        : page.locator(selector).filter({ visible: true }).first();
+      const ok = (await loc.count().catch(() => 0)) > 0;
       if (ok) return loc;
     }
     await page.waitForTimeout(200);
