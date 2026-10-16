@@ -7,8 +7,10 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            SecureField("API key de Anthropic", text: $key)
-            Text(model.apiKeyPresent ? "Hay una key guardada en el Keychain." : "No hay key guardada.")
+            SecureField("API key de Anthropic (opcional)", text: $key)
+            Text(model.apiKeyPresent
+                 ? "Frontbot usa esta API key (se cobra por uso en tu cuenta de Anthropic)."
+                 : "Sin API key, Frontbot usa tu sesión de Claude Code en este Mac. La key es opcional.")
                 .font(.caption).foregroundStyle(.secondary)
             Button("Guardar") {
                 saved = model.saveApiKey(key)

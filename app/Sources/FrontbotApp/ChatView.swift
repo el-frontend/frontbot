@@ -7,10 +7,6 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !model.apiKeyPresent && ProcessInfo.processInfo.environment["FRONTBOT_FAKE_AGENT"] != "1" {
-                Text("Configura tu API key de Anthropic en Ajustes (⌘,).")
-                    .frame(maxWidth: .infinity).padding(8).background(.yellow.opacity(0.2))
-            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(model.messages) { message in

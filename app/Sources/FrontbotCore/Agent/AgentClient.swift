@@ -22,7 +22,6 @@ public enum AgentUpdate: Sendable, Equatable {
 }
 
 public enum AgentClientError: Error, Equatable, LocalizedError {
-    case missingApiKey
     case restartLimit
     case launchFailed(String)
     case remote(String)
@@ -30,7 +29,6 @@ public enum AgentClientError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .missingApiKey: "Configura tu API key de Anthropic en Ajustes."
         case .restartLimit: "El agente se reinició demasiadas veces. Revisa los logs y vuelve a intentar en un minuto."
         case .launchFailed(let why): "No se pudo iniciar el agente: \(why)"
         case .remote(let why): why
@@ -88,9 +86,6 @@ public actor AgentClient {
     }
 
     public func run(prompt: String, brand: Brand?, history: [ChatTurn] = []) async throws -> AgentRun {
-        if !config.fakeAgent, CredentialStore.normalizedApiKey(config.apiKey) == nil {
-            throw AgentClientError.missingApiKey
-        }
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
@@ -168,6 +163,16 @@ public actor AgentClient {
 
     // MARK: Proceso
 
+    /// Entorno mínimo del sidecar. Con API key, el SDK la usa; sin ella, usa la sesión de Claude Code
+    /// del usuario en este Mac (uso personal). Nunca se hereda una key de la shell.
+    static func sidecarEnvironment(config: AgentConfig, inherited: [String: String]) -> [String: String] {
+        var env = inherited.filter { ["PATH", "HOME", "TMPDIR", "USER"].contains($0.key) }
+        env["CLAUDE_AGENT_SDK_CLIENT_APP"] = "frontbot/0.1.0"
+        if let key = CredentialStore.normalizedApiKey(config.apiKey) { env["ANTHROPIC_API_KEY"] = key }
+        if config.fakeAgent { env["FRONTBOT_FAKE_AGENT"] = "1" }
+        return env
+    }
+
     private func takeId() -> Int { defer { nextId += 1 }; return nextId }
 
     private func ensureProcess() throws {
@@ -186,11 +191,7 @@ public actor AgentClient {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: config.nodePath)
         p.arguments = [config.scriptPath]
-        var env = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "USER"].contains($0.key) }
-        env["CLAUDE_AGENT_SDK_CLIENT_APP"] = "frontbot/0.1.0"
-        if let key = CredentialStore.normalizedApiKey(config.apiKey) { env["ANTHROPIC_API_KEY"] = key }
-        if config.fakeAgent { env["FRONTBOT_FAKE_AGENT"] = "1" }
-        p.environment = env
+        p.environment = Self.sidecarEnvironment(config: config, inherited: ProcessInfo.processInfo.environment)
 
         let inPipe = Pipe(), outPipe = Pipe()
         p.standardInput = inPipe
