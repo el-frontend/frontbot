@@ -2,7 +2,7 @@
 import { HttpTransport, InfoClient, ExchangeClient } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
 import { buildBracket, formatPrice, formatSize } from "./format.js";
-import { executeBracket, type Exchange, type ExecuteResult, type OrderStatus } from "./execute.js";
+import { executeBracket, closeFully, type Exchange, type ExecuteResult, type OrderStatus } from "./execute.js";
 
 export type Network = "testnet" | "mainnet";
 const INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w", "1M"] as const;
@@ -82,7 +82,7 @@ function exchangeFor(network: Network, privateKey: string): Exchange {
 }
 
 export type ExecuteParams = {
-  network: Network; private_key: string; coin: string; side: "long" | "short"; size_usd: number; leverage: number;
+  network: Network; private_key: string; address?: string; coin: string; side: "long" | "short"; size_usd: number; leverage: number;
   entry_type: "market" | "limit"; entry_price?: number; stop_loss: number; take_profit?: number;
 };
 
@@ -90,30 +90,35 @@ export type ExecuteParams = {
 export async function executeTrade(p: ExecuteParams): Promise<ExecuteResult & { size: string; reference_price: number }> {
   const [{ asset, szDecimals, maxLeverage }, refPrice] = await Promise.all([assetOf(p.network, p.coin), marketPrice(p.network, p.coin)]);
   if (p.leverage > maxLeverage) throw new Error(`${p.coin} admite como máximo ${maxLeverage}x en Hyperliquid.`);
-  const bracket = buildBracket({ asset, szDecimals, refPrice, slippage: 0.03, side: p.side, sizeUsd: p.size_usd, entryType: p.entry_type,
+  const bracket = buildBracket({ asset, szDecimals, refPrice, side: p.side, sizeUsd: p.size_usd, entryType: p.entry_type,
     entryPrice: p.entry_price, stopLoss: p.stop_loss, takeProfit: p.take_profit });
-  const result = await executeBracket(exchangeFor(p.network, p.private_key), bracket, p.leverage);
+  const stopExists = p.address
+    ? async () => (await openOrders(p.network, p.address!)).some((o) => o.coin === p.coin.toUpperCase() && o.reduce_only && o.trigger_price !== null)
+    : undefined;
+  const result = await executeBracket(exchangeFor(p.network, p.private_key), bracket, p.leverage, stopExists);
   return { ...result, size: bracket.size, reference_price: refPrice };
 }
 
-/** Cierra la posición de `coin` a mercado (solo reducir) y cancela sus órdenes pendientes (stop / take profit). */
+/** Cierra la posición de `coin` a mercado (solo reducir) hasta quedar en cero; luego cancela su stop / take profit. */
 export async function closePosition(p: { network: Network; private_key: string; address: string; coin: string }) {
   const coin = p.coin.toUpperCase();
-  const [{ asset, szDecimals }, state, refPrice, orders] = await Promise.all([
-    assetOf(p.network, coin), accountState(p.network, p.address), marketPrice(p.network, coin), openOrders(p.network, p.address),
-  ]);
+  const { asset, szDecimals } = await assetOf(p.network, coin);
   const ex = exchangeFor(p.network, p.private_key);
-  const position = state.positions.find((x) => x.coin === coin && x.size !== 0);
-  let closed = false;
-  if (position) {
-    const isBuy = position.size < 0; // un short se cierra comprando
-    await ex.order({
-      orders: [{ a: asset, b: isBuy, p: formatPrice(refPrice * (isBuy ? 1.05 : 0.95), szDecimals), s: formatSize(Math.abs(position.size), szDecimals), r: true, t: { limit: { tif: "Ioc" } } }],
-      grouping: "na",
-    });
-    closed = true;
-  }
-  const mine = orders.filter((o) => o.coin === coin);
-  if (mine.length) await ex.cancel({ cancels: mine.map((o) => ({ a: asset, o: o.oid })) });
-  return { closed, cancelled_orders: mine.length };
+  const signed = async () => (await accountState(p.network, p.address)).positions.find((x) => x.coin === coin)?.size ?? 0;
+  const result = await closeFully({
+    position: signed,
+    closeIoc: async (size) => {
+      const isBuy = (await signed()) < 0; // un short se cierra comprando
+      const ref = await marketPrice(p.network, coin);
+      await ex.order({
+        orders: [{ a: asset, b: isBuy, p: formatPrice(ref * (isBuy ? 1.05 : 0.95), szDecimals), s: formatSize(size, szDecimals), r: true, t: { limit: { tif: "Ioc" } } }],
+        grouping: "na",
+      }).catch(() => undefined); // se vuelve a medir la posición en el siguiente intento
+    },
+    cancelOrders: async () => {
+      const mine = (await openOrders(p.network, p.address)).filter((o) => o.coin === coin);
+      if (mine.length) await ex.cancel({ cancels: mine.map((o) => ({ a: asset, o: o.oid })) });
+    },
+  });
+  return result;
 }

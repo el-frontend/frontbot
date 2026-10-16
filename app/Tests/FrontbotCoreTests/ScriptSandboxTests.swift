@@ -55,6 +55,42 @@ final class ScriptSandboxTests: XCTestCase {
         XCTAssertEqual(result.stdout.components(separatedBy: "\n").filter { !$0.isEmpty }, ["home bloqueado", "write bloqueado", "net bloqueado"], result.stderr)
     }
 
+    func testCannotReadTheClipboardOrSendAppleEvents() throws {
+        // Solo binarios que, si no estuvieran bloqueados, no abren nada (no se prueba `open` para no lanzar el navegador).
+        try script("scripts/escape.sh", """
+        /usr/bin/pbpaste >/dev/null 2>&1 && echo "pbpaste PERMITIDO" || echo "pbpaste bloqueado"
+        /usr/bin/osascript -e 'return 1' >/dev/null 2>&1 && echo "osascript PERMITIDO" || echo "osascript bloqueado"
+        cp /usr/bin/pbpaste "$TMPDIR/p" && "$TMPDIR/p" >/dev/null 2>&1 && echo "copia pbpaste PERMITIDO" || echo "copia pbpaste bloqueado"
+        cp /usr/bin/osascript "$TMPDIR/o" && "$TMPDIR/o" -e 'return 1' >/dev/null 2>&1 && echo "copia osascript PERMITIDO" || echo "copia osascript bloqueado"
+        """)
+        let result = try ScriptSandbox().run(script: "scripts/escape.sh", args: [], in: skillDir)
+        XCTAssertEqual(result.stdout.components(separatedBy: "\n").filter { !$0.isEmpty }, ["pbpaste bloqueado", "osascript bloqueado", "copia pbpaste bloqueado", "copia osascript bloqueado"], result.stderr)
+    }
+
+    func testBackgroundChildrenCannotHangTheRun() throws {
+        try script("scripts/fork.sh", "(sleep 30 &)\necho listo")
+        let start = Date()
+        let result = try ScriptSandbox(timeout: 3).run(script: "scripts/fork.sh", args: [], in: skillDir)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 8)
+        XCTAssertTrue(result.stdout.contains("listo"))
+    }
+
+    func testTimeoutKillsTheWholeProcessGroup() throws {
+        try script("scripts/hijos.sh", "sleep 40 &\nsleep 40")
+        let start = Date()
+        let result = try ScriptSandbox(timeout: 1).run(script: "scripts/hijos.sh", args: [], in: skillDir)
+        XCTAssertTrue(result.timedOut)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 6)
+    }
+
+    func testRunsJavaScriptWithTheBundledNode() throws {
+        let node = ProcessInfo.processInfo.environment["FRONTBOT_NODE"] ?? "/opt/homebrew/bin/node"
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: node), "sin node")
+        try script("scripts/hola.js", "console.log('hola desde node')")
+        let result = try ScriptSandbox(nodePath: node).run(script: "scripts/hola.js", args: [], in: skillDir)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "hola desde node", result.stderr)
+    }
+
     func testTimesOutAndTruncatesOutput() throws {
         try script("scripts/lento.sh", "sleep 10")
         let slow = try ScriptSandbox(timeout: 1).run(script: "scripts/lento.sh", args: [], in: skillDir)

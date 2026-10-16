@@ -60,7 +60,7 @@ public struct ScriptSandbox: Sendable {
         return String(cString: resolved)
     }
 
-    static func profile(skillDir: String, tmpDir: String, home: String) -> String {
+    static func profile(skillDir: String, tmpDir: String, home: String, interpreterDir: String = "/usr/bin") -> String {
         func q(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
         return """
         (version 1)
@@ -68,10 +68,24 @@ public struct ScriptSandbox: Sendable {
         (allow process-exec process-fork signal sysctl-read mach-lookup ipc-posix-shm)
         (allow file-read*)
         (deny file-read* (subpath \(q(home))))
-        (allow file-read* (subpath \(q(skillDir))) (subpath \(q(tmpDir))))
+        (allow file-read* (subpath \(q(skillDir))) (subpath \(q(tmpDir))) (subpath \(q(interpreterDir))))
         (allow file-read-metadata)
         (allow file-write* (subpath \(q(skillDir))) (subpath \(q(tmpDir))) (literal "/dev/null"))
         (deny network*)
+        (deny appleevent-send)
+        (deny mach-lookup
+          (global-name-prefix "com.apple.pasteboard")
+          (global-name-prefix "com.apple.coreservices.launchservicesd")
+          (global-name-prefix "com.apple.lsd")
+          (global-name "com.apple.coreservices.quarantine-resolver")
+          (global-name "com.apple.SecurityServer")
+          (global-name-prefix "com.apple.securityd")
+          (global-name-prefix "com.apple.tccd")
+          (global-name-prefix "com.apple.windowserver")
+          (global-name "com.apple.dock.server"))
+        (deny process-exec
+          (literal "/usr/bin/open") (literal "/usr/bin/osascript") (literal "/usr/bin/pbpaste") (literal "/usr/bin/pbcopy")
+          (literal "/usr/bin/screencapture") (literal "/usr/bin/security") (literal "/usr/bin/sudo"))
         """
     }
 
@@ -83,9 +97,13 @@ public struct ScriptSandbox: Sendable {
         let real = Self.realPath
         let home = URL(fileURLWithPath: NSHomeDirectory())
 
+        // perl crea un grupo de procesos propio para poder matar también a los hijos que el script deje en segundo plano.
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
-        p.arguments = ["-p", Self.profile(skillDir: real(skillDir), tmpDir: real(tmp), home: real(home)), interpreter, url.path] + args
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        p.arguments = ["-e", "setpgrp(0, 0); exec @ARGV or die $!", "/usr/bin/sandbox-exec",
+                       "-p", Self.profile(skillDir: real(skillDir), tmpDir: real(tmp), home: real(home),
+                                          interpreterDir: real(URL(fileURLWithPath: interpreter).deletingLastPathComponent())),
+                       interpreter, url.path] + args
         p.currentDirectoryURL = url.deletingLastPathComponent()
         p.environment = ["PATH": "/usr/bin:/bin", "HOME": real(tmp), "TMPDIR": real(tmp), "LANG": "en_US.UTF-8"]
         let out = Pipe(), err = Pipe()
@@ -93,23 +111,37 @@ public struct ScriptSandbox: Sendable {
         p.standardError = err
         p.standardInput = FileHandle.nullDevice
 
-        // Leer en paralelo: una salida grande llenaría el pipe y bloquearía el proceso.
-        let group = DispatchGroup()
-        nonisolated(unsafe) var outData = Data(), errData = Data()
-        group.enter(); DispatchQueue.global().async { outData = out.fileHandleForReading.readDataToEndOfFile(); group.leave() }
-        group.enter(); DispatchQueue.global().async { errData = err.fileHandleForReading.readDataToEndOfFile(); group.leave() }
-
-        try p.run()
+        // Lectura incremental: un hijo que herede el pipe no puede bloquear la espera de EOF.
+        let outBuffer = OutputBuffer(), errBuffer = OutputBuffer()
+        out.fileHandleForReading.readabilityHandler = { outBuffer.append($0.availableData) }
+        err.fileHandleForReading.readabilityHandler = { errBuffer.append($0.availableData) }
         let finished = DispatchSemaphore(value: 0)
         p.terminationHandler = { _ in finished.signal() }
+
+        try p.run()
+        let group = p.processIdentifier
         let timedOut = finished.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
-            p.terminate()
-            if finished.wait(timeout: .now() + 2) == .timedOut { kill(p.processIdentifier, SIGKILL); p.waitUntilExit() }
+            killpg(group, SIGTERM)
+            if finished.wait(timeout: .now() + 1) == .timedOut { killpg(group, SIGKILL); _ = finished.wait(timeout: .now() + 2) }
         }
-        group.wait()
-        return Result(stdout: Self.truncated(outData), stderr: Self.truncated(errData),
-                      exitCode: p.terminationStatus, timedOut: timedOut)
+        killpg(group, SIGKILL) // nada del script sigue vivo después de devolver el resultado
+        Thread.sleep(forTimeInterval: 0.05)
+        out.fileHandleForReading.readabilityHandler = nil
+        err.fileHandleForReading.readabilityHandler = nil
+        return Result(stdout: Self.truncated(outBuffer.data), stderr: Self.truncated(errBuffer.data),
+                      exitCode: p.isRunning ? -1 : p.terminationStatus, timedOut: timedOut)
+    }
+
+    /// Acumula la salida con un tope (lo que pase de 4× el límite se descarta).
+    final class OutputBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = Data()
+        func append(_ chunk: Data) {
+            lock.lock(); defer { lock.unlock() }
+            if storage.count < ScriptSandbox.outputLimit * 4 { storage.append(chunk) }
+        }
+        var data: Data { lock.lock(); defer { lock.unlock() }; return storage }
     }
 
     static func truncated(_ data: Data) -> String {

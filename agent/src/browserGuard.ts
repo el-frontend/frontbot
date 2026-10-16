@@ -10,7 +10,9 @@ const SOCIAL_HOSTS = [
   "threads.net", "threads.com", "youtube.com", "pinterest.com", "reddit.com", "bsky.app",
   "metricool.com", "buffer.com", "hootsuite.com", "later.com",
   // Exchanges y wallets: los trades solo van por la API, con aprobación o mandato.
-  "hyperliquid.xyz", "binance.com", "bybit.com", "coinbase.com", "okx.com", "kraken.com", "phantom.app", "phantom.com", "metamask.io",
+  "hyperliquid.xyz", "hyperliquid-testnet.xyz", "binance.com", "bybit.com", "coinbase.com", "okx.com", "kraken.com", "bitget.com",
+  "kucoin.com", "gate.io", "gate.com", "mexc.com", "htx.com", "bitfinex.com", "deribit.com", "dydx.trade", "gmx.io", "jup.ag",
+  "uniswap.org", "phantom.app", "phantom.com", "metamask.io", "rabby.io",
 ];
 const SOCIAL_RE = new RegExp(
   `(?<![a-z0-9-])(?:[a-z0-9-]+\\.)*(?:${SOCIAL_HOSTS.map((h) => h.replace(/\./g, "\\.")).join("|")})(?![a-z0-9-])`, "i");

@@ -301,6 +301,8 @@ extension AppDatabase {
         try writer.write { db in
             guard let agent = try Agent.fetchOne(db, key: id) else { return }
             if agent.isDefault { throw ValidationError("Frontbot no se puede borrar.") }
+            let live = try TradeProposal.filter(Column("agentId") == id && ["open", "sending"].contains(Column("status"))).fetchCount(db)
+            if live > 0 { throw ValidationError("\(agent.name) tiene trades abiertos: ciérralos antes de borrarlo.") }
             try agent.delete(db)
         }
     }
@@ -410,6 +412,42 @@ extension AppDatabase {
             var request = TradeProposal.order(Column("createdAt").desc)
             if let agentId { request = request.filter(Column("agentId") == agentId) }
             return try request.limit(limit).fetchAll(db)
+        }
+    }
+
+    /// proposed → sending de forma atómica (marca executedAt para contarlo en el día). nil si ya no estaba pendiente.
+    public func claimProposal(id: String) throws -> TradeProposal? {
+        try writer.write { db in
+            guard var p = try TradeProposal.fetchOne(db, key: id), p.status == .proposed else { return nil }
+            p.status = .sending
+            p.executedAt = .dbNow()
+            p.updatedAt = .dbNow()
+            try p.update(db)
+            return p
+        }
+    }
+
+    /// sending → proposed si el envío no llegó a salir (falló una validación previa).
+    @discardableResult
+    public func releaseProposal(id: String) throws -> TradeProposal? {
+        try writer.write { db in
+            guard var p = try TradeProposal.fetchOne(db, key: id), p.status == .sending else { return nil }
+            p.status = .proposed
+            p.executedAt = nil
+            p.updatedAt = .dbNow()
+            try p.update(db)
+            return p
+        }
+    }
+
+    /// Cambio de estado atómico (p. ej. rechazar solo si sigue pendiente).
+    public func transitionProposal(id: String, from: TradeStatus, to: TradeStatus) throws -> TradeProposal? {
+        try writer.write { db in
+            guard var p = try TradeProposal.fetchOne(db, key: id), p.status == from else { return nil }
+            p.status = to
+            p.updatedAt = .dbNow()
+            try p.update(db)
+            return p
         }
     }
 

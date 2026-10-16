@@ -74,6 +74,15 @@ describe("buildQueryOptions with skills", () => {
     expect(await decide("/etc/passwd")).toBe("deny");
   });
 
+  it("never lets skills run inline shell commands", () => {
+    const a = skillDir("x");
+    const plugin = prepareSkillPlugin([{ name: "x", dir: a }]);
+    made.push(plugin.cleanup);
+    const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [] });
+    const opts = buildQueryOptions({ run_id: "r", prompt: "p", model: "m", skills: [{ name: "x", dir: a }] }, server, new AbortController(), "2026-10-16", plugin);
+    expect(opts.settings).toMatchObject({ disableSkillShellExecution: true });
+  });
+
   it("without skills there is no plugin, Skill or Read", () => {
     const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [] });
     const opts = buildQueryOptions({ run_id: "r", prompt: "p", model: "m" }, server, new AbortController(), "2026-10-16");

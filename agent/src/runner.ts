@@ -85,7 +85,11 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
       ...(params.trading && !summarize ? TRADING_TOOL_NAMES.map((t) => `mcp__frontbot__${t}`) : [])],
     ...(browser ? { extraArgs: { chrome: null } } : {}),
     ...(hooks ? { hooks } : {}),
-    ...(skills ? { plugins: [{ type: "local" as const, path: skills.path }], skills: skills.skillNames } : {}),
+    ...(skills ? {
+      plugins: [{ type: "local" as const, path: skills.path }], skills: skills.skillNames,
+      // Un skill de terceros no puede ejecutar comandos incrustados (`!cmd`): solo la sandbox con aprobación.
+      settings: { disableSkillShellExecution: true },
+    } : {}),
     mcpServers: { frontbot: server },
     strictMcpConfig: true,
     settingSources: [],
@@ -153,7 +157,7 @@ export class FakeRunner implements Runner {
     emit({ run_id: params.run_id, type: "text", text: summary });
     if (params.prompt === "proponer trade") {
       const r = await this.call("tool.trade_propose", {
-        agent_id: params.agent?.id, coin: "BTC", side: "long", size_usd: 500, leverage: 3, entry_type: "market",
+        agent_id: params.agent?.id, coin: "BTC", side: "long", size_usd: 450, leverage: 3, entry_type: "market",
         stop_loss: 58_800, take_profit: 63_000, rationale: "Prueba", snapshot: { price: 60_000, account_value: 1_000, network: "testnet" },
       }) as { status: string };
       emit({ run_id: params.run_id, type: "text", text: `Propuesta: ${r.status}` });

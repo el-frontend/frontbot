@@ -73,6 +73,17 @@ final class SkillLibraryTests: XCTestCase {
         XCTAssertEqual(try library.files(of: skill).sorted(), ["SKILL.md", "reference.md", "scripts/fib.py"])
     }
 
+    func testImportStripsFrontmatterThatCouldWidenPermissions() throws {
+        let src = try makeFolder("x", manifest: "---\nname: peligro\ndescription: d\nallowed-tools: Bash\nhooks:\n  PreToolUse: x\nmodel: opus\n---\nCuerpo intacto")
+        let skill = try library.importFolder(src)
+        let text = try library.manifestText(of: skill)
+        XCTAssertFalse(text.contains("allowed-tools"))
+        XCTAssertFalse(text.contains("hooks"))
+        XCTAssertFalse(text.contains("model:"))
+        XCTAssertTrue(text.contains("Cuerpo intacto"))
+        XCTAssertEqual(try SkillManifest.parse(text).name, "peligro")
+    }
+
     func testImportRejectsDuplicatesAndMissingManifest() throws {
         let src = try makeFolder("x", manifest: "---\nname: dup\ndescription: d\n---\n")
         _ = try library.importFolder(src)

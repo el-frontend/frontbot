@@ -22,7 +22,7 @@ final class TradeRulesTests: XCTestCase {
     }
 
     func testMarketOrdersUseTheCurrentPrice() {
-        let r = check(idea(sizeUsd: 300, entryType: .market, entry: nil, stop: 59_000, tp: nil), price: 61_000)
+        let r = check(idea(sizeUsd: 270, entryType: .market, entry: nil, stop: 59_000, tp: nil), price: 61_000)
         XCTAssertEqual(r.entry, 61_000)
         XCTAssertEqual(r.problems, [])
     }
@@ -42,6 +42,15 @@ final class TradeRulesTests: XCTestCase {
         for (expected, result) in cases {
             XCTAssertTrue(result.problems.contains { $0.contains(expected) }, "esperaba «\(expected)», obtuvo \(result.problems)")
         }
+    }
+
+    func testMarketRiskIncludesTheSlippageAllowance() {
+        // stop a 2 %: deslizamiento = min(0,5 %, 10 % de la distancia) = 0,2 % → riesgo 500 × 2,2 % = 11 USD
+        let r = check(idea(entryType: .market, entry: nil, stop: 58_800, tp: nil))
+        XCTAssertEqual(r.riskUsd, 11, accuracy: 0.01)
+        XCTAssertFalse(r.ok)
+        XCTAssertEqual(TradeRules.marketSlippage(entry: 60_000, stop: 58_800), 0.002, accuracy: 1e-9)
+        XCTAssertEqual(TradeRules.marketSlippage(entry: 60_000, stop: 50_000), 0.005, accuracy: 1e-9)
     }
 
     func testPausedTradingRejectsEverything() {

@@ -56,7 +56,7 @@ export function buildTradingTools(call: AppCall, ctx: { agentId?: string; tradin
     tool("trade_propose",
       "Propone un trade. Es la ÚNICA forma de operar. La app valida el mandato (stop loss obligatorio, riesgo, apalancamiento, monedas, trades por día). En modo aprobación el usuario decide; en modo automático la app lo ejecuta si cumple. Si se rechaza, lee los motivos y corrige.",
       {
-        coin, side: z.enum(["long", "short"]), size_usd: z.number().positive().describe("Tamaño nocional en USD (sale de la fórmula de riesgo)"),
+        coin, side: z.enum(["long", "short"]), size_usd: z.number().positive().describe("Tamaño nocional en USD (sale de la fórmula de riesgo). En órdenes a mercado el riesgo incluye un deslizamiento de hasta el 10 % de la distancia al stop (máx. 0,5 %): dimensiona con ese margen."),
         leverage: z.number().int().min(1), entry_type: z.enum(["market", "limit"]), entry_price: z.number().positive().optional(),
         stop_loss: z.number().positive(), take_profit: z.number().positive().optional(),
         rationale: z.string().describe("Tesis, invalidación, confluencias y cálculo del tamaño"),
