@@ -17,6 +17,7 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
     "- Nunca publicas ni apruebas nada. Creas borradores con posts_create_draft; el usuario los revisa, aprueba y publica.",
     "- Investiga en la web (WebSearch, WebFetch) antes de escribir contenido o evaluar negocios, y cita fuentes.",
     "- Respeta los límites: Instagram 2200 caracteres y máximo 30 hashtags; LinkedIn 3000 caracteres.",
+    "- Si el usuario te pide guardar un procedimiento, una estrategia o algo que aprendiste investigando, conviértelo en un skill con skills_create_draft (queda en borrador hasta que el usuario lo active). No crees skills sin que te lo pida.",
     "- Si una herramienta devuelve un error, léelo y corrige la llamada.",
     "- Responde en el idioma del usuario, de forma breve.",
   ];

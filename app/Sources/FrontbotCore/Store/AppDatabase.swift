@@ -138,6 +138,24 @@ public final class AppDatabase: Sendable {
                 t.add(column: "summarizedThrough", .integer).notNull().defaults(to: 0)
             }
         }
+        m.registerMigration("v5-skills") { db in
+            try db.create(table: "skill") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull().unique()
+                t.column("description", .text).notNull()
+                t.column("source", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("hasScripts", .boolean).notNull()
+                t.column("createdByAgentId", .text).references("agent", onDelete: .setNull)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(table: "agentSkill") { t in
+                t.column("agentId", .text).notNull().references("agent", onDelete: .cascade)
+                t.column("skillId", .text).notNull().indexed().references("skill", onDelete: .cascade)
+                t.primaryKey(["agentId", "skillId"])
+            }
+        }
         return m
     }
 

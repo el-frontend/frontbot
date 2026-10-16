@@ -17,6 +17,10 @@ export const TOOL_SPECS = [
   { name: "tasks_list", description: "Lista tareas; con date, solo las de ese día.", shape: { date: date.optional() } },
   { name: "tasks_create", description: "Crea una tarea del usuario.", shape: { title: z.string(), due_date: date.optional(), brand_id: z.string().optional() } },
   { name: "tasks_complete", description: "Marca una tarea como hecha.", shape: { task_id: z.string() } },
+  { name: "skills_list", description: "Lista los skills de la biblioteca: nombre, descripción, estado (draft/active), si los tienes asignados, si traen scripts y si son borradores tuyos.", shape: {} },
+  { name: "skills_create_draft", description: "Crea un skill nuevo (estándar de Anthropic) a partir de tu investigación o de lo que pida el usuario. Queda en BORRADOR asignado a ti: el usuario lo revisa y lo activa. name: kebab-case. description: qué hace y cuándo usarlo. body: el contenido markdown del SKILL.md (sin frontmatter). files: archivos de apoyo opcionales, ruta relativa → texto.", shape: { name: z.string(), description: z.string(), body: z.string(), files: z.record(z.string(), z.string()).optional() } },
+  { name: "skills_update_draft", description: "Edita un skill que sigue en borrador y que creaste tú. Los campos omitidos no cambian; files añade o reemplaza archivos.", shape: { name: z.string(), description: z.string().optional(), body: z.string().optional(), files: z.record(z.string(), z.string()).optional() } },
+  { name: "skills_run_script", description: "Ejecuta un script de uno de tus skills activos (.py, .sh o .js) en una sandbox sin red. El usuario debe aprobar cada ejecución; si la deniega, no insistas. script: ruta relativa dentro del skill.", shape: { skill: z.string(), script: z.string(), args: z.array(z.string()).optional() } },
   { name: "ideas_create", description: "Guarda una oportunidad de negocio investigada, con fuentes, puntaje 1-5 y reporte en markdown.", shape: { title: z.string(), summary: z.string(), sources: z.array(z.string()), score: z.number().int().min(1).max(5), report_markdown: z.string() } },
 ] as const;
 

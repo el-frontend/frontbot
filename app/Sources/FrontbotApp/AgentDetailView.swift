@@ -23,6 +23,7 @@ struct AgentDetailView: View {
                     if agent.status == .draft { draftBanner }
                     instructions
                     settings
+                    skillsSection
                     memory
                 }
                 .frame(maxWidth: 820, alignment: .leading)
@@ -128,6 +129,42 @@ struct AgentDetailView: View {
                     Text("Trading en Hyperliquid: se configura cuando llegue la conexión con el exchange.")
                         .font(.system(size: 12)).foregroundStyle(Theme.muted)
                 }
+            }
+        }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 12)
+    }
+
+    private var skillsSection: some View {
+        let assigned = model.skillsAssigned(to: agent.id)
+        let available = model.skills.filter { s in !assigned.contains { $0.id == s.id } }
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Skills").font(.system(size: 14, weight: .semibold))
+                Text("\(assigned.filter { $0.status == .active }.count) activos").font(Theme.mono()).foregroundStyle(Theme.muted)
+                Spacer()
+                Menu("Asignar") {
+                    if available.isEmpty { Text("No hay más skills en la biblioteca") }
+                    ForEach(available) { skill in Button(skill.name) { model.setSkill(skill, assigned: true, to: agent.id) } }
+                }
+                .menuStyle(.button).buttonStyle(OutlineButtonStyle()).fixedSize()
+                Button("Biblioteca") { model.section = .skills }.buttonStyle(OutlineButtonStyle())
+            }
+            if assigned.isEmpty {
+                Text("Sin skills. Asigna alguno de la biblioteca o pídele a \(agent.name) que cree uno a partir de su investigación.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+            ForEach(assigned) { skill in
+                HStack(spacing: 10) {
+                    Text(skill.name).font(Theme.mono(12))
+                    SkillStatusPill(status: skill.status)
+                    if skill.hasScripts { Text("⚙").font(.system(size: 11)).foregroundStyle(Theme.muted).help("Trae scripts") }
+                    Text(skill.description).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Spacer()
+                    if skill.status == .draft { Button("Activar") { model.activateSkill(skill) }.buttonStyle(OutlineButtonStyle(prominent: true)) }
+                    Button { model.setSkill(skill, assigned: false, to: agent.id) } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.plain).foregroundStyle(Theme.muted).help("Quitar de este agente")
+                }
+                .padding(.vertical, 4)
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 12)

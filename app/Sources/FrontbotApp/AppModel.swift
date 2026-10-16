@@ -12,7 +12,7 @@ struct ChatMessage: Identifiable, Equatable {
 
 @MainActor @Observable
 final class AppModel {
-    enum Section: Hashable { case agent(String), brand(String), calendar, chat, tasks, ideas }
+    enum Section: Hashable { case agent(String), brand(String), calendar, chat, tasks, ideas, skills }
 
     var section: Section = .chat
     var brands: [Brand] = []
@@ -83,10 +83,14 @@ final class AppModel {
         selectedBrandId = brands.first?.id
         reloadContent()
         reloadConversations()
+        reloadSkills()
         if AgentLocator.locate(environment: ProcessInfo.processInfo.environment, resources: Bundle.main.resourceURL) == nil {
             errorMessage = AgentLocator.notFoundMessage
         }
         Task { await listen() }
+        Task { [weak self] in
+            await self?.client.setScriptApprover { [weak self] request in await self?.askScriptApproval(request) ?? false }
+        }
     }
 
     /// Antes de los agentes, el modelo y el navegador eran ajustes globales: pasan a Frontbot una sola vez.
@@ -279,6 +283,91 @@ final class AppModel {
         idea.reportPath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
     }
 
+    // MARK: Skills
+
+    var skills: [Skill] = []
+    var skillDraftCount: Int { skills.filter { $0.status == .draft }.count }
+    private var library: SkillLibrary { SkillLibrary(db: db, paths: paths) }
+
+    func reloadSkills() { skills = (try? library.all()) ?? skills }
+
+    func skillsAssigned(to agentId: String) -> [Skill] {
+        _ = skills
+        return (try? library.skills(assignedTo: agentId, activeOnly: false)) ?? []
+    }
+
+    func skillFiles(_ skill: Skill) -> [String] { (try? library.files(of: skill)) ?? [] }
+    func skillManifest(_ skill: Skill) -> String { (try? library.manifestText(of: skill)) ?? "" }
+    func skillDirectory(_ skill: Skill) -> URL { library.directory(for: skill) }
+    func agentsUsing(_ skill: Skill) -> [Agent] {
+        let ids = Set((try? library.agentIds(using: skill.id)) ?? [])
+        return agents.filter { ids.contains($0.id) }
+    }
+
+    /// Carpeta con SKILL.md o .zip (estándar de Anthropic).
+    @discardableResult
+    func importSkill(from url: URL) -> Skill? {
+        var imported: Skill?
+        perform { imported = url.pathExtension.lowercased() == "zip" ? try library.importZip(url) : try library.importFolder(url) }
+        reloadSkills()
+        return imported
+    }
+
+    @discardableResult
+    func createSkill(name: String, description: String, body: String) -> Skill? {
+        var created: Skill?
+        perform { created = try library.createUserSkill(name: name, description: description, body: body) }
+        reloadSkills()
+        return created
+    }
+
+    @discardableResult
+    func saveSkillManifest(_ skill: Skill, text: String) -> Bool {
+        let ok = perform { _ = try library.saveManifest(id: skill.id, text: text) }
+        reloadSkills()
+        return ok
+    }
+
+    func activateSkill(_ skill: Skill) {
+        perform { _ = try library.activate(id: skill.id) }
+        reloadSkills()
+    }
+
+    func deleteSkill(_ skill: Skill) {
+        perform { try library.delete(id: skill.id) }
+        reloadSkills()
+    }
+
+    func setSkill(_ skill: Skill, assigned: Bool, to agentId: String) {
+        perform { assigned ? try library.assign(skillId: skill.id, to: agentId) : try library.unassign(skillId: skill.id, from: agentId) }
+        reloadSkills()
+    }
+
+    // MARK: Aprobación de scripts
+
+    /// Petición de script esperando al usuario (hoja modal); solo una a la vez.
+    var pendingScript: ScriptRequest?
+    private var scriptContinuation: CheckedContinuation<Bool, Never>?
+
+    func askScriptApproval(_ request: ScriptRequest) async -> Bool {
+        guard scriptContinuation == nil else { return false }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                scriptContinuation = continuation
+                pendingScript = request
+                NSApp.activate()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.answerScript(false) } // venció el plazo de aprobación
+        }
+    }
+
+    func answerScript(_ allowed: Bool) {
+        scriptContinuation?.resume(returning: allowed)
+        scriptContinuation = nil
+        pendingScript = nil
+    }
+
     // MARK: Agentes
 
     func reloadAgents() {
@@ -289,8 +378,13 @@ final class AppModel {
     @discardableResult
     func createAgent(_ draft: AgentDraft) -> Agent? {
         var created: Agent?
-        perform { created = try db.createAgent(workspaceId: workspace.id, draft: draft, status: .active) }
+        perform {
+            let agent = try db.createAgent(workspaceId: workspace.id, draft: draft, status: .active)
+            try library.installTemplateSkills(for: agent)
+            created = agent
+        }
         reloadAgents()
+        reloadSkills()
         if let created { section = .agent(created.id) }
         return created
     }
@@ -475,6 +569,7 @@ final class AppModel {
         if run.status == .failed { record(.error, run.resultSummary ?? "Error") }
         brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
         reloadAgents()
+        reloadSkills()
         reloadContent()
     }
 

@@ -20,6 +20,14 @@ public enum AgentStatus: String, Codable, Sendable {
     case draft, active
 }
 
+public enum SkillSource: String, Codable, Sendable {
+    case imported, user, agent
+}
+
+public enum SkillStatus: String, Codable, Sendable {
+    case draft, active
+}
+
 public enum ChatRole: String, Codable, Sendable {
     case user, agent, tool, error
 }

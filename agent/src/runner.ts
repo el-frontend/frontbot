@@ -1,12 +1,13 @@
 import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, allowedToolsFor, type AppCall, type ToolContext } from "./tools.js";
 import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
+import { prepareSkillPlugin, readGuard, type RunSkill, type SkillPlugin } from "./skills.js";
 import { buildSystemPrompt, buildUserPrompt, buildSummaryPrompt, type MemoryNote, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
 export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
 /** mode "summarize": run en segundo plano que solo actualiza la memoria del agente. */
-export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" };
+export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize"; skills?: RunSkill[] };
 
 /** Sin agente (clientes viejos o tests), el run es de Frontbot. */
 export const toolContext = (params: RunParams): ToolContext => ({
@@ -25,8 +26,35 @@ export interface Runner {
 
 const cancelled = (run_id: string): RunDone => ({ run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0, error: "Cancelado" });
 
+type Hooks = NonNullable<Options["hooks"]>;
+
+/** Une los hooks de varios guardianes (cada uno añade sus matchers). */
+function mergeHooks(...all: (Hooks | undefined)[]): Hooks | undefined {
+  const out: Hooks = {};
+  for (const h of all) {
+    if (!h) continue;
+    for (const [event, matchers] of Object.entries(h) as [keyof Hooks, Hooks[keyof Hooks]][]) {
+      out[event] = [...(out[event] ?? []), ...(matchers ?? [])];
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** `Read` solo para los archivos de los skills del run. */
+function skillReadHooks(plugin: SkillPlugin): Hooks {
+  const allowed = readGuard(plugin.dirs, plugin.path);
+  return {
+    PreToolUse: [{ matcher: "Read", hooks: [async (input) => {
+      if (input.hook_event_name !== "PreToolUse") return {};
+      const path = String((input.tool_input as { file_path?: unknown })?.file_path ?? "");
+      if (allowed(path)) return {};
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Read solo puede leer archivos de tus skills." } };
+    }] }],
+  };
+}
+
 /** Hooks que pasan cada herramienta del navegador por el guardián (no publicar en redes). */
-function browserHooks(guard: BrowserGuard): Options["hooks"] {
+function browserHooks(guard: BrowserGuard): Hooks {
   return {
     PreToolUse: [{ hooks: [async (input) => {
       if (input.hook_event_name !== "PreToolUse") return {};
@@ -43,15 +71,19 @@ function browserHooks(guard: BrowserGuard): Options["hooks"] {
 
 /** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude.
  *  Con `browser`, añade el Chrome del usuario (Claude in Chrome) detrás del guardián. */
-export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string): Options {
+export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin): Options {
   const summarize = params.mode === "summarize";
   const browser = params.browser === true && !summarize;
+  const skills = !summarize && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
+  const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined, skills ? skillReadHooks(skills) : undefined);
   return {
     model: params.model,
     systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent }),
-    tools: summarize ? [] : ["WebSearch", "WebFetch"],
-    allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : [])],
-    ...(browser ? { extraArgs: { chrome: null }, hooks: browserHooks(new BrowserGuard()) } : {}),
+    tools: summarize ? [] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : [])],
+    allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : [])],
+    ...(browser ? { extraArgs: { chrome: null } } : {}),
+    ...(hooks ? { hooks } : {}),
+    ...(skills ? { plugins: [{ type: "local" as const, path: skills.path }], skills: skills.skillNames } : {}),
     mcpServers: { frontbot: server },
     strictMcpConfig: true,
     settingSources: [],
@@ -71,9 +103,10 @@ export class RealRunner implements Runner {
     signal.addEventListener("abort", () => abortController.abort());
     const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: buildTools(this.call, toolContext(params)) });
     const today = localToday();
+    const plugin = params.skills?.length ? prepareSkillPlugin(params.skills) : undefined;
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
-      const stream = query({ prompt: userPrompt(params), options: buildQueryOptions(params, server, abortController, today) });
+      const stream = query({ prompt: userPrompt(params), options: buildQueryOptions(params, server, abortController, today, plugin) });
       for await (const msg of stream) {
         if (msg.type === "assistant") {
           for (const block of msg.message.content) {
@@ -91,6 +124,8 @@ export class RealRunner implements Runner {
     } catch (err) {
       if (signal.aborted) return cancelled(params.run_id);
       return { ...cancelled(params.run_id), error: (err as Error).message };
+    } finally {
+      plugin?.cleanup();
     }
   }
 }

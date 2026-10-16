@@ -10,6 +10,7 @@ describe("tools", () => {
     expect(TOOL_SPECS.map((t) => t.name).sort()).toEqual([
       "brands_get_guide", "brands_list", "brands_list_assets", "brands_write_guide", "ideas_create",
       "posts_create_draft", "posts_list", "posts_update_draft",
+      "skills_create_draft", "skills_list", "skills_run_script", "skills_update_draft",
       "tasks_complete", "tasks_create", "tasks_list",
     ]);
   });
