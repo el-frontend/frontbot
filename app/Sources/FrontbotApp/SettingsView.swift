@@ -24,6 +24,9 @@ struct SettingsView: View {
                 Button("Abrir Instagram") { model.openLogin(.instagram) }
                 Button("Abrir LinkedIn") { model.openLogin(.linkedin) }
             }
+            Divider()
+            Text(model.hotKeyRegistered ? "Atajo global: ⌥Espacio abre Frontbot en el notch." : "⌥Espacio está ocupado por otra app. Abre el panel haciendo clic en el notch.")
+                .font(.caption).foregroundStyle(model.hotKeyRegistered ? Color.secondary : Color.orange)
         }
         .padding()
         .frame(width: 420)
