@@ -17,6 +17,13 @@ struct SettingsView: View {
             .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             if saved { Text("Guardada.").font(.caption) }
             if !saved, let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+            Divider()
+            Text("Redes: inicia sesión una vez en la ventana de Chrome de Frontbot (separada de tu Chrome personal).")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("Abrir Instagram") { model.openLogin(.instagram) }
+                Button("Abrir LinkedIn") { model.openLogin(.linkedin) }
+            }
         }
         .padding()
         .frame(width: 420)
