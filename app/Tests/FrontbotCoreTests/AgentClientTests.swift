@@ -41,18 +41,6 @@ final class AgentClientTests: XCTestCase {
         await client.stop()
     }
 
-    func testMissingApiKeyFailsFastWithoutFakeMode() async throws {
-        let client = try makeClient(apiKey: nil, fake: false)
-        do {
-            _ = try await client.run(prompt: "hola", brand: nil)
-            XCTFail("debió fallar")
-        } catch let error as AgentClientError {
-            XCTAssertEqual(error, .missingApiKey)
-            XCTAssertEqual(error.localizedDescription, "Configura tu API key de Anthropic en Ajustes.")
-        }
-        XCTAssertEqual(try db.runs(workspaceId: ws.id).count, 0)
-    }
-
     func testSidecarCrashFailsRunAndNextRunWorks() async throws {
         let client = try makeClient()
         let stream = await client.updates()

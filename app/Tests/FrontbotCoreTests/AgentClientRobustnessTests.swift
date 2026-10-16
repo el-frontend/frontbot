@@ -56,14 +56,19 @@ final class AgentClientRobustnessTests: XCTestCase {
         XCTAssertNil(CredentialStore.normalizedApiKey(nil))
     }
 
-    func testNewlineOnlyKeyCountsAsMissing() async throws {
-        let client = try makeClient(apiKey: "\n", fake: false)
-        do {
-            _ = try await client.run(prompt: "hola", brand: nil)
-            XCTFail("debió fallar")
-        } catch let error as AgentClientError {
-            XCTAssertEqual(error, .missingApiKey)
+    func testSidecarEnvironmentUsesKeyOnlyWhenPresent() {
+        func env(_ key: String?) -> [String: String] {
+            AgentClient.sidecarEnvironment(
+                config: AgentConfig(nodePath: "/n", scriptPath: "/s", apiKey: key, model: "m", fakeAgent: false),
+                inherited: ["PATH": "/usr/bin", "HOME": "/Users/x", "ANTHROPIC_API_KEY": "de-la-shell", "SECRETO": "no"])
         }
+        // Sin key: no se pasa ninguna y el SDK usa la sesión de Claude Code del usuario.
+        XCTAssertNil(env(nil)["ANTHROPIC_API_KEY"])
+        XCTAssertNil(env("\n ")["ANTHROPIC_API_KEY"])
+        XCTAssertEqual(env(" sk-ant-1 ")["ANTHROPIC_API_KEY"], "sk-ant-1")
+        // Nada más se hereda de la shell (ni una key ajena ni otras variables).
+        XCTAssertNil(env(nil)["SECRETO"])
+        XCTAssertEqual(env(nil)["HOME"], "/Users/x")
     }
 
     // 4. Un run que nunca termina se puede detener

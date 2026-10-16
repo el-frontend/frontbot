@@ -50,7 +50,7 @@ Frontbot.app (Swift 6, SwiftUI + AppKit)
 
 - Todo cuelga de un `workspace_id`; en v1 hay un único workspace.
 - Las credenciales son por workspace.
-- La autenticación del agente usa **API key de Anthropic** (no el login de claude.ai), porque es lo que un producto distribuido necesitará.
+- Autenticación del agente: **uso personal** → sin API key, el Agent SDK usa la sesión de Claude Code del usuario en su Mac (decisión del 2026-10-15). **Producto distribuido** → cada usuario necesitará su API key de Anthropic; la app ya admite una key opcional en Ajustes (Keychain).
 - La publicación pasa siempre por `PublishingProvider`; ningún código depende de una red o proveedor concreto.
 
 ## 4. Modelo de datos (SQLite)
