@@ -7,6 +7,8 @@ export type Composer = {
   name: string;
   startUrl: string;
   loginPatterns: RegExp[];
+  /** Formularios de login que la red muestra sin cambiar de URL (Instagram lo hace en "/"). */
+  loginSelectors: string[];
   requiresMedia: boolean;
   steps: Step[];
 };
@@ -23,6 +25,7 @@ export const COMPOSERS: Record<Network, Composer> = {
     name: "Instagram",
     startUrl: "https://www.instagram.com/",
     loginPatterns: [/\/accounts\/login/, /\/challenge\//],
+    loginSelectors: ['input[name="username"]', 'input[name="password"]', 'form#loginForm'],
     requiresMedia: true,
     steps: [
       { kind: "click", label: "Crear", candidates: ['[aria-label="New post"]', '[aria-label="Nueva publicación"]', 'svg[aria-label="New post"]', 'svg[aria-label="Nueva publicación"]', 'a:has-text("Create")', 'a:has-text("Crear")'] },
@@ -38,6 +41,7 @@ export const COMPOSERS: Record<Network, Composer> = {
     name: "LinkedIn",
     startUrl: "https://www.linkedin.com/feed/",
     loginPatterns: [/\/login/, /\/checkpoint\//, /\/authwall/, /\/uas\/login/],
+    loginSelectors: ['input[name="session_key"]', 'input[name="session_password"]'],
     requiresMedia: false,
     steps: [
       { kind: "click", label: "Empezar una publicación", candidates: ['button:has-text("Start a post")', 'button:has-text("Empezar una publicación")', 'button:has-text("Crear publicación")', '.share-box-feed-entry__trigger'] },

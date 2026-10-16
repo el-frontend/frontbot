@@ -23,6 +23,10 @@ struct PostEditorView: View {
     /// El post actual (no el valor capturado al abrir la hoja): sigue los cambios de estado.
     private var current: Post { model.currentPost(post.id) ?? post }
     private var editable: Bool { current.status == .draft || current.status == .approved }
+    /// Cambios sin guardar: se prepararía el texto guardado, no el que se ve.
+    private var dirty: Bool {
+        text != current.body || media != current.media || (hasDate ? date : nil) != current.scheduledFor
+    }
     private var validationError: String? {
         do { try PostRules.validate(body: text, network: post.network); return nil } catch { return error.message }
     }
@@ -70,7 +74,8 @@ struct PostEditorView: View {
                 Button(model.preparingPostId == post.id ? "Preparando…" : "Preparar publicación en \(post.network == .instagram ? "Instagram" : "LinkedIn")") {
                     model.preparePublication(current)
                 }
-                .disabled(model.preparingPostId != nil)
+                .disabled(model.preparingPostId != nil || dirty)
+                if dirty { Text("Guarda los cambios antes de preparar la publicación.").font(.caption).foregroundStyle(.secondary) }
             }
             if current.status == .preparing || current.status == .scheduled {
                 Divider()

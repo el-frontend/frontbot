@@ -75,6 +75,22 @@ describe.skipIf(!hasChrome)("preparePost", () => {
     expect(Date.now() - started).toBeLessThan(1000);
   });
 
+  it("detects a login form shown without a redirect", async () => {
+    const page = await browser.newPage();
+    const url = fixture("home/index.html", `<form><input name="username"><input name="password" type="password"></form>`);
+    const started = Date.now();
+    const res = await preparePost(page, { network: "instagram", body: "x", media: [image()], start_url: url }, fast);
+    expect(res).toMatchObject({ mode: "manual", message: "Inicia sesión en Instagram en la ventana de Frontbot y vuelve a intentar." });
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("gives up with a readable message when the whole preparation exceeds its deadline", async () => {
+    const page = await browser.newPage();
+    const url = fixture("slow/index.html", "<p>nada</p>");
+    const res = await preparePost(page, { network: "linkedin", body: "x", media: [], start_url: url }, { timeoutMs: 5000, deadlineMs: 800 });
+    expect(res).toMatchObject({ mode: "manual", message: "LinkedIn tardó demasiado. Pega el texto (ya está en el portapapeles) y sube las imágenes a mano." });
+  });
+
   it("goes manual naming the step when the UI changed", async () => {
     const page = await browser.newPage();
     const url = fixture("feed/index.html", "<p>interfaz nueva</p>");

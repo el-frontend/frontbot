@@ -32,6 +32,15 @@ describe.skipIf(!hasChrome)("runSteps", () => {
     expect(await page.evaluate(() => document.body.dataset.done)).toBe("2");
   });
 
+  it("a click blocked by an overlay fails fast as a StepError, not a raw 30s Playwright timeout", async () => {
+    const page = await pageWith(`<button id="b">B</button><div style="position:fixed;inset:0;background:white"></div>`);
+    const started = Date.now();
+    const err = await runSteps(page, [{ kind: "click", label: "Siguiente", candidates: ["#b"] }], { body: "", media: [] }, fast).catch((e) => e);
+    expect(err).toBeInstanceOf(StepError);
+    expect(err.message).toBe('No encontré el paso "Siguiente".');
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
   it("fills a contenteditable with unicode", async () => {
     const page = await pageWith(`<div id="t" role="textbox" contenteditable="true"></div>`);
     await runSteps(page, [{ kind: "fill", label: "texto", candidates: ["#t"] }], { body: "Lunes de café ☕️ #cafe", media: [] }, fast);
