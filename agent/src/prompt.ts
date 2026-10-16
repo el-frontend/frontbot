@@ -19,3 +19,12 @@ export function buildSystemPrompt(input: { today: string; brand?: { id: string; 
   }
   return parts.join("\n");
 }
+
+export type HistoryTurn = { role: "user" | "agent"; text: string };
+
+/** Antepone la conversación previa al mensaje nuevo: cada run del SDK empieza sin memoria. */
+export function buildUserPrompt(history: HistoryTurn[], prompt: string): string {
+  if (history.length === 0) return prompt;
+  const lines = history.map((t) => `${t.role === "user" ? "Usuario" : "Frontbot"}: ${t.text}`);
+  return `Conversación hasta ahora:\n${lines.join("\n")}\n\nMensaje nuevo del usuario:\n${prompt}`;
+}
