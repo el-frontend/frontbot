@@ -37,6 +37,14 @@ struct SettingsView: View {
                 }
             }
 
+            section("Modelo") {
+                Picker("Modelo", selection: $model.selectedModel) {
+                    ForEach(AgentModel.all, id: \.id) { Text($0.label).tag($0.id) }
+                }
+                .labelsHidden().pickerStyle(.radioGroup)
+                note("También puedes cambiarlo en el chat, junto al botón de enviar.")
+            }
+
             section("Navegador") {
                 Toggle(isOn: $model.useBrowser) {
                     Text("Usar mi Chrome para buscar en la web").font(.system(size: 13, weight: .medium))

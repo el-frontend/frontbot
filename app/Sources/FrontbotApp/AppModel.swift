@@ -4,7 +4,7 @@ import Observation
 import FrontbotCore
 
 struct ChatMessage: Identifiable, Equatable {
-    enum Role { case user, agent, tool, error }
+    typealias Role = ChatRole
     let id = UUID()
     let role: Role
     var text: String
@@ -25,6 +25,13 @@ final class AppModel {
     var useBrowser = UserDefaults.standard.bool(forKey: "useBrowser") {
         didSet { UserDefaults.standard.set(useBrowser, forKey: "useBrowser") }
     }
+    /// Modelo del agente, elegido en el composer o en Ajustes.
+    var selectedModel = AgentModel.resolve(UserDefaults.standard.string(forKey: "model") ?? ProcessInfo.processInfo.environment["FRONTBOT_MODEL"]) {
+        didSet { UserDefaults.standard.set(selectedModel, forKey: "model") }
+    }
+    /// Conversaciones recientes (barra lateral) y la abierta en el chat.
+    var conversations: [Conversation] = []
+    var currentConversationId: String?
 
     var posts: [Post] = []
     var tasks: [TaskItem] = []
@@ -64,6 +71,7 @@ final class AppModel {
         brands = try db.brands(workspaceId: workspace.id)
         selectedBrandId = brands.first?.id
         reloadContent()
+        reloadConversations()
         if AgentLocator.locate(environment: ProcessInfo.processInfo.environment, resources: Bundle.main.resourceURL) == nil {
             errorMessage = AgentLocator.notFoundMessage
         }
@@ -260,30 +268,64 @@ final class AppModel {
             case .tool, .error: nil
             }
         }
-        messages.append(ChatMessage(role: .user, text: text))
+        if currentConversationId == nil {
+            guard perform({
+                currentConversationId = try db.createConversation(workspaceId: workspace.id, brandId: selectedBrandId, firstPrompt: text).id
+            }) else { return }
+        }
+        record(.user, text)
         isRunning = true
         Task {
             do {
-                let id = try await client.run(prompt: text, brand: selectedBrand, history: history, useBrowser: useBrowser).id
+                let id = try await client.run(prompt: text, brand: selectedBrand, history: history, model: selectedModel, useBrowser: useBrowser).id
                 if let run = earlyFinished.removeValue(forKey: id) { finish(run) } else { currentRunId = id }
             } catch {
                 isRunning = false
-                messages.append(ChatMessage(role: .error, text: error.localizedDescription))
+                record(.error, error.localizedDescription)
             }
         }
     }
 
     /// Nombre corto del modelo para el composer ("sonnet-5.5").
-    var modelName: String {
-        (ProcessInfo.processInfo.environment["FRONTBOT_MODEL"] ?? AgentConfig.defaultModel)
-            .replacingOccurrences(of: "claude-", with: "").replacingOccurrences(of: "-5-", with: "-5.")
-    }
+    var modelName: String { AgentModel.shortName(selectedModel) }
 
     func newConversation() {
         guard !isRunning else { return }
         messages = []
+        currentConversationId = nil
         lastAgentReply = nil
         section = .chat
+    }
+
+    func openConversation(_ conversation: Conversation) {
+        guard !isRunning else { return }
+        section = .chat
+        guard conversation.id != currentConversationId else { return }
+        perform {
+            messages = try db.messages(conversationId: conversation.id).map { ChatMessage(role: $0.role, text: $0.text) }
+            currentConversationId = conversation.id
+            lastAgentReply = messages.last { $0.role == .agent }?.text
+            if let brandId = conversation.brandId, brands.contains(where: { $0.id == brandId }) { selectedBrandId = brandId }
+        }
+    }
+
+    func deleteConversation(_ conversation: Conversation) {
+        guard !(isRunning && conversation.id == currentConversationId) else { return }
+        perform { try db.deleteConversation(id: conversation.id) }
+        if conversation.id == currentConversationId { messages = []; currentConversationId = nil; lastAgentReply = nil }
+        reloadConversations()
+    }
+
+    private func reloadConversations() {
+        conversations = (try? db.conversations(workspaceId: workspace.id, limit: 15)) ?? conversations
+    }
+
+    /// Añade un mensaje al chat y lo guarda en la conversación abierta.
+    private func record(_ role: ChatRole, _ text: String) {
+        messages.append(ChatMessage(role: role, text: text))
+        guard let id = currentConversationId else { return }
+        do { try db.appendMessage(conversationId: id, role: role, text: text) } catch { errorMessage = error.localizedDescription }
+        reloadConversations()
     }
 
     func cancel() {
@@ -322,7 +364,7 @@ final class AppModel {
     private func finish(_ run: AgentRun) {
         isRunning = false
         currentRunId = nil
-        if run.status == .failed { messages.append(ChatMessage(role: .error, text: run.resultSummary ?? "Error")) }
+        if run.status == .failed { record(.error, run.resultSummary ?? "Error") }
         brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
         reloadContent()
     }
@@ -332,11 +374,11 @@ final class AppModel {
             switch update {
             case .event(let runId, let type, let text) where runId == currentRunId:
                 if type == "text" {
-                    messages.append(ChatMessage(role: .agent, text: text))
+                    record(.agent, text)
                     lastAgentReply = text
                 }
                 if type == "tool_call" {
-                    messages.append(ChatMessage(role: .tool, text: "→ \(text)"))
+                    record(.tool, "→ \(text)")
                     reloadContent()
                 }
             case .finished(let run) where run.id == currentRunId:
