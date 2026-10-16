@@ -362,6 +362,78 @@ extension AppDatabase {
         _ = try writer.write { try AgentMemory.filter(Column("agentId") == agentId).deleteAll($0) }
     }
 
+    // MARK: Trading
+
+    /// El mandato del agente; si no existe, el conservador por defecto.
+    public func mandate(agentId: String) throws -> TradingMandate {
+        try writer.write { db in
+            if let m = try TradingMandate.fetchOne(db, key: agentId) { return m }
+            let m = TradingMandate.default(agentId: agentId)
+            try m.insert(db)
+            return m
+        }
+    }
+
+    public func saveMandate(_ mandate: TradingMandate) throws {
+        guard mandate.maxRiskPct > 0, mandate.maxRiskPct <= 10 else { throw ValidationError("El riesgo por trade debe estar entre 0 y 10 %.") }
+        guard (1...50).contains(mandate.maxLeverage) else { throw ValidationError("El apalancamiento máximo debe estar entre 1x y 50x.") }
+        guard (0...50).contains(mandate.maxTradesPerDay) else { throw ValidationError("Los trades por día deben estar entre 0 y 50.") }
+        if let address = mandate.address, !address.isEmpty {
+            guard address.hasPrefix("0x"), address.count == 42, address.dropFirst(2).allSatisfy(\.isHexDigit) else {
+                throw ValidationError("La dirección debe ser una dirección EVM (0x + 40 caracteres hex).")
+            }
+        }
+        var m = mandate
+        m.coins = Array(Set(m.coins.map { $0.uppercased().trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })).sorted()
+        m.address = m.address?.isEmpty == true ? nil : m.address
+        m.updatedAt = .dbNow()
+        try writer.write { try m.save($0) }
+    }
+
+    /// Botón de pánico: pausa el trading de todos los agentes.
+    public func pauseAllTrading() throws {
+        try writer.write { try $0.execute(sql: "UPDATE tradingMandate SET paused = 1") }
+    }
+
+    public func saveProposal(_ proposal: TradeProposal) throws {
+        var p = proposal
+        p.updatedAt = .dbNow()
+        try writer.write { try p.save($0) }
+    }
+
+    public func proposal(id: String) throws -> TradeProposal? {
+        try writer.read { try TradeProposal.fetchOne($0, key: id) }
+    }
+
+    public func proposals(agentId: String? = nil, limit: Int = 200) throws -> [TradeProposal] {
+        try writer.read { db in
+            var request = TradeProposal.order(Column("createdAt").desc)
+            if let agentId { request = request.filter(Column("agentId") == agentId) }
+            return try request.limit(limit).fetchAll(db)
+        }
+    }
+
+    /// Trades enviados hoy (día local) por el agente.
+    public func tradesToday(agentId: String, now: Date = Date()) throws -> Int {
+        let start = Calendar.current.startOfDay(for: now)
+        return try writer.read {
+            try TradeProposal.filter(Column("agentId") == agentId && Column("executedAt") >= start).fetchCount($0)
+        }
+    }
+
+    /// Envíos que quedaron a medias (la app se cerró): se marcan para revisar en Hyperliquid.
+    @discardableResult
+    public func flagInterruptedSends() throws -> Int {
+        try writer.write { db in
+            try db.execute(sql: """
+                UPDATE tradeProposal SET status = 'failed',
+                error = 'La app se cerró mientras se enviaba la orden: revisa tus posiciones en la pestaña Trades o en Hyperliquid.'
+                WHERE status = 'sending'
+                """)
+            return db.changesCount
+        }
+    }
+
     // MARK: Conversaciones
 
     /// Crea una conversación titulada con el primer mensaje (una línea, máximo 60 caracteres).

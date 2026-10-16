@@ -25,6 +25,8 @@ struct RootView: View {
                 IdeasView(model: model)
             case .skills:
                 SkillsView(model: model)
+            case .trades:
+                TradesView(model: model)
             }
         }
         .frame(minWidth: 1000, minHeight: 640)

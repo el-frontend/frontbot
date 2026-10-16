@@ -23,6 +23,7 @@ struct AgentDetailView: View {
                     if agent.status == .draft { draftBanner }
                     instructions
                     settings
+                    if agent.trading { TradingSettings(model: model, agent: agent).id(agent.id) }
                     skillsSection
                     memory
                 }
@@ -123,13 +124,14 @@ struct AgentDetailView: View {
                 }
             }
             .toggleStyle(.switch).controlSize(.small)
-            if agent.trading {
-                HStack(spacing: 8) {
-                    Image(systemName: "chart.line.uptrend.xyaxis").foregroundStyle(Theme.muted)
-                    Text("Trading en Hyperliquid: se configura cuando llegue la conexión con el exchange.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            Toggle(isOn: Binding(get: { agent.trading }, set: { value in save { $0.trading = value } })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Trading en Hyperliquid").font(.system(size: 13, weight: .medium))
+                    Text("Lee el mercado y propone trades con stop loss. Nada se ejecuta fuera de tu aprobación o de su mandato.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .toggleStyle(.switch).controlSize(.small)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 12)
     }

@@ -36,17 +36,23 @@ public enum AgentModel {
 
 public enum AgentUpdate: Sendable, Equatable {
     case event(runId: String, type: String, text: String)
+    /// Cambió alguna propuesta de trade (nueva, enviada automáticamente, fallida…).
+    case tradesChanged(TradeProposal)
     case finished(AgentRun)
 }
 
 public enum AgentClientError: Error, Equatable, LocalizedError {
     case restartLimit
     case launchFailed(String)
+    case remote(String)
+    case timeout
 
     public var errorDescription: String? {
         switch self {
         case .restartLimit: "El agente se reinició demasiadas veces. Revisa los logs y vuelve a intentar en un minuto."
         case .launchFailed(let why): "No se pudo iniciar el agente: \(why)"
+        case .remote(let why): why
+        case .timeout: "El agente no respondió a tiempo."
         }
     }
 }
@@ -66,6 +72,7 @@ public actor AgentClient {
     private var generation = 0
     private var activeRuns: Set<String> = []
     private var launches: [Date] = []
+    private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
     private var subscribers: [UUID: AsyncStream<AgentUpdate>.Continuation] = [:]
 
     private let cancelGrace: Duration
@@ -74,6 +81,14 @@ public actor AgentClient {
     static let scriptApprovalTimeout: Duration = .seconds(120)
 
     public func setScriptApprover(_ approver: @escaping @Sendable (ScriptRequest) async -> Bool) { scriptApprover = approver }
+
+    /// Claves de las API wallets de Hyperliquid (la app las lee del llavero).
+    private var tradeKeys: (any TradeKeyStore)?
+    public func setTradeKeys(_ keys: any TradeKeyStore) { tradeKeys = keys }
+    private struct NoKeys: TradeKeyStore { func privateKey(agentId: String, network: TradeNetwork) -> String? { nil } }
+    public var trading: TradingService { TradingService(db: db, executor: self, keys: tradeKeys ?? NoKeys()) }
+    /// Para operaciones síncronas desde la app (rechazar) sin esperar al actor.
+    nonisolated public func tradingService(db: AppDatabase) -> TradingService { TradingService(db: db, executor: self, keys: KeychainTradeKeys()) }
 
     public init(config: AgentConfig, db: AppDatabase, files: BrandFiles, workspaceId: String, cancelGrace: Duration = .seconds(10)) {
         self.cancelGrace = cancelGrace
@@ -124,6 +139,15 @@ public actor AgentClient {
                 params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
                                    "is_default": .bool(agent.isDefault), "memory": MemoryPrompt.json(memory)]
                 if agent.browser { params["browser"] = .bool(true) }
+                if agent.trading {
+                    let m = try db.mandate(agentId: agent.id)
+                    var trading: [String: JSONValue] = ["network": .string(m.network.rawValue), "mandate": [
+                        "mode": .string(m.mode.rawValue), "max_risk_pct": .number(m.maxRiskPct), "max_leverage": .number(Double(m.maxLeverage)),
+                        "coins": .array(m.coins.map(JSONValue.string)), "max_trades_per_day": .number(Double(m.maxTradesPerDay)), "paused": .bool(m.paused),
+                    ]]
+                    if let address = m.address { trading["address"] = .string(address) }
+                    params["trading"] = .object(trading)
+                }
                 let skills = try SkillLibrary(db: db, paths: files.paths).skills(assignedTo: agent.id, activeOnly: true)
                 if !skills.isEmpty {
                     params["skills"] = .array(skills.map { ["name": .string($0.name), "dir": .string(ScriptSandbox.realPath(files.paths.skillDir($0.name)))] })
@@ -136,6 +160,30 @@ public actor AgentClient {
             fail(runId: run.id, summary: error.localizedDescription)
             throw error
         }
+    }
+
+    /// Llamada con respuesta al sidecar (p. ej. `trade.execute`). La hace la app, nunca el agente.
+    public func call(_ method: String, params: JSONValue, timeout: Duration = .seconds(60)) async throws -> JSONValue {
+        try ensureProcess()
+        let id = takeId()
+        return try await withCheckedThrowingContinuation { continuation in
+            pending[id] = continuation
+            do {
+                try send(.request(id: id, method: method, params: params))
+            } catch {
+                resolve(id, with: .failure(error))
+                return
+            }
+            Task { [weak self] in
+                try? await Task.sleep(for: timeout)
+                await self?.resolve(id, with: .failure(AgentClientError.timeout))
+            }
+        }
+    }
+
+    private func resolve(_ id: Int, with result: Result<JSONValue, Error>) {
+        guard let continuation = pending.removeValue(forKey: id) else { return }
+        continuation.resume(with: result)
     }
 
     public func cancel(runId: String) async {
@@ -241,6 +289,7 @@ public actor AgentClient {
 
     private func handleExit() {
         for runId in activeRuns { fail(runId: runId, summary: "El agente se detuvo inesperadamente.") }
+        for id in Array(pending.keys) { resolve(id, with: .failure(AgentClientError.remote("El agente se detuvo inesperadamente."))) }
     }
 
     private func send(_ message: RPCMessage) throws {
@@ -261,6 +310,20 @@ public actor AgentClient {
 
     private func handle(_ message: RPCMessage) {
         switch message {
+        case .request(let id, "tool.trade_propose", let params):
+            do {
+                let result = try trading.propose(params: params)
+                reply(id, .success(result.json))
+                broadcast(.tradesChanged(result.proposal))
+                if result.autoExecute {
+                    let service = trading
+                    Task {
+                        if let done = try? await service.executeAuto(id: result.proposal.id) { self.broadcast(.tradesChanged(done)) }
+                    }
+                }
+            } catch {
+                reply(id, .failure(error))
+            }
         case .request(let id, "tool.skills_run_script", let params):
             let tool = ScriptTool(library: SkillLibrary(db: db, paths: files.paths), sandbox: ScriptSandbox(nodePath: config.nodePath))
             let approver = scriptApprover
@@ -297,6 +360,10 @@ public actor AgentClient {
                                            costUsd: params["cost_usd"]?.doubleValue ?? 0) {
                 broadcast(.finished(run))
             }
+        case .response(let id, let result):
+            resolve(id, with: .success(result)) // las de agent.run / agent.cancel no tienen continuación: se ignoran
+        case .error(let id, _, let message):
+            resolve(id, with: .failure(AgentClientError.remote(message)))
         default:
             break
         }
@@ -321,3 +388,38 @@ public actor AgentClient {
         }
     }
 }
+
+extension AgentClient: TradeExecutor {
+    public func snapshot(network: TradeNetwork, coin: String, address: String?) async throws -> MarketSnapshot {
+        var params: [String: JSONValue] = ["network": .string(network.rawValue), "coin": .string(coin)]
+        if let address { params["address"] = .string(address) }
+        let r = try await call("market.snapshot", params: .object(params), timeout: .seconds(30))
+        guard let price = r["price"]?.doubleValue else { throw AgentClientError.remote("Respuesta inválida de Hyperliquid.") }
+        return MarketSnapshot(price: price, accountValue: r["account_value"]?.doubleValue)
+    }
+
+    public func execute(network: TradeNetwork, privateKey: String, proposal p: TradeProposal) async throws -> TradeOutcome {
+        var params: [String: JSONValue] = [
+            "network": .string(network.rawValue), "private_key": .string(privateKey), "coin": .string(p.coin),
+            "side": .string(p.side.rawValue), "size_usd": .number(p.sizeUsd), "leverage": .number(Double(p.leverage)),
+            "entry_type": .string(p.entryType.rawValue), "stop_loss": .number(p.stopLoss),
+        ]
+        if let e = p.entryPrice { params["entry_price"] = .number(e) }
+        if let tp = p.takeProfit { params["take_profit"] = .number(tp) }
+        let r = try await call("trade.execute", params: .object(params), timeout: .seconds(45))
+        return TradeOutcome(status: r["status"]?.stringValue ?? "failed",
+                            orderIds: (r["orderIds"]?.arrayValue ?? []).compactMap(\.intValue),
+                            filledSize: r["filledSize"]?.stringValue, avgPrice: r["avgPrice"]?.stringValue, error: r["error"]?.stringValue)
+    }
+
+    public func close(network: TradeNetwork, privateKey: String, address: String, coin: String) async throws {
+        _ = try await call("trade.close", params: ["network": .string(network.rawValue), "private_key": .string(privateKey),
+                                                   "address": .string(address), "coin": .string(coin)], timeout: .seconds(45))
+    }
+
+    /// Valor de la cuenta, posiciones y órdenes abiertas (para la pestaña Trades).
+    public func accountOverview(network: TradeNetwork, address: String) async throws -> JSONValue {
+        try await call("account.overview", params: ["network": .string(network.rawValue), "address": .string(address)], timeout: .seconds(30))
+    }
+}
+
