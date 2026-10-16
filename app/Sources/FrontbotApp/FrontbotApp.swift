@@ -14,12 +14,7 @@ struct FrontbotApp: App {
     var body: some Scene {
         WindowGroup("Frontbot") {
             if let model {
-                NavigationSplitView {
-                    BrandsView(model: model)
-                } detail: {
-                    ChatView(model: model)
-                }
-                .frame(minWidth: 900, minHeight: 600)
+                RootView(model: model)
             } else {
                 Text("No se pudo abrir la base de datos de Frontbot.").padding()
             }

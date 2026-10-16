@@ -39,6 +39,7 @@ struct ChatView: View {
     }
 
     private func submit() {
+        guard !model.isRunning else { return }
         model.send(prompt: draft)
         draft = ""
     }
