@@ -21,6 +21,42 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(try db.brand(id: brand.id)?.networks, [.instagram, .linkedin])
     }
 
+    func testDeleteBrandRemovesItsContentAndUnlinksTheRest() throws {
+        let brand = try db.createBrand(workspaceId: ws.id, name: "Café Sol", industry: "", networks: [.instagram])
+        let other = try db.createBrand(workspaceId: ws.id, name: "Otra", industry: "", networks: [.instagram])
+        _ = try db.createDraft(brandId: brand.id, network: .instagram, body: "Hola", media: [], scheduledFor: nil)
+        let kept = try db.createDraft(brandId: other.id, network: .instagram, body: "Sigo", media: [], scheduledFor: nil)
+        let task = try db.createTask(workspaceId: ws.id, title: "Fotos", dueDate: nil, brandId: brand.id)
+        let agent = try db.ensureDefaultAgent(workspaceId: ws.id)
+        let chat = try db.createConversation(workspaceId: ws.id, agentId: agent.id, brandId: brand.id, firstPrompt: "hola")
+
+        try db.deleteBrand(id: brand.id)
+
+        XCTAssertEqual(try db.brands(workspaceId: ws.id), [other])
+        XCTAssertEqual(try db.posts(brandId: nil, status: nil), [kept])
+        XCTAssertNil(try db.tasks(workspaceId: ws.id, on: nil).first { $0.id == task.id }?.brandId)
+        XCTAssertNil(try db.conversations(workspaceId: ws.id, limit: 10).first { $0.id == chat.id }?.brandId)
+    }
+
+    func testBrandWithAPostBeingPreparedCannotBeDeleted() throws {
+        let brand = try db.createBrand(workspaceId: ws.id, name: "B", industry: "", networks: [.instagram])
+        var post = try db.createDraft(brandId: brand.id, network: .instagram, body: "Hola", media: [], scheduledFor: nil)
+        post.status = .preparing
+        try db.writer.write { try post.update($0) }
+        XCTAssertThrowsError(try db.deleteBrand(id: brand.id)) { error in
+            XCTAssertEqual((error as? ValidationError)?.message, "B tiene un post preparándose en el navegador: termina o cancela antes de borrarla.")
+        }
+    }
+
+    func testBrandDeletionNeedsTheExactName() {
+        let brand = Brand(id: "x", workspaceId: ws.id, name: "Café Sol", industry: "", networks: [.instagram], createdAt: Date())
+        XCTAssertTrue(brand.deletionConfirmed(by: "Café Sol"))
+        XCTAssertTrue(brand.deletionConfirmed(by: "  Café Sol "))
+        XCTAssertFalse(brand.deletionConfirmed(by: "café sol"))
+        XCTAssertFalse(brand.deletionConfirmed(by: "Café"))
+        XCTAssertFalse(brand.deletionConfirmed(by: ""))
+    }
+
     func testBrandNameIsRequired() {
         XCTAssertThrowsError(try db.createBrand(workspaceId: ws.id, name: "  ", industry: "", networks: [.instagram]))
     }

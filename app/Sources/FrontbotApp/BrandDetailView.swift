@@ -12,6 +12,7 @@ struct BrandDetailView: View {
     private enum ImportMode { case images, pdf }
     @State private var importMode: ImportMode = .images
     @State private var importing = false
+    @State private var confirmingDelete = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +24,7 @@ struct BrandDetailView: View {
             }
         }
         .background(Theme.background)
+        .sheet(isPresented: $confirmingDelete) { DeleteBrandSheet(model: model, brand: brand) }
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: importMode == .images ? [.jpeg, .png] : [.pdf],
                       allowsMultipleSelection: importMode == .images) { result in
@@ -43,6 +45,8 @@ struct BrandDetailView: View {
                     .foregroundStyle(Theme.muted)
             }
             Spacer()
+            Button { confirmingDelete = true } label: { Image(systemName: "trash") }
+                .buttonStyle(OutlineButtonStyle()).help("Borrar marca").accessibilityLabel("Borrar marca")
             Button("Pedir contenido para esta marca") {
                 model.selectedBrandId = brand.id
                 model.section = .chat

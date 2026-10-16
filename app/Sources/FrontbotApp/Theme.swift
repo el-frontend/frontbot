@@ -102,16 +102,17 @@ struct OutlineButtonStyle: ButtonStyle {
     }
 }
 
-/// Acción principal con el color de acento.
+/// Acción principal con el color de acento (o en rojo si borra algo).
 struct AccentButtonStyle: ButtonStyle {
+    var destructive = false
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Theme.onAccent)
+            .foregroundStyle(destructive ? Color.white : Theme.onAccent)
             .padding(.horizontal, 14)
             .frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
+            .background(RoundedRectangle(cornerRadius: 8).fill(destructive ? Theme.danger : Theme.accent))
             .opacity(!isEnabled ? 0.4 : configuration.isPressed ? 0.8 : 1)
             .contentShape(Rectangle())
     }

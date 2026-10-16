@@ -6,6 +6,9 @@ struct BrandsView: View {
     @Bindable var model: AppModel
     @State private var showingNew = false
     @State private var showingNewAgent = false
+    @State private var brandToDelete: Brand?
+    @State private var conversationToDelete: Conversation?
+    @State private var hoveredConversationId: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -95,6 +98,9 @@ struct BrandsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Borrar marca…", role: .destructive) { brandToDelete = brand }
+                    }
                 }
                 if model.brands.isEmpty {
                     Text("Crea tu primera marca con +").font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 10)
@@ -127,6 +133,7 @@ struct BrandsView: View {
         .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 300)
         .sheet(isPresented: $showingNew) { NewBrandSheet(model: model) }
         .sheet(isPresented: $showingNewAgent) { NewAgentSheet(model: model) }
+        .sheet(item: $brandToDelete) { brand in DeleteBrandSheet(model: model, brand: brand) }
     }
 
     private func navRow(_ title: String, icon: String, section: AppModel.Section, count: Int? = nil, countColor: Color = Theme.muted) -> some View {
@@ -156,29 +163,59 @@ struct BrandsView: View {
                 VStack(spacing: 2) {
                     ForEach(model.conversations) { conversation in
                         let selected = model.section == .chat && model.currentConversationId == conversation.id
+                        let hovered = hoveredConversationId == conversation.id
                         Button { model.openConversation(conversation) } label: {
                             HStack(spacing: 8) {
                                 if let agent = model.agent(id: conversation.agentId), !agent.isDefault { AgentAvatar(agent: agent, size: 14) }
                                 Text(conversation.title).lineLimit(1).truncationMode(.tail)
                                 Spacer(minLength: 4)
+                                // El hueco de la fecha deja sitio a la papelera al pasar el ratón.
                                 Text(Self.age(conversation.updatedAt)).font(Theme.mono(10)).foregroundStyle(Theme.muted)
+                                    .opacity(hovered ? 0 : 1)
                             }
                             .font(.system(size: 12.5))
                             .foregroundStyle(selected ? Theme.text : Theme.textSecondary)
                             .padding(.horizontal, 10)
                             .frame(height: 30)
-                            .background(RoundedRectangle(cornerRadius: 7).fill(selected ? Theme.selected : .clear))
+                            .background(RoundedRectangle(cornerRadius: 7).fill(selected || hovered ? Theme.selected : .clear))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .overlay(alignment: .trailing) {
+                            if hovered && canDelete(conversation) {
+                                Button { conversationToDelete = conversation } label: {
+                                    Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                        .frame(width: 26, height: 26).contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain).padding(.trailing, 4)
+                                .help("Borrar conversación").accessibilityLabel("Borrar conversación")
+                            }
+                        }
+                        .onHover { inside in
+                            if inside { hoveredConversationId = conversation.id }
+                            else if hoveredConversationId == conversation.id { hoveredConversationId = nil }
+                        }
                         .contextMenu {
-                            Button("Eliminar conversación", role: .destructive) { model.deleteConversation(conversation) }
+                            Button("Borrar conversación…", role: .destructive) { conversationToDelete = conversation }
+                                .disabled(!canDelete(conversation))
                         }
                     }
                 }
             }
             .scrollIndicators(.never)
         }
+        .confirmationDialog("¿Borrar «\(conversationToDelete?.title ?? "")»?",
+                            isPresented: Binding(get: { conversationToDelete != nil }, set: { if !$0 { conversationToDelete = nil } }),
+                            presenting: conversationToDelete) { conversation in
+            Button("Borrar conversación", role: .destructive) { model.deleteConversation(conversation) }
+        } message: { _ in
+            Text("Se borran todos sus mensajes. Esto no se puede deshacer.")
+        }
+    }
+
+    /// La conversación en la que el agente está respondiendo no se puede borrar.
+    private func canDelete(_ conversation: Conversation) -> Bool {
+        !(model.isRunning && model.currentConversationId == conversation.id)
     }
 
     /// "ahora", "12m", "3h", "2d", "5sem".
@@ -239,5 +276,45 @@ struct NewBrandSheet: View {
         .background(Theme.sidebar)
         .onAppear { model.errorMessage = nil }
         .onDisappear { model.errorMessage = nil }
+    }
+}
+
+/// Borrar una marca pide escribir su nombre: se lleva sus posts, imágenes y guía.
+struct DeleteBrandSheet: View {
+    let model: AppModel
+    let brand: Brand
+    @Environment(\.dismiss) private var dismiss
+    @State private var typed = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("¿Borrar \(brand.name)?").font(.system(size: 16, weight: .semibold))
+            Text("Se borran sus posts, sus imágenes y su guía de marca. Las tareas y conversaciones se quedan, sin marca. Esto no se puede deshacer.")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Escribe **\(brand.name)** para confirmar").font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                TextField(brand.name, text: $typed).textFieldStyle(.plain).padding(.horizontal, 10).frame(height: 34).panel(radius: 8)
+                    .onSubmit(delete)
+            }
+            // La alerta de la ventana no se ve mientras hay una hoja abierta: el error va aquí.
+            if let error = model.errorMessage { Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger) }
+            HStack {
+                Spacer()
+                Button("Cancelar") { dismiss() }.buttonStyle(OutlineButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Borrar marca", action: delete)
+                    .buttonStyle(AccentButtonStyle(destructive: true))
+                    .disabled(!brand.deletionConfirmed(by: typed))
+            }
+        }
+        .padding(22)
+        .frame(width: 400)
+        .background(Theme.sidebar)
+        .onAppear { model.errorMessage = nil }
+        .onDisappear { model.errorMessage = nil }
+    }
+
+    private func delete() {
+        guard brand.deletionConfirmed(by: typed) else { return }
+        if model.deleteBrand(brand) { dismiss() }
     }
 }

@@ -157,6 +157,24 @@ final class AppModel {
         }
     }
 
+    /// Borra la marca, sus posts, imágenes y guía. Las tareas y conversaciones se quedan, sin marca.
+    @discardableResult
+    func deleteBrand(_ brand: Brand) -> Bool {
+        if isRunning && selectedBrandId == brand.id {
+            errorMessage = "El agente está trabajando con \(brand.name): espera a que termine para borrarla."
+            return false
+        }
+        guard perform({ try db.deleteBrand(id: brand.id) }) else { return false }
+        // La marca ya no está en la base: si fallan los archivos, solo quedan huérfanos en disco.
+        try? BrandFiles(paths: paths).deleteBrand(brandId: brand.id)
+        brands = (try? db.brands(workspaceId: workspace.id)) ?? brands.filter { $0.id != brand.id }
+        if selectedBrandId == brand.id { selectedBrandId = brands.first?.id }
+        if section == .brand(brand.id) { section = .chat }
+        reloadContent()
+        reloadConversations()
+        return true
+    }
+
     func importImages(_ urls: [URL]) {
         guard let id = selectedBrandId else { return }
         let importer = AssetImporter(db: db, paths: paths)

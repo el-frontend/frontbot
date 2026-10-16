@@ -21,6 +21,15 @@ final class BrandFilesTests: XCTestCase {
         XCTAssertEqual(try files.readGuide(brandId: id), "# Tono\nCercano ☕️")
     }
 
+    func testDeleteBrandRemovesItsFolder() throws {
+        let id = UUID().uuidString
+        try files.writeGuide(brandId: id, markdown: "# Tono")
+        try files.deleteBrand(brandId: id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.paths.brandDir(id).path))
+        XCTAssertNoThrow(try files.deleteBrand(brandId: id), "borrar una carpeta que no existe no es un error")
+        XCTAssertThrowsError(try files.deleteBrand(brandId: ".."))
+    }
+
     func testRejectsPathTraversalIds() {
         XCTAssertThrowsError(try files.writeGuide(brandId: "../../etc", markdown: "x"))
         XCTAssertThrowsError(try files.readGuide(brandId: "../x"))

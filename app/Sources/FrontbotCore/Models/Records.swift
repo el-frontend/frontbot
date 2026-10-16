@@ -14,6 +14,11 @@ public struct Brand: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     public var industry: String
     public var networks: [Network]
     public var createdAt: Date
+
+    /// Para borrar una marca hay que escribir su nombre exacto (sin contar espacios de los extremos).
+    public func deletionConfirmed(by typed: String) -> Bool {
+        typed.trimmingCharacters(in: .whitespacesAndNewlines) == name
+    }
 }
 
 public struct BrandAsset: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
