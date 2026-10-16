@@ -16,6 +16,10 @@ struct RootView: View {
                 CalendarView(model: model)
             case .chat:
                 ChatView(model: model)
+            case .tasks:
+                TasksView(model: model)
+            case .ideas:
+                IdeasView(model: model)
             }
         }
         .frame(minWidth: 1000, minHeight: 640)

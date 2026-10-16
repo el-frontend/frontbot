@@ -12,7 +12,7 @@ struct ChatMessage: Identifiable, Equatable {
 
 @MainActor @Observable
 final class AppModel {
-    enum Section: Hashable { case brand(String), calendar, chat }
+    enum Section: Hashable { case brand(String), calendar, chat, tasks, ideas }
 
     var section: Section = .chat
     var brands: [Brand] = []
@@ -23,6 +23,9 @@ final class AppModel {
     var apiKeyPresent = false
 
     var posts: [Post] = []
+    var tasks: [TaskItem] = []
+    var ideas: [BusinessIdea] = []
+    var today: TodaySummary?
     var assets: [BrandAsset] = []
     var guide: String?
     var calendarScope: CalendarScope = .week
@@ -81,6 +84,9 @@ final class AppModel {
     }
 
     func reloadContent() {
+        tasks = (try? db.tasks(workspaceId: workspace.id, on: nil)) ?? []
+        ideas = (try? db.ideas(workspaceId: workspace.id)) ?? []
+        today = try? db.todaySummary(workspaceId: workspace.id)
         posts = (try? db.posts(brandId: nil, status: nil)) ?? []
         if let id = selectedBrandId {
             assets = (try? db.assets(brandId: id, kind: .image)) ?? []
@@ -213,6 +219,35 @@ final class AppModel {
     }
 
     func brandAssets(_ brandId: String) -> [BrandAsset] { (try? db.assets(brandId: brandId, kind: .image)) ?? [] }
+
+    // MARK: Tareas e ideas
+
+    func addTask(title: String, dueDate: Date?) {
+        perform { _ = try db.createTask(workspaceId: workspace.id, title: title, dueDate: dueDate, brandId: nil) }
+        reloadContent()
+    }
+
+    func setTaskDone(_ task: TaskItem, done: Bool) {
+        perform { _ = try db.setTaskDone(id: task.id, done: done) }
+        reloadContent()
+    }
+
+    func deleteTask(_ task: TaskItem) {
+        perform { try db.deleteTask(id: task.id) }
+        reloadContent()
+    }
+
+    func deleteIdea(_ idea: BusinessIdea) {
+        perform {
+            let removed = try db.deleteIdea(id: idea.id)
+            if let path = removed?.reportPath { try? FileManager.default.removeItem(atPath: path) }
+        }
+        reloadContent()
+    }
+
+    func ideaReport(_ idea: BusinessIdea) -> String? {
+        idea.reportPath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+    }
 
     // MARK: Chat
 

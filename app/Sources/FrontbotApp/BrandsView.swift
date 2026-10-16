@@ -12,6 +12,10 @@ struct BrandsView: View {
                     .buttonStyle(.plain).bold(model.section == .chat)
                 Button { model.section = .calendar } label: { Label("Calendario", systemImage: "calendar") }
                     .buttonStyle(.plain).bold(model.section == .calendar)
+                Button { model.section = .tasks } label: { Label("Tareas", systemImage: "checklist") }
+                    .buttonStyle(.plain).bold(model.section == .tasks)
+                Button { model.section = .ideas } label: { Label("Ideas", systemImage: "lightbulb") }
+                    .buttonStyle(.plain).bold(model.section == .ideas)
             }
             Section("Marcas") {
                 ForEach(model.brands) { brand in
