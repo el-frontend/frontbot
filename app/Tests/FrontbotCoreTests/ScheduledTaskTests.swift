@@ -194,6 +194,15 @@ final class ScheduledRunLogTests: XCTestCase {
         XCTAssertTrue(try db.taskRuns(taskId: task.id).first?.notified == true)
     }
 
+    func testManualRunsAlwaysBecomeConversations() throws {
+        let tr = try db.startTaskRun(taskId: task.id)
+        var log = ScheduledRunLog(taskRunId: tr.id, task: task, startedAt: tr.startedAt, manual: true)
+        log.record(.agent, "Hello world")
+        let result = try db.completeScheduledRun(log, run: agentRun(.done, "Hello world"), workspaceId: ws.id, proposalsCreated: 0)
+        XCTAssertNotNil(result.conversationId)
+        XCTAssertFalse(result.surfaced, "no fue un aviso del agente: no hace falta notificación")
+    }
+
     func testTradeProposalsAlsoSurfaceTheRun() throws {
         let tr = try db.startTaskRun(taskId: task.id)
         let log = ScheduledRunLog(taskRunId: tr.id, task: task, startedAt: tr.startedAt)
