@@ -8,6 +8,7 @@ struct AgentDetailView: View {
     @State private var editing = false
     @State private var draft: AgentDraft
     @State private var confirmingDelete = false
+    @State private var creatingTask = false
 
     init(model: AppModel, agent: Agent) {
         self.model = model
@@ -25,6 +26,7 @@ struct AgentDetailView: View {
                     settings
                     if agent.trading { TradingSettings(model: model, agent: agent).id(agent.id) }
                     skillsSection
+                    tasksSection
                     memory
                 }
                 .frame(maxWidth: 820, alignment: .leading)
@@ -170,6 +172,25 @@ struct AgentDetailView: View {
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 12)
+    }
+
+    private var tasksSection: some View {
+        let tasks = model.tasks(agentId: agent.id)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Tareas programadas").font(.system(size: 14, weight: .semibold))
+                Text("\(tasks.filter { $0.status == .active }.count) activas").font(Theme.mono()).foregroundStyle(Theme.muted)
+                Spacer()
+                Button("Nueva tarea") { creatingTask = true }.buttonStyle(OutlineButtonStyle(prominent: true)).disabled(agent.status != .active)
+            }
+            if tasks.isEmpty {
+                Text("\(agent.name) solo trabaja cuando le hablas. Crea una tarea para que haga algo solo cada cierto tiempo y te avise si encuentra algo.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+            ForEach(tasks) { TaskRow(model: model, task: $0) }
+        }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 12)
+        .sheet(isPresented: $creatingTask) { TaskEditorSheet(model: model, agent: agent, task: nil) }
     }
 
     private var memory: some View {

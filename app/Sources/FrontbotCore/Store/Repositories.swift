@@ -451,6 +451,11 @@ extension AppDatabase {
         }
     }
 
+    /// Propuestas de trade del agente creadas desde `since` (para saber si una tarea programada propuso algo).
+    public func proposalsCount(agentId: String, since: Date) throws -> Int {
+        try writer.read { try TradeProposal.filter(Column("agentId") == agentId && Column("createdAt") >= since).fetchCount($0) }
+    }
+
     /// Trades enviados hoy (día local) por el agente.
     public func tradesToday(agentId: String, now: Date = Date()) throws -> Int {
         let start = Calendar.current.startOfDay(for: now)
@@ -470,6 +475,142 @@ extension AppDatabase {
                 """)
             return db.changesCount
         }
+    }
+
+    // MARK: Tareas programadas
+
+    public func createTask(agentId: String, draft: TaskDraft, status: TaskStatus, createdBy: String?, templateKey: String? = nil,
+                           now: Date = Date()) throws -> ScheduledTask {
+        let clean = try Self.validated(draft)
+        guard let agent = try agent(id: agentId) else { throw notFound("agente", agentId) }
+        let stamp = Date.dbNow()
+        let task = ScheduledTask(id: UUID().uuidString, agentId: agentId, name: clean.name, instruction: clean.instruction,
+                                 schedule: clean.schedule, model: AgentModel.resolve(clean.model ?? agent.model), status: status,
+                                 maxRunsPerDay: clean.maxRunsPerDay, lastRunAt: nil,
+                                 nextRunAt: status == .active ? clean.schedule.next(after: now) : nil,
+                                 createdByAgentId: createdBy, templateKey: templateKey, createdAt: stamp, updatedAt: stamp)
+        try writer.write { try task.insert($0) }
+        return task
+    }
+
+    public func updateTask(id: String, draft: TaskDraft, now: Date = Date()) throws -> ScheduledTask {
+        let clean = try Self.validated(draft)
+        return try writer.write { db in
+            guard var t = try ScheduledTask.fetchOne(db, key: id) else { throw notFound("tarea", id) }
+            let scheduleChanged = t.schedule != clean.schedule
+            t.name = clean.name; t.instruction = clean.instruction; t.schedule = clean.schedule
+            t.model = AgentModel.resolve(clean.model ?? t.model); t.maxRunsPerDay = clean.maxRunsPerDay
+            if scheduleChanged && t.status == .active { t.nextRunAt = clean.schedule.next(after: now) }
+            t.updatedAt = .dbNow()
+            try t.update(db)
+            return t
+        }
+    }
+
+    /// Solo el usuario activa o pausa tareas: ninguna herramienta llama a esto.
+    public func setTaskStatus(id: String, _ status: TaskStatus, now: Date = Date()) throws -> ScheduledTask {
+        try writer.write { db in
+            guard var t = try ScheduledTask.fetchOne(db, key: id) else { throw notFound("tarea", id) }
+            t.status = status
+            t.nextRunAt = status == .active ? t.schedule.next(after: now) : nil
+            t.updatedAt = .dbNow()
+            try t.update(db)
+            return t
+        }
+    }
+
+    public func deleteTask(scheduledTaskId id: String) throws {
+        _ = try writer.write { try ScheduledTask.deleteOne($0, key: id) }
+    }
+
+    public func task(id: String) throws -> ScheduledTask? {
+        try writer.read { try ScheduledTask.fetchOne($0, key: id) }
+    }
+
+    public func tasks(agentId: String? = nil) throws -> [ScheduledTask] {
+        try writer.read { db in
+            var r = ScheduledTask.order(Column("status"), Column("nextRunAt"), Column("name"))
+            if let agentId { r = r.filter(Column("agentId") == agentId) }
+            return try r.fetchAll(db)
+        }
+    }
+
+    /// Activas, con su hora pasada, agente activo, sin otra ejecución en curso y dentro del límite del día.
+    public func dueTasks(now: Date = Date()) throws -> [ScheduledTask] {
+        let dayStart = Calendar.current.startOfDay(for: now)
+        return try writer.read { db in
+            try ScheduledTask.fetchAll(db, sql: """
+                SELECT t.* FROM scheduledTask t JOIN agent a ON a.id = t.agentId
+                WHERE t.status = 'active' AND a.status = 'active' AND t.nextRunAt IS NOT NULL AND t.nextRunAt <= ?
+                  AND NOT EXISTS (SELECT 1 FROM taskRun r WHERE r.taskId = t.id AND r.status = 'running')
+                  AND (SELECT COUNT(*) FROM taskRun r WHERE r.taskId = t.id AND r.startedAt >= ?) < t.maxRunsPerDay
+                ORDER BY t.nextRunAt
+                """, arguments: [now, dayStart])
+        }
+    }
+
+    /// Empieza una ejecución y fija la próxima desde ahora (lo perdido corre una sola vez).
+    public func startTaskRun(taskId: String, now: Date = Date()) throws -> TaskRun {
+        try writer.write { db in
+            guard var t = try ScheduledTask.fetchOne(db, key: taskId) else { throw notFound("tarea", taskId) }
+            t.lastRunAt = now
+            t.nextRunAt = t.status == .active ? t.schedule.next(after: now) : t.nextRunAt
+            t.updatedAt = .dbNow()
+            try t.update(db)
+            let run = TaskRun(id: UUID().uuidString, taskId: taskId, agentRunId: nil, status: .running, summary: nil,
+                              notified: false, conversationId: nil, costUsd: 0, startedAt: now, finishedAt: nil)
+            try run.insert(db)
+            return run
+        }
+    }
+
+    public func attachAgentRun(taskRunId: String, agentRunId: String) throws {
+        try writer.write { try $0.execute(sql: "UPDATE taskRun SET agentRunId = ? WHERE id = ?", arguments: [agentRunId, taskRunId]) }
+    }
+
+    public func finishTaskRun(id: String, status: TaskRunStatus, summary: String?, notified: Bool, conversationId: String?,
+                              costUsd: Double, now: Date = Date()) throws {
+        try writer.write { db in
+            guard var r = try TaskRun.fetchOne(db, key: id) else { return }
+            r.status = status; r.summary = summary; r.notified = notified; r.conversationId = conversationId
+            r.costUsd = costUsd; r.finishedAt = now
+            try r.update(db)
+        }
+    }
+
+    public func taskRuns(taskId: String, limit: Int = 50) throws -> [TaskRun] {
+        try writer.read { try TaskRun.filter(Column("taskId") == taskId).order(Column("startedAt").desc).limit(limit).fetchAll($0) }
+    }
+
+    /// Ejecuciones que quedaron "running" de una sesión anterior.
+    @discardableResult
+    public func failRunningTaskRuns() throws -> Int {
+        try writer.write { db in
+            try db.execute(sql: "UPDATE taskRun SET status = 'failed', summary = 'La app se cerró durante la ejecución.' WHERE status = 'running'")
+            return db.changesCount
+        }
+    }
+
+    /// Tareas sugeridas por la plantilla del agente (borradores; no se duplican).
+    @discardableResult
+    public func installTemplateTasks(for agent: Agent, now: Date = Date()) throws -> [ScheduledTask] {
+        let existing = Set(try tasks(agentId: agent.id).compactMap(\.templateKey))
+        return try TemplateTasks.tasks(for: agent.templateId).filter { !existing.contains($0.key) }.map {
+            try createTask(agentId: agent.id, draft: $0.draft, status: .draft, createdBy: nil, templateKey: $0.key, now: now)
+        }
+    }
+
+    static func validated(_ draft: TaskDraft) throws -> TaskDraft {
+        var d = draft
+        d.name = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        d.instruction = d.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !d.name.isEmpty else { throw ValidationError("La tarea necesita un nombre.") }
+        guard d.name.count <= 80 else { throw ValidationError("El nombre de la tarea admite hasta 80 caracteres.") }
+        guard !d.instruction.isEmpty else { throw ValidationError("La tarea necesita una instrucción.") }
+        guard d.instruction.count <= 4_000 else { throw ValidationError("La instrucción admite hasta 4.000 caracteres.") }
+        guard (1...96).contains(d.maxRunsPerDay) else { throw ValidationError("El límite diario debe estar entre 1 y 96 ejecuciones.") }
+        d.schedule = try d.schedule.validated()
+        return d
     }
 
     // MARK: Conversaciones

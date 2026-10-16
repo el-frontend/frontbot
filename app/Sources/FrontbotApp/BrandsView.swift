@@ -38,6 +38,7 @@ struct BrandsView: View {
                 navRow("Tareas", icon: "checklist", section: .tasks, count: model.today?.tasks.count)
                 navRow("Ideas", icon: "lightbulb", section: .ideas)
                 navRow("Skills", icon: "puzzlepiece.extension", section: .skills, count: model.skillDraftCount, countColor: Theme.draft)
+                navRow("Programadas", icon: "clock.arrow.circlepath", section: .schedules, count: model.taskDraftCount, countColor: Theme.draft)
                 if model.hasTradingAgents {
                     navRow("Trades", icon: "chart.line.uptrend.xyaxis", section: .trades, count: model.pendingProposals.count, countColor: Theme.draft)
                 }
