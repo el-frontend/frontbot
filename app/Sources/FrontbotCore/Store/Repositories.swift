@@ -85,6 +85,23 @@ extension AppDatabase {
         }
     }
 
+    public func markPublished(id: String, url: String?) throws -> Post {
+        let trimmed = url?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        if let clean, !(clean.hasPrefix("https://") || clean.hasPrefix("http://")) {
+            throw ValidationError("La URL debe empezar con https://.")
+        }
+        return try writer.write { db in
+            guard var post = try Post.fetchOne(db, key: id) else { throw notFound("post", id) }
+            try PostStateMachine.checkTransition(from: post.status, to: .published, actor: .user)
+            post.status = .published
+            post.publishedUrl = clean
+            post.updatedAt = .dbNow()
+            try post.update(db)
+            return post
+        }
+    }
+
     public func transitionPost(id: String, to status: PostStatus, actor: Actor) throws -> Post {
         try writer.write { db in
             guard var post = try Post.fetchOne(db, key: id) else { throw notFound("post", id) }
