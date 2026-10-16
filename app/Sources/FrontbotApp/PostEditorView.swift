@@ -9,6 +9,7 @@ struct PostEditorView: View {
     @State private var media: [String]
     @State private var hasDate: Bool
     @State private var date: Date
+    @State private var publishedUrl = ""
 
     init(model: AppModel, post: Post) {
         self.model = model
@@ -19,7 +20,9 @@ struct PostEditorView: View {
         _date = State(initialValue: post.scheduledFor ?? Date())
     }
 
-    private var editable: Bool { post.status == .draft || post.status == .approved }
+    /// El post actual (no el valor capturado al abrir la hoja): sigue los cambios de estado.
+    private var current: Post { model.currentPost(post.id) ?? post }
+    private var editable: Bool { current.status == .draft || current.status == .approved }
     private var validationError: String? {
         do { try PostRules.validate(body: text, network: post.network); return nil } catch { return error.message }
     }
@@ -62,14 +65,42 @@ struct PostEditorView: View {
             Toggle("Fecha programada", isOn: $hasDate).disabled(!editable)
             if hasDate { DatePicker("", selection: $date).labelsHidden().disabled(!editable) }
 
+            if current.status == .approved {
+                Divider()
+                Button(model.preparingPostId == post.id ? "Preparando…" : "Preparar publicación en \(post.network == .instagram ? "Instagram" : "LinkedIn")") {
+                    model.preparePublication(current)
+                }
+                .disabled(model.preparingPostId != nil)
+            }
+            if current.status == .preparing || current.status == .scheduled {
+                Divider()
+                if let message = model.preparationMessage { Text(message).font(.callout) }
+                Text(current.status == .preparing
+                     ? "Publica o programa el post en la ventana de Chrome y confírmalo aquí."
+                     : "Programado en la red. Confírmalo cuando se publique.")
+                    .font(.caption).foregroundStyle(.secondary)
+                TextField("URL del post publicado (opcional)", text: $publishedUrl)
+                HStack {
+                    Button("Ya se publicó") { model.confirmPublished(current, url: publishedUrl) }
+                    if current.status == .preparing {
+                        Button("Lo programé en la red") { model.confirmScheduled(current) }
+                        Spacer()
+                        Button("Cancelar preparación") { model.cancelPreparation(current) }
+                    }
+                }
+            }
+            if current.status == .published, let url = current.publishedUrl, let link = URL(string: url) {
+                Link("Ver publicación", destination: link)
+            }
+
             HStack {
-                Button("Archivar", role: .destructive) { model.archive(post); dismiss() }.disabled(post.status == .archived)
+                Button("Archivar", role: .destructive) { model.archive(post); dismiss() }.disabled(current.status == .archived)
                 Spacer()
                 Button("Cerrar") { dismiss() }
                 if editable {
                     Button("Guardar") { if save() { dismiss() } }.disabled(validationError != nil)
                 }
-                if post.status == .draft {
+                if current.status == .draft {
                     Button("Guardar y aprobar") { if save() { model.approve(post); dismiss() } }
                         .keyboardShortcut(.defaultAction).disabled(validationError != nil)
                 }
@@ -86,7 +117,7 @@ struct PostEditorView: View {
     }
 
     private var statusLabel: String {
-        switch post.status {
+        switch current.status {
         case .draft: "Borrador"
         case .approved: "Aprobado"
         case .preparing: "Preparando"

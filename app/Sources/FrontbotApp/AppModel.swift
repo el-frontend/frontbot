@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Observation
 import FrontbotCore
 
@@ -28,6 +29,8 @@ final class AppModel {
     var calendarDate = Date()
     var calendarNetwork: Network?
     var calendarBrandId: String?
+    var preparingPostId: String?
+    var preparationMessage: String?
 
     private let db: AppDatabase
     private let paths: AppPaths
@@ -60,7 +63,8 @@ final class AppModel {
             scriptPath: env["FRONTBOT_AGENT_SCRIPT"] ?? "",
             apiKey: apiKey,
             model: env["FRONTBOT_MODEL"] ?? AgentConfig.defaultModel,
-            fakeAgent: env["FRONTBOT_FAKE_AGENT"] == "1")
+            fakeAgent: env["FRONTBOT_FAKE_AGENT"] == "1",
+            browserProfileDir: AppPaths.standard().browserProfile.path)
     }
 
     var selectedBrand: Brand? { brands.first { $0.id == selectedBrandId } }
@@ -147,6 +151,61 @@ final class AppModel {
     func archive(_ post: Post) {
         perform { _ = try db.transitionPost(id: post.id, to: .archived, actor: .user) }
         reloadContent()
+    }
+
+    func currentPost(_ id: String) -> Post? { posts.first { $0.id == id } }
+
+    // MARK: Publicación asistida
+
+    private var publishing: PublishingService { PublishingService(db: db, preparer: client) }
+
+    func preparePublication(_ post: Post) {
+        preparingPostId = post.id
+        preparationMessage = nil
+        Task {
+            defer { preparingPostId = nil }
+            do {
+                let (_, result) = try await publishing.prepare(postId: post.id)
+                if result.mode == .manual {
+                    // Modo manual: el texto al portapapeles y las imágenes en Finder.
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(post.body, forType: .string)
+                    let files = post.media.compactMap { try? db.asset(id: $0)?.path }.map { URL(fileURLWithPath: $0) }
+                    if !files.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(files) }
+                }
+                preparationMessage = result.message
+            } catch let e as ValidationError {
+                errorMessage = e.message
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            reloadContent()
+        }
+    }
+
+    func confirmPublished(_ post: Post, url: String) {
+        perform { _ = try publishing.confirmPublished(postId: post.id, url: url) }
+        preparationMessage = nil
+        reloadContent()
+    }
+
+    func confirmScheduled(_ post: Post) {
+        perform { _ = try publishing.confirmScheduled(postId: post.id) }
+        preparationMessage = nil
+        reloadContent()
+    }
+
+    func cancelPreparation(_ post: Post) {
+        perform { _ = try publishing.cancelPreparation(postId: post.id) }
+        preparationMessage = nil
+        reloadContent()
+    }
+
+    func openLogin(_ network: Network) {
+        Task {
+            do { try await client.openLogin(network: network) }
+            catch { errorMessage = error.localizedDescription }
+        }
     }
 
     func brandAssets(_ brandId: String) -> [BrandAsset] { (try? db.assets(brandId: brandId, kind: .image)) ?? [] }
