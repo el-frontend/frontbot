@@ -12,7 +12,7 @@ struct IdeasView: View {
                     HStack {
                         Text(idea.title).bold()
                         Spacer()
-                        Text(String(repeating: "★", count: idea.score)).foregroundStyle(.orange)
+                        Text(String(repeating: "★", count: idea.score)).foregroundStyle(Theme.draft)
                     }
                     Text(idea.summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
@@ -50,5 +50,7 @@ struct IdeasView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
     }
 }

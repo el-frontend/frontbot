@@ -12,54 +12,114 @@ struct CalendarView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Button { model.calendarDate = content.shift(model.calendarDate, scope: model.calendarScope, by: -1) } label: { Image(systemName: "chevron.left") }
-                Button("Hoy") { model.calendarDate = Date() }
-                Button { model.calendarDate = content.shift(model.calendarDate, scope: model.calendarScope, by: 1) } label: { Image(systemName: "chevron.right") }
-                Text(title).font(.title2).bold()
-                Spacer()
-                Picker("Marca", selection: $model.calendarBrandId) {
-                    Text("Todas las marcas").tag(String?.none)
-                    ForEach(model.brands) { Text($0.name).tag(String?.some($0.id)) }
-                }.frame(width: 180)
-                Picker("Red", selection: $model.calendarNetwork) {
-                    Text("Todas las redes").tag(Network?.none)
-                    ForEach(Network.allCases, id: \.self) { Text($0.rawValue).tag(Network?.some($0)) }
-                }.frame(width: 160)
-                Picker("", selection: $model.calendarScope) {
-                    Text("Semana").tag(CalendarScope.week)
-                    Text("Mes").tag(CalendarScope.month)
-                }.pickerStyle(.segmented).frame(width: 150)
+        VStack(spacing: 0) {
+            header
+            grid
+            unscheduled
+        }
+        .background(Theme.background)
+        .inspector(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+            if let post = editing {
+                PostEditorView(model: model, post: post) { editing = nil }
+                    .id(post.id)
+                    .inspectorColumnWidth(min: 480, ideal: 560, max: 700)
             }
+        }
+    }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 7), spacing: 6) {
-                ForEach(["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"], id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
-                ForEach(days) { day in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(day.date.formatted(.dateTime.day())).font(.caption).bold()
-                            .foregroundStyle(Calendar.current.isDateInToday(day.date) ? Color.accentColor : .primary)
-                        ForEach(day.posts) { post in PostChip(model: model, post: post).onTapGesture { editing = post } }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(6)
-                    .frame(maxWidth: .infinity, minHeight: model.calendarScope == .week ? 220 : 90, alignment: .topLeading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(day.inScope ? Color.secondary.opacity(0.08) : Color.clear))
-                    .opacity(day.inScope ? 1 : 0.5)
+    private var header: some View {
+        HStack(spacing: 8) {
+            Button { model.calendarDate = content.shift(model.calendarDate, scope: model.calendarScope, by: -1) } label: { Image(systemName: "chevron.left") }
+                .buttonStyle(OutlineButtonStyle()).accessibilityLabel("Anterior")
+            Button("Hoy") { model.calendarDate = Date() }.buttonStyle(OutlineButtonStyle(prominent: true))
+            Button { model.calendarDate = content.shift(model.calendarDate, scope: model.calendarScope, by: 1) } label: { Image(systemName: "chevron.right") }
+                .buttonStyle(OutlineButtonStyle()).accessibilityLabel("Siguiente")
+            Text(title).font(.system(size: 17, weight: .semibold)).padding(.leading, 8)
+            Spacer()
+            Picker("Marca", selection: $model.calendarBrandId) {
+                Text("Todas las marcas").tag(String?.none)
+                ForEach(model.brands) { Text($0.name).tag(String?.some($0.id)) }
+            }
+            .labelsHidden().fixedSize()
+            Picker("Red", selection: $model.calendarNetwork) {
+                Text("Todas las redes").tag(Network?.none)
+                ForEach(Network.allCases, id: \.self) { Text(Theme.networkName($0)).tag(Network?.some($0)) }
+            }
+            .labelsHidden().fixedSize()
+            Picker("Vista", selection: $model.calendarScope) {
+                Text("Semana").tag(CalendarScope.week)
+                Text("Mes").tag(CalendarScope.month)
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 150)
+        }
+        .padding(.horizontal, 20).frame(height: 56)
+        .overlay(alignment: .bottom) { Theme.border.frame(height: 1) }
+    }
+
+    private var grid: some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
+        return ScrollView {
+            LazyVGrid(columns: columns, spacing: 0) {
+                ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
+                    dayCell(day, showWeekday: model.calendarScope == .week || index < 7)
                 }
             }
+        }
+        .frame(maxHeight: .infinity)
+        .overlay(alignment: .bottom) { Theme.border.frame(height: 1) }
+    }
 
-            let pending = content.unscheduled(model.posts, brandId: model.calendarBrandId, network: model.calendarNetwork)
-            if !pending.isEmpty {
-                Text("Sin fecha").font(.headline)
-                ScrollView(.horizontal) {
-                    HStack { ForEach(pending) { post in PostChip(model: model, post: post).frame(width: 200).onTapGesture { editing = post } } }
+    private func dayCell(_ day: CalendarDay, showWeekday: Bool) -> some View {
+        let isToday = Calendar.current.isDateInToday(day.date)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if showWeekday {
+                    Text(day.date.formatted(.dateTime.weekday(.abbreviated)).uppercased())
+                        .font(.system(size: 11)).foregroundStyle(isToday ? Theme.accent : Theme.muted)
                 }
+                Text(day.date.formatted(.dateTime.day())).font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isToday ? Theme.accent : Theme.text)
+                if isToday { Text("hoy").font(.system(size: 11)).foregroundStyle(Theme.accent) }
+            }
+            ForEach(day.posts) { post in
+                PostChip(model: model, post: post).onTapGesture { editing = post }
             }
             Spacer(minLength: 0)
         }
-        .padding(20)
-        .sheet(item: $editing) { post in PostEditorView(model: model, post: post) }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: model.calendarScope == .week ? 420 : 120, alignment: .topLeading)
+        .background(isToday ? Color(hex: 0x0F0F12) : Color.clear)
+        .overlay(alignment: .trailing) { Color(hex: 0x1C1C1F).frame(width: 1) }
+        .overlay(alignment: .bottom) { if model.calendarScope == .month { Color(hex: 0x1C1C1F).frame(height: 1) } }
+        .opacity(day.inScope ? 1 : 0.4)
+    }
+
+    private var unscheduled: some View {
+        let pending = content.unscheduled(model.posts, brandId: model.calendarBrandId, network: model.calendarNetwork)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 14) {
+                Text("Sin fecha").font(.system(size: 13, weight: .semibold))
+                Text("\(pending.count) posts").font(Theme.mono()).foregroundStyle(Theme.muted)
+                Spacer()
+                ForEach([PostStatus.draft, .approved, .scheduled, .published], id: \.self) { status in
+                    HStack(spacing: 6) {
+                        StatusDot(color: Theme.statusColor(status))
+                        Text(status == .scheduled ? "Preparando / programado" : Theme.statusLabel(status))
+                    }
+                    .font(Theme.mono()).foregroundStyle(Theme.muted)
+                }
+            }
+            if !pending.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(pending) { post in
+                            PostChip(model: model, post: post, dashed: true).frame(width: 260).onTapGesture { editing = post }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 14)
     }
 
     private var title: String {
@@ -72,30 +132,31 @@ struct CalendarView: View {
 struct PostChip: View {
     let model: AppModel
     let post: Post
+    var dashed = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                Circle().fill(color).frame(width: 7, height: 7)
-                Text(model.brand(id: post.brandId)?.name ?? "").font(.caption2).bold()
-                Text(post.network == .instagram ? "IG" : "in").font(.caption2).foregroundStyle(.secondary)
-                if let at = post.scheduledFor { Text(at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.secondary) }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                StatusDot(color: Theme.statusColor(post.status))
+                Text(meta).lineLimit(1)
             }
-            Text(post.body).font(.caption).lineLimit(2)
+            .font(Theme.mono(10)).foregroundStyle(Theme.muted)
+            Text(post.body).font(.system(size: 12)).lineSpacing(2).lineLimit(3).foregroundStyle(Theme.text)
         }
-        .padding(5)
+        .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
+        .background(RoundedRectangle(cornerRadius: 9).fill(dashed ? Theme.surface : Color(hex: 0x141417)))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(dashed ? Color(hex: 0x2F2F34) : Color(hex: 0x26262A),
+                                                         style: StrokeStyle(lineWidth: 1, dash: dashed ? [4, 3] : [])))
         .contentShape(Rectangle())
     }
 
-    private var color: Color {
-        switch post.status {
-        case .draft: .orange
-        case .approved: .green
-        case .preparing, .scheduled: .blue
-        case .published: .purple
-        case .archived: .gray
-        }
+    private var meta: String {
+        var parts: [String] = []
+        if let at = post.scheduledFor { parts.append(at.formatted(date: .omitted, time: .shortened)) }
+        else { parts.append(Theme.statusLabel(post.status)) }
+        parts.append(Theme.networkShort(post.network))
+        if let brand = model.brand(id: post.brandId) { parts.append(brand.name) }
+        return parts.joined(separator: " · ")
     }
 }
