@@ -29,6 +29,12 @@ public struct ToolHandler: Sendable {
             guard try db.brand(id: id) != nil else { throw ValidationError("No existe marca con id \(id).") }
             try files.writeGuide(brandId: id, markdown: try string(params, "markdown"))
             return ["ok": true]
+        case "tool.brands_list_assets":
+            let id = try string(params, "brand_id")
+            let assets = try db.assets(brandId: id, kind: nil)
+            return ["assets": .array(assets.map { a in
+                ["id": .string(a.id), "kind": .string(a.kind), "file_name": .string(URL(fileURLWithPath: a.path).lastPathComponent)]
+            })]
         case "tool.posts_list":
             let status = try params["status"]?.stringValue.map(parseStatus)
             let posts = try db.posts(brandId: params["brand_id"]?.stringValue, status: status)
@@ -40,11 +46,11 @@ public struct ToolHandler: Sendable {
         case "tool.posts_create_draft":
             let post = try db.createDraft(
                 brandId: try string(params, "brand_id"), network: try parseNetwork(try string(params, "network")),
-                body: try string(params, "body"), media: [], scheduledFor: try optionalDate(params, "scheduled_for"))
+                body: try string(params, "body"), media: mediaIds(params) ?? [], scheduledFor: try optionalDate(params, "scheduled_for"))
             return ["post_id": .string(post.id)]
         case "tool.posts_update_draft":
             _ = try db.updateDraft(id: try string(params, "post_id"), body: params["body"]?.stringValue,
-                                   media: nil, scheduledFor: try optionalDate(params, "scheduled_for"))
+                                   media: mediaIds(params), scheduledFor: try optionalDate(params, "scheduled_for"))
             return ["ok": true]
         case "tool.tasks_list":
             let day = try optionalDate(params, "date")
@@ -82,6 +88,10 @@ public struct ToolHandler: Sendable {
     private func string(_ params: JSONValue, _ key: String) throws -> String {
         guard let value = params[key]?.stringValue else { throw ValidationError("Falta el parámetro \(key).") }
         return value
+    }
+
+    private func mediaIds(_ params: JSONValue) -> [String]? {
+        params["media"]?.arrayValue?.compactMap(\.stringValue)
     }
 
     private func parseNetwork(_ raw: String) throws -> Network {
