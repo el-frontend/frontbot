@@ -23,6 +23,7 @@ struct AgentDetailView: View {
                     if agent.status == .draft { draftBanner }
                     instructions
                     settings
+                    memory
                 }
                 .frame(maxWidth: 820, alignment: .leading)
                 .padding(.horizontal, 28).padding(.vertical, 22)
@@ -127,6 +128,36 @@ struct AgentDetailView: View {
                     Text("Trading en Hyperliquid: se configura cuando llegue la conexión con el exchange.")
                         .font(.system(size: 12)).foregroundStyle(Theme.muted)
                 }
+            }
+        }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 12)
+    }
+
+    private var memory: some View {
+        let notes = model.memories(agentId: agent.id)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Memoria").font(.system(size: 14, weight: .semibold))
+                Text("\(notes.count) / \(AppDatabase.memoryLimit)").font(Theme.mono()).foregroundStyle(Theme.muted)
+                Spacer()
+                if !notes.isEmpty {
+                    Button("Vaciar") { model.clearMemory(agentId: agent.id) }.buttonStyle(OutlineButtonStyle()).foregroundStyle(Theme.danger)
+                }
+            }
+            if notes.isEmpty {
+                Text("\(agent.name) aún no recuerda nada. Guarda notas cuando aprende algo y resume cada conversación al cerrarla.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+            ForEach(notes) { note in
+                HStack(alignment: .top, spacing: 10) {
+                    Text(note.createdAt.formatted(.dateTime.day().month(.abbreviated))).font(Theme.mono(10)).foregroundStyle(Theme.muted)
+                        .frame(width: 52, alignment: .leading)
+                    Text(note.text).font(.system(size: 13)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    Button { if let id = note.id { model.forgetMemory(agentId: agent.id, memoryId: id) } } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.plain).foregroundStyle(Theme.muted).help("Olvidar").accessibilityLabel("Olvidar nota")
+                }
+                .padding(.vertical, 6)
+                .overlay(alignment: .bottom) { Theme.border.frame(height: 1) }
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 12)

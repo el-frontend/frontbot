@@ -319,6 +319,24 @@ final class AppModel {
 
     func agent(id: String?) -> Agent? { agents.first { $0.id == id } }
 
+    /// Cambia cuando la memoria puede haber cambiado (las vistas lo leen para refrescarse).
+    var memoryVersion = 0
+
+    func memories(agentId: String) -> [AgentMemory] {
+        _ = memoryVersion
+        return (try? db.memories(agentId: agentId)) ?? []
+    }
+
+    func forgetMemory(agentId: String, memoryId: Int64) {
+        perform { try db.forget(agentId: agentId, memoryId: memoryId) }
+        memoryVersion += 1
+    }
+
+    func clearMemory(agentId: String) {
+        perform { try db.clearMemory(agentId: agentId) }
+        memoryVersion += 1
+    }
+
     // MARK: Chat
 
     func send(prompt: String) {
@@ -329,13 +347,7 @@ final class AppModel {
             errorMessage = "\(agent.name) es un borrador: actívalo en su página para hablar con él."
             return
         }
-        let history = messages.compactMap { m -> ChatTurn? in
-            switch m.role {
-            case .user: ChatTurn(role: .user, text: m.text)
-            case .agent: ChatTurn(role: .agent, text: m.text)
-            case .tool, .error: nil
-            }
-        }
+        let history = chatHistory()
         if currentConversationId == nil {
             guard perform({
                 currentConversationId = try db.createConversation(workspaceId: workspace.id, agentId: selectedAgentId, brandId: selectedBrandId, firstPrompt: text).id
@@ -354,12 +366,36 @@ final class AppModel {
         }
     }
 
+    private func chatHistory() -> [ChatTurn] {
+        messages.compactMap { m -> ChatTurn? in
+            switch m.role {
+            case .user: ChatTurn(role: .user, text: m.text)
+            case .agent: ChatTurn(role: .agent, text: m.text)
+            case .tool, .error: nil
+            }
+        }
+    }
+
+    /// Al dejar una conversación, un run corto (Haiku) guarda en la memoria del agente lo aprendido.
+    private func summarizeLeavingConversation() {
+        guard let id = currentConversationId,
+              let agent = agent(id: conversations.first { $0.id == id }?.agentId ?? selectedAgentId),
+              (try? db.conversationNeedsSummary(id: id)) == true else { return }
+        let history = chatHistory()
+        try? db.markSummarized(id: id)
+        Task {
+            _ = try? await client.run(prompt: "", agent: agent, brand: nil, history: history,
+                                      model: "claude-haiku-4-5-20251001", summarize: true)
+        }
+    }
+
     /// Nombre corto del modelo para el composer ("sonnet-5.5").
     var modelName: String { AgentModel.shortName(selectedModel) }
 
     /// Empieza una conversación nueva con el agente (por defecto, el del chat actual).
     func newConversation(agentId: String? = nil) {
         guard !isRunning else { return }
+        summarizeLeavingConversation()
         if let agentId { selectedAgentId = agentId }
         messages = []
         currentConversationId = nil
@@ -371,6 +407,7 @@ final class AppModel {
         guard !isRunning else { return }
         section = .chat
         guard conversation.id != currentConversationId else { return }
+        summarizeLeavingConversation()
         perform {
             messages = try db.messages(conversationId: conversation.id).map { ChatMessage(role: $0.role, text: $0.text) }
             currentConversationId = conversation.id
@@ -454,9 +491,12 @@ final class AppModel {
                     reloadContent()
                 }
             case .finished(let run) where run.id == currentRunId:
+                memoryVersion += 1
                 finish(run)
             case .finished(let run) where isRunning && currentRunId == nil:
                 earlyFinished[run.id] = run
+            case .finished:
+                memoryVersion += 1 // p. ej. el resumen en segundo plano
             default:
                 break
             }

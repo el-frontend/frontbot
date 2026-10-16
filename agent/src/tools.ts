@@ -20,6 +20,13 @@ export const TOOL_SPECS = [
   { name: "ideas_create", description: "Guarda una oportunidad de negocio investigada, con fuentes, puntaje 1-5 y reporte en markdown.", shape: { title: z.string(), summary: z.string(), sources: z.array(z.string()), score: z.number().int().min(1).max(5), report_markdown: z.string() } },
 ] as const;
 
+/** Memoria propia de cada agente (el agent_id lo pone el sidecar). */
+export const MEMORY_TOOL_SPECS = [
+  { name: "memory_list", description: "Lista tus notas de memoria (id, texto, fecha), las más recientes primero.", shape: {} },
+  { name: "memory_remember", description: "Guarda en tu memoria algo duradero: preferencias del usuario, decisiones, lecciones de tu trabajo. Máx. 500 caracteres; una idea por nota. Con la memoria llena se borra la nota más antigua.", shape: { text: z.string() } },
+  { name: "memory_forget", description: "Borra una nota de tu memoria (por id), p. ej. si quedó obsoleta o el usuario te lo pide.", shape: { memory_id: z.number().int() } },
+] as const;
+
 /** Solo para el agente por defecto (Frontbot). */
 export const DEFAULT_AGENT_TOOL_SPECS = [
   { name: "agents_create_draft", description: "Propone un agente especializado nuevo. Queda en borrador: el usuario lo revisa y lo activa. model: claude-sonnet-5-5, claude-opus-5-5 o claude-haiku-4-5-20251001.", shape: { name: z.string(), description: z.string(), instructions: z.string(), model: z.string().optional(), browser: z.boolean().optional(), icon: z.string().optional().describe("Nombre de un SF Symbol") } },
@@ -28,11 +35,14 @@ export const DEFAULT_AGENT_TOOL_SPECS = [
 export const ALLOWED_TOOLS = ["WebSearch", "WebFetch", ...TOOL_SPECS.map((t) => `mcp__frontbot__${t.name}`)];
 
 /** Contexto del run: lo pone el sidecar, nunca el modelo. */
-export type ToolContext = { agentId?: string; isDefault: boolean };
+export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean };
 
-const specsFor = (ctx: ToolContext) => (ctx.isDefault ? [...TOOL_SPECS, ...DEFAULT_AGENT_TOOL_SPECS] : [...TOOL_SPECS]);
+const specsFor = (ctx: ToolContext) => {
+  if (ctx.memoryOnly) return [...MEMORY_TOOL_SPECS];
+  return [...TOOL_SPECS, ...MEMORY_TOOL_SPECS, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : [])];
+};
 
-export const allowedToolsFor = (ctx: ToolContext) => ["WebSearch", "WebFetch", ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];
+export const allowedToolsFor = (ctx: ToolContext) => [...(ctx.memoryOnly ? [] : ["WebSearch", "WebFetch"]), ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];
 
 export function buildTools(call: AppCall, ctx: ToolContext = { isDefault: true }) {
   return specsFor(ctx).map((spec) =>

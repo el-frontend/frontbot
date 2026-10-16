@@ -319,6 +319,49 @@ extension AppDatabase {
         return d
     }
 
+    // MARK: Memoria de agentes
+
+    public static let memoryLimit = 50
+
+    /// Guarda una nota; con la memoria llena, se borra la más antigua.
+    public func remember(agentId: String, text: String) throws -> (memory: AgentMemory, evictedOldest: Bool) {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { throw ValidationError("La nota está vacía.") }
+        guard clean.count <= 500 else { throw ValidationError("Una nota admite hasta 500 caracteres; tiene \(clean.count). Resúmela.") }
+        return try writer.write { db in
+            guard try Agent.fetchOne(db, key: agentId) != nil else { throw notFound("agente", agentId) }
+            var memory = AgentMemory(id: nil, agentId: agentId, text: clean, createdAt: .dbNow())
+            try memory.insert(db)
+            let count = try AgentMemory.filter(Column("agentId") == agentId).fetchCount(db)
+            let evicted = count > Self.memoryLimit
+            if evicted {
+                try db.execute(sql: """
+                    DELETE FROM agentMemory WHERE id IN
+                    (SELECT id FROM agentMemory WHERE agentId = ? ORDER BY id LIMIT ?)
+                    """, arguments: [agentId, count - Self.memoryLimit])
+            }
+            return (memory, evicted)
+        }
+    }
+
+    /// Las más recientes primero.
+    public func memories(agentId: String) throws -> [AgentMemory] {
+        try writer.read { try AgentMemory.filter(Column("agentId") == agentId).order(Column("id").desc).fetchAll($0) }
+    }
+
+    public func forget(agentId: String, memoryId: Int64) throws {
+        try writer.write { db in
+            guard let memory = try AgentMemory.fetchOne(db, key: memoryId), memory.agentId == agentId else {
+                throw ValidationError("No existe la nota \(memoryId) en tu memoria.")
+            }
+            _ = try memory.delete(db)
+        }
+    }
+
+    public func clearMemory(agentId: String) throws {
+        _ = try writer.write { try AgentMemory.filter(Column("agentId") == agentId).deleteAll($0) }
+    }
+
     // MARK: Conversaciones
 
     /// Crea una conversación titulada con el primer mensaje (una línea, máximo 60 caracteres).
@@ -329,7 +372,7 @@ extension AppDatabase {
         return try writer.write { db in
             let c = Conversation(id: UUID().uuidString, workspaceId: workspaceId, brandId: brandId,
                                  title: title.isEmpty ? "Conversación" : title, createdAt: now, updatedAt: now,
-                                 activity: try nextActivity(db), agentId: agentId, summarizedAt: nil)
+                                 activity: try nextActivity(db), agentId: agentId, summarizedAt: nil, summarizedThrough: 0)
             try c.insert(db)
             return c
         }
@@ -356,6 +399,26 @@ extension AppDatabase {
 
     public func messages(conversationId: String) throws -> [StoredMessage] {
         try writer.read { try StoredMessage.filter(Column("conversationId") == conversationId).order(Column("id")).fetchAll($0) }
+    }
+
+    /// Hay respuestas del agente posteriores al último resumen (comparando ids de mensaje, no horas).
+    public func conversationNeedsSummary(id: String) throws -> Bool {
+        try writer.read { db in
+            guard let c = try Conversation.fetchOne(db, key: id) else { return false }
+            let lastAgent = try Int64.fetchOne(db, sql: "SELECT MAX(id) FROM chatMessage WHERE conversationId = ? AND role = 'agent'", arguments: [id])
+            guard let lastAgent else { return false }
+            guard c.summarizedAt != nil else { return true }
+            return lastAgent > c.summarizedThrough
+        }
+    }
+
+    public func markSummarized(id: String) throws {
+        try writer.write { db in
+            guard var c = try Conversation.fetchOne(db, key: id) else { return }
+            c.summarizedAt = .dbNow()
+            c.summarizedThrough = try Int64.fetchOne(db, sql: "SELECT MAX(id) FROM chatMessage WHERE conversationId = ?", arguments: [id]) ?? 0
+            try c.update(db)
+        }
     }
 
     private func nextActivity(_ db: Database) throws -> Int {

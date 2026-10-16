@@ -127,6 +127,17 @@ public final class AppDatabase: Sendable {
                 t.add(column: "summarizedAt", .datetime)
             }
         }
+        m.registerMigration("v4-memory") { db in
+            try db.create(table: "agentMemory") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("agentId", .text).notNull().indexed().references("agent", onDelete: .cascade)
+                t.column("text", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.alter(table: "conversation") { t in
+                t.add(column: "summarizedThrough", .integer).notNull().defaults(to: 0)
+            }
+        }
         return m
     }
 
