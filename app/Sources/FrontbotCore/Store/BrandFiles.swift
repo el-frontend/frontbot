@@ -21,6 +21,14 @@ public struct BrandFiles: Sendable {
         try write(markdown, to: paths.guide(brandId))
     }
 
+    /// Borra la carpeta de la marca (guía e imágenes). Si no existe, no hace nada.
+    public func deleteBrand(brandId: String) throws {
+        try checkId(brandId)
+        let dir = paths.brandDir(brandId)
+        guard FileManager.default.fileExists(atPath: dir.path) else { return }
+        try FileManager.default.removeItem(at: dir)
+    }
+
     public func writeIdeaReport(ideaId: String, markdown: String) throws -> URL {
         try checkId(ideaId)
         let url = paths.ideaReport(ideaId)

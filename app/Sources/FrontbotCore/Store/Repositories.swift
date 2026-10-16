@@ -23,6 +23,19 @@ extension AppDatabase {
         try writer.read { try Brand.fetchOne($0, key: id) }
     }
 
+    /// Borra la marca con sus posts e imágenes (cascade); tareas y conversaciones quedan sin marca.
+    /// Los archivos de la marca se borran aparte con `BrandFiles.deleteBrand`.
+    public func deleteBrand(id: String) throws {
+        try writer.write { db in
+            guard let brand = try Brand.fetchOne(db, key: id) else { return }
+            let preparing = try Post.filter(Column("brandId") == id && Column("status") == PostStatus.preparing.rawValue).fetchCount(db)
+            if preparing > 0 {
+                throw ValidationError("\(brand.name) tiene un post preparándose en el navegador: termina o cancela antes de borrarla.")
+            }
+            try brand.delete(db)
+        }
+    }
+
     // MARK: Posts
     public func createDraft(brandId: String, network: Network, body: String, media: [String], scheduledFor: Date?) throws -> Post {
         guard let brand = try brand(id: brandId) else { throw notFound("marca", brandId) }
