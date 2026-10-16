@@ -53,14 +53,18 @@ final class AppModel {
         brands = try db.brands(workspaceId: workspace.id)
         selectedBrandId = brands.first?.id
         reloadContent()
+        if AgentLocator.locate(environment: ProcessInfo.processInfo.environment, resources: Bundle.main.resourceURL) == nil {
+            errorMessage = AgentLocator.notFoundMessage
+        }
         Task { await listen() }
     }
 
     static func makeConfig(apiKey: String?) -> AgentConfig {
         let env = ProcessInfo.processInfo.environment
+        let location = AgentLocator.locate(environment: env, resources: Bundle.main.resourceURL)
         return AgentConfig(
-            nodePath: env["FRONTBOT_NODE"] ?? "/opt/homebrew/bin/node",
-            scriptPath: env["FRONTBOT_AGENT_SCRIPT"] ?? "",
+            nodePath: location?.node ?? "/usr/bin/false",
+            scriptPath: location?.script ?? "",
             apiKey: apiKey,
             model: env["FRONTBOT_MODEL"] ?? AgentConfig.defaultModel,
             fakeAgent: env["FRONTBOT_FAKE_AGENT"] == "1",
