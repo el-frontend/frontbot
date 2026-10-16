@@ -1,14 +1,21 @@
 import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, allowedToolsFor, type AppCall, type ToolContext } from "./tools.js";
 import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
-import { buildSystemPrompt, buildUserPrompt, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
+import { buildSystemPrompt, buildUserPrompt, buildSummaryPrompt, type MemoryNote, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
-export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean };
-export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean };
+export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
+/** mode "summarize": run en segundo plano que solo actualiza la memoria del agente. */
+export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" };
 
 /** Sin agente (clientes viejos o tests), el run es de Frontbot. */
-export const toolContext = (params: RunParams): ToolContext => ({ agentId: params.agent?.id, isDefault: params.agent?.is_default ?? true });
+export const toolContext = (params: RunParams): ToolContext => ({
+  agentId: params.agent?.id, isDefault: params.agent?.is_default ?? true, memoryOnly: params.mode === "summarize",
+});
+
+const userPrompt = (params: RunParams) => params.mode === "summarize"
+  ? buildSummaryPrompt(params.history ?? [], params.agent?.name ?? "Frontbot")
+  : buildUserPrompt(params.history ?? [], params.prompt, params.agent?.name);
 export type RunEvent = { run_id: string; type: "text" | "tool_call" | "status"; text: string };
 export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number; error?: string };
 
@@ -37,11 +44,12 @@ function browserHooks(guard: BrowserGuard): Options["hooks"] {
 /** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude.
  *  Con `browser`, añade el Chrome del usuario (Claude in Chrome) detrás del guardián. */
 export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string): Options {
-  const browser = params.browser === true;
+  const summarize = params.mode === "summarize";
+  const browser = params.browser === true && !summarize;
   return {
     model: params.model,
     systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent }),
-    tools: ["WebSearch", "WebFetch"],
+    tools: summarize ? [] : ["WebSearch", "WebFetch"],
     allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : [])],
     ...(browser ? { extraArgs: { chrome: null }, hooks: browserHooks(new BrowserGuard()) } : {}),
     mcpServers: { frontbot: server },
@@ -49,7 +57,7 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
     settingSources: [],
     permissionMode: "dontAsk",
     persistSession: false,
-    maxTurns: 30,
+    maxTurns: summarize ? 6 : 30,
     abortController,
   };
 }
@@ -65,7 +73,7 @@ export class RealRunner implements Runner {
     const today = localToday();
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
-      const stream = query({ prompt: buildUserPrompt(params.history ?? [], params.prompt, params.agent?.name), options: buildQueryOptions(params, server, abortController, today) });
+      const stream = query({ prompt: userPrompt(params), options: buildQueryOptions(params, server, abortController, today) });
       for await (const msg of stream) {
         if (msg.type === "assistant") {
           for (const block of msg.message.content) {
@@ -93,6 +101,11 @@ export class FakeRunner implements Runner {
 
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (params.prompt === "crash") process.exit(1);
+    if (params.mode === "summarize") {
+      await this.call("tool.memory_remember", { agent_id: params.agent?.id, text: `Resumen de prueba: ${params.history?.length ?? 0} turnos` });
+      return { run_id: params.run_id, ok: true, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+    }
+    if (params.prompt === "memoria") emit({ run_id: params.run_id, type: "text", text: `Memoria: ${params.agent?.memory?.map((m) => m.text).join(" | ") ?? "sin"}` });
     if (params.prompt === "colgado") await new Promise(() => {}); // nunca termina e ignora cancel
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     const { brands } = (await this.call("tool.brands_list", {})) as { brands: unknown[] };

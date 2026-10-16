@@ -49,6 +49,20 @@ final class ConversationStoreTests: XCTestCase {
     }
 }
 
+extension ConversationStoreTests {
+    func testNeedsSummaryOnlyWithNewAgentRepliesSinceLastSummary() throws {
+        let c = try db.createConversation(workspaceId: ws.id, agentId: try db.ensureDefaultAgent(workspaceId: ws.id).id, brandId: nil, firstPrompt: "hola")
+        try db.appendMessage(conversationId: c.id, role: .user, text: "hola")
+        XCTAssertFalse(try db.conversationNeedsSummary(id: c.id), "sin respuesta del agente no hay nada que resumir")
+        try db.appendMessage(conversationId: c.id, role: .agent, text: "¡Hola!")
+        XCTAssertTrue(try db.conversationNeedsSummary(id: c.id))
+        try db.markSummarized(id: c.id)
+        XCTAssertFalse(try db.conversationNeedsSummary(id: c.id))
+        try db.appendMessage(conversationId: c.id, role: .agent, text: "otra cosa")
+        XCTAssertTrue(try db.conversationNeedsSummary(id: c.id))
+    }
+}
+
 final class AgentModelTests: XCTestCase {
     func testCatalogStartsWithTheDefault() {
         XCTAssertEqual(AgentModel.all.first?.id, AgentConfig.defaultModel)

@@ -85,6 +85,8 @@ public struct Conversation: Codable, FetchableRecord, PersistableRecord, Identif
     public var agentId: String?
     /// Último resumen a memoria; evita resumir dos veces lo mismo.
     public var summarizedAt: Date?
+    /// Último mensaje incluido en ese resumen.
+    public var summarizedThrough: Int64
 }
 
 public struct Agent: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Hashable, Sendable {
@@ -133,6 +135,16 @@ public struct StoredMessage: Codable, FetchableRecord, MutablePersistableRecord,
     public var id: Int64?
     public var conversationId: String
     public var role: ChatRole
+    public var text: String
+    public var createdAt: Date
+
+    public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+}
+
+/// Nota de la memoria de un agente.
+public struct AgentMemory: Codable, FetchableRecord, MutablePersistableRecord, Identifiable, Equatable, Sendable {
+    public var id: Int64?
+    public var agentId: String
     public var text: String
     public var createdAt: Date
 

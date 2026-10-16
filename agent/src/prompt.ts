@@ -1,4 +1,5 @@
-export type AgentInfo = { name: string; instructions: string };
+export type MemoryNote = { text: string; date: string };
+export type AgentInfo = { name: string; instructions: string; memory?: MemoryNote[] };
 
 const FRONTBOT: AgentInfo = {
   name: "Frontbot",
@@ -19,6 +20,11 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
     "- Si una herramienta devuelve un error, léelo y corrige la llamada.",
     "- Responde en el idioma del usuario, de forma breve.",
   ];
+  if (agent.memory) {
+    parts.push("", agent.memory.length > 0 ? "Tu memoria (notas tuyas de conversaciones anteriores; tenlas en cuenta):" : "Tu memoria está vacía.");
+    for (const m of agent.memory) parts.push(`- [${m.date}] ${m.text}`);
+    parts.push("Cuando aprendas algo duradero (preferencias del usuario, decisiones, lecciones), guárdalo con memory_remember. No guardes datos efímeros, precios del momento ni secretos. Si una nota queda obsoleta, bórrala con memory_forget.");
+  }
   if (input.browser) {
     parts.push(
       "",
@@ -49,6 +55,18 @@ export function buildUserPrompt(history: HistoryTurn[], prompt: string, agentNam
   if (history.length === 0) return prompt;
   const lines = history.map((t) => `${t.role === "user" ? "Usuario" : agentName}: ${t.text}`);
   return `Conversación hasta ahora:\n${lines.join("\n")}\n\nMensaje nuevo del usuario:\n${prompt}`;
+}
+
+/** Prompt del run de resumen al cerrar una conversación: solo actualiza la memoria. */
+export function buildSummaryPrompt(history: HistoryTurn[], agentName: string): string {
+  const lines = history.map((t) => `${t.role === "user" ? "Usuario" : agentName}: ${t.text}`);
+  return [
+    "La conversación siguiente acaba de terminar. No respondas al usuario.",
+    "Revisa tu memoria (ya está en tus instrucciones) y guarda con memory_remember solo lo nuevo y duradero que aprendiste: preferencias, decisiones, resultados, lecciones. Si algo de tu memoria quedó obsoleto, bórralo con memory_forget. Si no hay nada nuevo, no hagas nada.",
+    "",
+    "Conversación:",
+    ...lines,
+  ].join("\n");
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");

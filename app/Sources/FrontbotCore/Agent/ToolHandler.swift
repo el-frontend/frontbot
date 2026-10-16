@@ -74,6 +74,18 @@ public struct ToolHandler: Sendable {
             let url = try files.writeIdeaReport(ideaId: idea.id, markdown: try string(params, "report_markdown"))
             try db.setIdeaReportPath(id: idea.id, path: url.path)
             return ["idea_id": .string(idea.id)]
+        case "tool.memory_list":
+            let memories = try db.memories(agentId: try string(params, "agent_id"))
+            return ["memories": .array(memories.map { m in
+                ["id": .number(Double(m.id ?? 0)), "text": .string(m.text), "date": .string(Self.isoString(m.createdAt))]
+            })]
+        case "tool.memory_remember":
+            let result = try db.remember(agentId: try string(params, "agent_id"), text: try string(params, "text"))
+            return ["memory_id": .number(Double(result.memory.id ?? 0)), "evicted_oldest": .bool(result.evictedOldest)]
+        case "tool.memory_forget":
+            guard let id = params["memory_id"]?.intValue else { throw ValidationError("Falta el parámetro memory_id.") }
+            try db.forget(agentId: try string(params, "agent_id"), memoryId: Int64(id))
+            return ["ok": true]
         case "tool.agents_create_draft":
             let caller = try string(params, "agent_id")
             guard try db.agent(id: caller)?.isDefault == true else { throw ValidationError("Solo Frontbot puede crear agentes.") }

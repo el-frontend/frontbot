@@ -51,3 +51,16 @@ describe("buildSystemPrompt per agent", () => {
     expect(buildUserPrompt([{ role: "agent", text: "hola" }], "sigue", "Crypto Trader")).toContain("Crypto Trader: hola");
   });
 });
+
+describe("buildSystemPrompt memory", () => {
+  it("lists the agent's memory with dates and asks to keep it useful", () => {
+    const p = buildSystemPrompt({ today: "2026-10-16", agent: { name: "T", instructions: "x", memory: [{ text: "Opera BTC en 4h", date: "2026-10-15" }] } });
+    expect(p).toContain("Tu memoria");
+    expect(p).toContain("- [2026-10-15] Opera BTC en 4h");
+    expect(p).toContain("memory_remember");
+  });
+
+  it("says so when memory is empty", () => {
+    expect(buildSystemPrompt({ today: "2026-10-16", agent: { name: "T", instructions: "x", memory: [] } })).toContain("Tu memoria está vacía");
+  });
+});

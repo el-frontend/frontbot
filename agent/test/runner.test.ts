@@ -42,4 +42,20 @@ describe("buildQueryOptions", () => {
     const def = buildQueryOptions({ run_id: "r", prompt: "p", model: "m" }, server, new AbortController(), "2026-10-16");
     expect(def.allowedTools).toContain("mcp__frontbot__agents_create_draft");
   });
+
+  it("summarize mode only exposes memory tools and asks for a summary", () => {
+    const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [] });
+    const agent = { id: "a1", name: "T", instructions: "x", is_default: false, memory: [] };
+    const opts = buildQueryOptions({ run_id: "r", prompt: "p", model: "m", agent, mode: "summarize", browser: true }, server, new AbortController(), "2026-10-16");
+    expect(opts.allowedTools?.every((t) => t.startsWith("mcp__frontbot__memory_"))).toBe(true);
+    expect(opts.tools).toEqual([]);
+    expect(opts.extraArgs).toBeUndefined();
+    expect(opts.maxTurns).toBeLessThanOrEqual(8);
+  });
+
+  it("every agent has memory tools", () => {
+    const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [] });
+    const opts = buildQueryOptions({ run_id: "r", prompt: "p", model: "m" }, server, new AbortController(), "2026-10-16");
+    expect(opts.allowedTools).toContain("mcp__frontbot__memory_remember");
+  });
 });

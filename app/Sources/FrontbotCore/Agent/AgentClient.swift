@@ -100,7 +100,9 @@ public actor AgentClient {
 
     /// `agent`: quién responde (sin agente, el sidecar usa Frontbot). Su `browser` activa el Chrome del usuario
     /// detrás del guardián del sidecar. `model`: el elegido en la app (si no, el de la configuración).
-    public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil) async throws -> AgentRun {
+    /// `summarize`: run en segundo plano que solo guarda en la memoria lo aprendido en `history`.
+    public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil,
+                    summarize: Bool = false) async throws -> AgentRun {
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
@@ -111,9 +113,11 @@ public actor AgentClient {
                 params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
             }
             if !history.isEmpty { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
+            if summarize { params["mode"] = "summarize" }
             if let agent {
+                let memory = MemoryPrompt.trimmed(try db.memories(agentId: agent.id))
                 params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
-                                   "is_default": .bool(agent.isDefault)]
+                                   "is_default": .bool(agent.isDefault), "memory": MemoryPrompt.json(memory)]
                 if agent.browser { params["browser"] = .bool(true) }
             }
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
