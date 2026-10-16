@@ -104,12 +104,17 @@ public struct ToolHandler: Sendable {
         return s
     }
 
-    /// Acepta ISO-8601 completo ("2026-10-20T09:00:00Z") o solo fecha ("2026-10-20", hora local 09:00).
+    /// Acepta ISO-8601 con zona ("2026-10-20T09:00:00Z"), fecha y hora sin zona (hora local)
+    /// o solo fecha ("2026-10-20", hora local 09:00).
     private func optionalDate(_ params: JSONValue, _ key: String) throws -> Date? {
         guard let raw = params[key]?.stringValue else { return nil }
         if let d = try? Date(raw, strategy: .iso8601) { return d }
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "en_US_POSIX")
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm"] {
+            fmt.dateFormat = format
+            if let d = fmt.date(from: raw) { return d }
+        }
         fmt.dateFormat = "yyyy-MM-dd"
         if let d = fmt.date(from: raw) { return Calendar.current.date(byAdding: .hour, value: 9, to: d) }
         throw ValidationError("Fecha inválida en \(key): \(raw). Usa YYYY-MM-DD o ISO-8601.")
