@@ -30,6 +30,7 @@ extension AppDatabase {
             throw ValidationError("La marca \(brand.name) no tiene \(network.rawValue) configurado.")
         }
         try PostRules.validate(body: body, network: network)
+        try checkMedia(media, brandId: brandId)
         let now = Date.dbNow()
         let post = Post(id: UUID().uuidString, brandId: brandId, network: network, body: body, media: media,
                         status: .draft, scheduledFor: scheduledFor, publishedUrl: nil, createdAt: now, updatedAt: now)
@@ -38,21 +39,58 @@ extension AppDatabase {
     }
 
     public func updateDraft(id: String, body: String?, media: [String]?, scheduledFor: Date?) throws -> Post {
-        try writer.write { db in
-            guard var post = try Post.fetchOne(db, key: id) else { throw notFound("post", id) }
-            guard post.status == .draft else {
+        guard var post = try writer.read({ try Post.fetchOne($0, key: id) }) else { throw notFound("post", id) }
+        guard post.status == .draft else {
+            throw ValidationError("Solo se pueden editar posts en borrador; este está en \(post.status.rawValue).")
+        }
+        if let body {
+            try PostRules.validate(body: body, network: post.network)
+            post.body = body
+        }
+        if let media {
+            try checkMedia(media, brandId: post.brandId)
+            post.media = media
+        }
+        if let scheduledFor { post.scheduledFor = scheduledFor }
+        post.updatedAt = .dbNow()
+        return try writer.write { db in
+            // Re-chequeo dentro de la transacción: el usuario pudo aprobarlo entre medio.
+            guard let current = try Post.fetchOne(db, key: id), current.status == .draft else {
                 throw ValidationError("Solo se pueden editar posts en borrador; este está en \(post.status.rawValue).")
             }
-            if let body {
-                try PostRules.validate(body: body, network: post.network)
-                post.body = body
-            }
-            if let media { post.media = media }
-            if let scheduledFor { post.scheduledFor = scheduledFor }
-            post.updatedAt = .dbNow()
             try post.update(db)
             return post
         }
+    }
+
+    public static let maxMediaPerPost = 10
+
+    private func checkMedia(_ media: [String], brandId: String) throws {
+        guard media.count <= Self.maxMediaPerPost else { throw ValidationError("Un post admite máximo 10 imágenes.") }
+        for id in media {
+            guard let asset = try asset(id: id), asset.brandId == brandId, asset.kind == AssetKind.image.rawValue else {
+                throw ValidationError("La imagen \(id) no pertenece a esta marca.")
+            }
+        }
+    }
+
+    public func updatePostByUser(id: String, body: String?, media: [String]?, scheduledFor: Date??) throws -> Post {
+        guard var post = try writer.read({ try Post.fetchOne($0, key: id) }) else { throw notFound("post", id) }
+        guard post.status == .draft || post.status == .approved else {
+            throw ValidationError("Este post ya no se puede editar (\(post.status.rawValue)).")
+        }
+        if let body {
+            try PostRules.validate(body: body, network: post.network)
+            post.body = body
+        }
+        if let media {
+            try checkMedia(media, brandId: post.brandId)
+            post.media = media
+        }
+        if let scheduledFor { post.scheduledFor = scheduledFor }
+        post.updatedAt = .dbNow()
+        try writer.write { try post.update($0) }
+        return post
     }
 
     public func transitionPost(id: String, to status: PostStatus, actor: Actor) throws -> Post {

@@ -8,7 +8,7 @@ describe("tools", () => {
     expect(ALLOWED_TOOLS).toContain("mcp__frontbot__posts_create_draft");
     expect(ALLOWED_TOOLS.some((t) => /publish|approve|Bash|Write|Edit/.test(t))).toBe(false);
     expect(TOOL_SPECS.map((t) => t.name).sort()).toEqual([
-      "brands_get_guide", "brands_list", "brands_write_guide", "ideas_create",
+      "brands_get_guide", "brands_list", "brands_list_assets", "brands_write_guide", "ideas_create",
       "posts_create_draft", "posts_list", "posts_update_draft",
       "tasks_complete", "tasks_create", "tasks_list",
     ]);
@@ -29,5 +29,11 @@ describe("tools", () => {
     const res = await update.handler({ post_id: "p1", body: "v2" }, {});
     expect(res.isError).toBe(true);
     expect(res.content[0]).toEqual({ type: "text", text: "Solo se pueden editar posts en borrador; este está en approved." });
+  });
+  it("draft tools accept optional media ids", () => {
+    const create = TOOL_SPECS.find((t) => t.name === "posts_create_draft")!;
+    const update = TOOL_SPECS.find((t) => t.name === "posts_update_draft")!;
+    expect(Object.keys(create.shape)).toContain("media");
+    expect(Object.keys(update.shape)).toContain("media");
   });
 });
