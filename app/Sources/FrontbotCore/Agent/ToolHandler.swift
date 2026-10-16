@@ -107,6 +107,33 @@ public struct ToolHandler: Sendable {
                                                description: params["description"]?.stringValue, body: params["body"]?.stringValue,
                                                files: try stringMap(params, "files"))
             return ["name": .string(skill.name), "status": .string(skill.status.rawValue)]
+        case "tool.schedule_list":
+            let tasks = try db.tasks(agentId: try string(params, "agent_id"))
+            return ["tasks": .array(tasks.map { t in
+                ["task_id": .string(t.id), "name": .string(t.name), "instruction": .string(t.instruction), "schedule": .string(t.schedule.summary),
+                 "status": .string(t.status.rawValue), "next_run": t.nextRunAt.map { .string(Self.isoString($0)) } ?? .null]
+            })]
+        case "tool.schedule_create_draft":
+            guard let schedule = params["schedule"] else { throw ValidationError("Falta el parámetro schedule.") }
+            let agentId = try string(params, "agent_id")
+            let draft = TaskDraft(name: try string(params, "name"), instruction: try string(params, "instruction"),
+                                  schedule: try Schedule.parse(schedule), model: params["model"]?.stringValue,
+                                  maxRunsPerDay: params["max_runs_per_day"]?.intValue ?? 24)
+            let task = try db.createTask(agentId: agentId, draft: draft, status: .draft, createdBy: agentId)
+            return ["task_id": .string(task.id), "status": "draft", "schedule": .string(task.schedule.summary),
+                    "note": "Quedó en borrador: el usuario debe activarla en la página del agente."]
+        case "tool.schedule_update_draft":
+            let agentId = try string(params, "agent_id")
+            guard let task = try db.task(id: try string(params, "task_id")), task.agentId == agentId else { throw ValidationError("No tienes esa tarea.") }
+            guard task.status == .draft else { throw ValidationError("Esa tarea ya está activa: solo el usuario puede cambiarla.") }
+            var draft = TaskDraft(task: task)
+            if let name = params["name"]?.stringValue { draft.name = name }
+            if let instruction = params["instruction"]?.stringValue { draft.instruction = instruction }
+            if let schedule = params["schedule"], schedule != .null { draft.schedule = try Schedule.parse(schedule) }
+            if let model = params["model"]?.stringValue { draft.model = model }
+            if let max = params["max_runs_per_day"]?.intValue { draft.maxRunsPerDay = max }
+            let updated = try db.updateTask(id: task.id, draft: draft)
+            return ["task_id": .string(updated.id), "status": "draft", "schedule": .string(updated.schedule.summary)]
         case "tool.agents_create_draft":
             let caller = try string(params, "agent_id")
             guard try db.agent(id: caller)?.isDefault == true else { throw ValidationError("Solo Frontbot puede crear agentes.") }

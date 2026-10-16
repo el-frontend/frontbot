@@ -51,6 +51,16 @@ struct NotchView: View {
                 .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x0E0E10)))
             }
 
+            if let next = model.nextScheduled, let at = next.task.nextRunAt {
+                Button { model.showMainWindow(section: .schedules); controller.collapse() } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock")
+                        Text("Próxima: \(next.agent.name) · \(at.formatted(date: Calendar.current.isDateInToday(at) ? .omitted : .abbreviated, time: .shortened))")
+                    }
+                    .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+            }
             if let today = model.today {
                 if !today.tasks.isEmpty {
                     Text("Hoy").font(.caption).foregroundStyle(.white.opacity(0.6))

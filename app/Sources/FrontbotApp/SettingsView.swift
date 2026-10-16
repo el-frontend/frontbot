@@ -37,6 +37,14 @@ struct SettingsView: View {
                 }
             }
 
+            section("Inicio") {
+                Toggle(isOn: Binding(get: { _ = model.launchAtLoginVersion; return model.launchAtLogin }, set: { model.launchAtLogin = $0 })) {
+                    Text("Abrir Frontbot al iniciar sesión").font(.system(size: 13, weight: .medium))
+                }
+                .toggleStyle(.switch).controlSize(.small)
+                note("Las tareas programadas solo corren con Frontbot abierto (basta con el notch, sin ventana).")
+            }
+
             section("Agentes") {
                 note("El modelo y el uso de tu Chrome se configuran en cada agente, desde su página en la barra lateral.")
             }

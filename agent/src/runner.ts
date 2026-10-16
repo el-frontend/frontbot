@@ -7,17 +7,21 @@ import { buildSystemPrompt, buildUserPrompt, buildSummaryPrompt, type MemoryNote
 
 export type Brand = { id: string; name: string; guide: string | null };
 export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
-/** mode "summarize": run en segundo plano que solo actualiza la memoria del agente. */
-export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize"; skills?: RunSkill[]; trading?: RunTrading };
+/** mode "summarize": run en segundo plano que solo actualiza la memoria del agente.
+ *  mode "scheduled": tarea programada, sin nadie mirando; puede avisar con notify_user. */
+export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled"; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string } };
 
 /** Sin agente (clientes viejos o tests), el run es de Frontbot. */
 export const toolContext = (params: RunParams): ToolContext => ({
   agentId: params.agent?.id, isDefault: params.agent?.is_default ?? true, memoryOnly: params.mode === "summarize",
+  runId: params.run_id, scheduled: params.mode === "scheduled",
 });
 
 const userPrompt = (params: RunParams) => params.mode === "summarize"
   ? buildSummaryPrompt(params.history ?? [], params.agent?.name ?? "Frontbot")
-  : buildUserPrompt(params.history ?? [], params.prompt, params.agent?.name);
+  : params.mode === "scheduled"
+    ? `Ejecución de la tarea programada «${params.task?.name ?? "tarea"}». Instrucción:\n${params.prompt}`
+    : buildUserPrompt(params.history ?? [], params.prompt, params.agent?.name);
 export type RunEvent = { run_id: string; type: "text" | "tool_call" | "status"; text: string };
 export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number; error?: string };
 
@@ -79,7 +83,7 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined, skills ? skillReadHooks(skills) : undefined);
   return {
     model: params.model,
-    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading }),
+    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined }),
     tools: summarize ? [] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : [])],
     allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : []),
       ...(params.trading && !summarize ? TRADING_TOOL_NAMES.map((t) => `mcp__frontbot__${t}`) : [])],
@@ -145,6 +149,11 @@ export class FakeRunner implements Runner {
 
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (params.prompt === "crash") process.exit(1);
+    if (params.mode === "scheduled") {
+      if (params.prompt.includes("avisar")) await this.call("tool.notify_user", { agent_id: params.agent?.id, run_id: params.run_id, title: "Aviso de prueba", message: params.prompt });
+      emit({ run_id: params.run_id, type: "text", text: `Tarea hecha: ${params.task?.name ?? ""}` });
+      return { run_id: params.run_id, ok: true, summary: `Tarea hecha: ${params.task?.name ?? ""}`, input_tokens: 0, output_tokens: 0, cost_usd: 0.001 };
+    }
     if (params.mode === "summarize") {
       await this.call("tool.memory_remember", { agent_id: params.agent?.id, text: `Resumen de prueba: ${params.history?.length ?? 0} turnos` });
       return { run_id: params.run_id, ok: true, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0 };

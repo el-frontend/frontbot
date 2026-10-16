@@ -195,6 +195,36 @@ public final class AppDatabase: Sendable {
                 t.column("updatedAt", .datetime).notNull()
             }
         }
+        m.registerMigration("v7-scheduled-tasks") { db in
+            try db.create(table: "scheduledTask") { t in
+                t.primaryKey("id", .text)
+                t.column("agentId", .text).notNull().indexed().references("agent", onDelete: .cascade)
+                t.column("name", .text).notNull()
+                t.column("instruction", .text).notNull()
+                t.column("schedule", .text).notNull()
+                t.column("model", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("maxRunsPerDay", .integer).notNull()
+                t.column("lastRunAt", .datetime)
+                t.column("nextRunAt", .datetime)
+                t.column("createdByAgentId", .text).references("agent", onDelete: .setNull)
+                t.column("templateKey", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(table: "taskRun") { t in
+                t.primaryKey("id", .text)
+                t.column("taskId", .text).notNull().indexed().references("scheduledTask", onDelete: .cascade)
+                t.column("agentRunId", .text)
+                t.column("status", .text).notNull()
+                t.column("summary", .text)
+                t.column("notified", .boolean).notNull()
+                t.column("conversationId", .text).references("conversation", onDelete: .setNull)
+                t.column("costUsd", .double).notNull()
+                t.column("startedAt", .datetime).notNull()
+                t.column("finishedAt", .datetime)
+            }
+        }
         return m
     }
 

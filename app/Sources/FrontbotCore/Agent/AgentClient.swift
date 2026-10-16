@@ -38,6 +38,8 @@ public enum AgentUpdate: Sendable, Equatable {
     case event(runId: String, type: String, text: String)
     /// Cambió alguna propuesta de trade (nueva, enviada automáticamente, fallida…).
     case tradesChanged(TradeProposal)
+    /// Una tarea programada pidió avisar al usuario (`notify_user`).
+    case notify(runId: String, title: String, message: String)
     case finished(AgentRun)
 }
 
@@ -121,8 +123,9 @@ public actor AgentClient {
     /// `agent`: quién responde (sin agente, el sidecar usa Frontbot). Su `browser` activa el Chrome del usuario
     /// detrás del guardián del sidecar. `model`: el elegido en la app (si no, el de la configuración).
     /// `summarize`: run en segundo plano que solo guarda en la memoria lo aprendido en `history`.
+    /// `task`: ejecución de una tarea programada (sin nadie mirando; puede usar notify_user).
     public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil,
-                    summarize: Bool = false) async throws -> AgentRun {
+                    summarize: Bool = false, task: ScheduledTask? = nil) async throws -> AgentRun {
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
@@ -134,6 +137,10 @@ public actor AgentClient {
             }
             if !history.isEmpty { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
             if summarize { params["mode"] = "summarize" }
+            if let task {
+                params["mode"] = "scheduled"
+                params["task"] = ["name": .string(task.name)]
+            }
             if let agent {
                 let memory = MemoryPrompt.trimmed(try db.memories(agentId: agent.id))
                 params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
@@ -310,6 +317,15 @@ public actor AgentClient {
 
     private func handle(_ message: RPCMessage) {
         switch message {
+        case .request(let id, "tool.notify_user", let params):
+            guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId) else {
+                reply(id, .failure(ValidationError("notify_user solo funciona dentro de una tarea programada.")))
+                return
+            }
+            let title = String((params["title"]?.stringValue ?? "Frontbot").prefix(120))
+            let message = String((params["message"]?.stringValue ?? "").prefix(600))
+            broadcast(.notify(runId: runId, title: title, message: message))
+            reply(id, .success(["ok": true]))
         case .request(let id, "tool.trade_propose", let params):
             do {
                 let result = try trading.propose(params: params)

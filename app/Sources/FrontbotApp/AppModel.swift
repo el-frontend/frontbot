@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import Observation
 import UserNotifications
+import ServiceManagement
 import FrontbotCore
 
 struct ChatMessage: Identifiable, Equatable {
@@ -13,7 +14,7 @@ struct ChatMessage: Identifiable, Equatable {
 
 @MainActor @Observable
 final class AppModel {
-    enum Section: Hashable { case agent(String), brand(String), calendar, chat, tasks, ideas, skills, trades }
+    enum Section: Hashable { case agent(String), brand(String), calendar, chat, tasks, ideas, skills, trades, schedules }
 
     var section: Section = .chat
     var brands: [Brand] = []
@@ -73,6 +74,7 @@ final class AppModel {
         db = try AppDatabase.open(at: paths.database)
         try db.failRunningRuns() // runs que quedaron "running" de una sesión anterior
         try db.flagInterruptedSends() // órdenes que quedaron a medio enviar
+        try db.failRunningTaskRuns() // ejecuciones programadas que quedaron a medias
         workspace = try db.ensureDefaultWorkspace()
         let key = try? credentials.get("\(workspace.id).\(CredentialStore.anthropicKey)")
         apiKeyPresent = CredentialStore.normalizedApiKey(key) != nil
@@ -91,6 +93,8 @@ final class AppModel {
         }
         Task { await listen() }
         reloadProposals()
+        reloadTasks()
+        startScheduler()
         Task { [weak self] in
             await self?.client.setTradeKeys(KeychainTradeKeys())
             await self?.client.setScriptApprover { [weak self] request in await self?.askScriptApproval(request) ?? false }
@@ -347,6 +351,180 @@ final class AppModel {
         reloadSkills()
     }
 
+    // MARK: Tareas programadas
+
+    var scheduledTasks: [ScheduledTask] = []
+    var taskDraftCount: Int { scheduledTasks.filter { $0.status == .draft }.count }
+    /// Ejecuciones programadas en curso, por id de run del agente.
+    private var scheduledRuns: [String: ScheduledRunLog] = [:]
+    /// Eventos de runs que aún no están registrados (llegan antes de que `run()` devuelva el id).
+    private var orphanUpdates: [String: [AgentUpdate]] = [:]
+    private var schedulerTimer: Timer?
+    let notifications = NotificationRouter()
+
+    func reloadTasks() { scheduledTasks = (try? db.tasks()) ?? scheduledTasks }
+
+    func tasks(agentId: String) -> [ScheduledTask] { scheduledTasks.filter { $0.agentId == agentId } }
+
+    func taskRuns(_ task: ScheduledTask) -> [TaskRun] {
+        _ = scheduledTasks
+        return (try? db.taskRuns(taskId: task.id)) ?? []
+    }
+
+    func isTaskRunning(_ task: ScheduledTask) -> Bool { scheduledRuns.values.contains { $0.task.id == task.id } }
+
+    /// La próxima ejecución entre todas las tareas activas (para el notch).
+    var nextScheduled: (task: ScheduledTask, agent: Agent)? {
+        scheduledTasks.filter { $0.status == .active && $0.nextRunAt != nil }
+            .min { $0.nextRunAt! < $1.nextRunAt! }
+            .flatMap { t in agent(id: t.agentId).map { (t, $0) } }
+    }
+
+    @discardableResult
+    func createTask(agentId: String, draft: TaskDraft) -> Bool {
+        let ok = perform { _ = try db.createTask(agentId: agentId, draft: draft, status: .active, createdBy: nil) }
+        reloadTasks()
+        return ok
+    }
+
+    @discardableResult
+    func updateTask(_ task: ScheduledTask, draft: TaskDraft) -> Bool {
+        let ok = perform { _ = try db.updateTask(id: task.id, draft: draft) }
+        reloadTasks()
+        return ok
+    }
+
+    func setTaskStatus(_ task: ScheduledTask, _ status: TaskStatus) {
+        perform { _ = try db.setTaskStatus(id: task.id, status) }
+        reloadTasks()
+    }
+
+    func deleteTask(_ task: ScheduledTask) {
+        perform { try db.deleteTask(scheduledTaskId: task.id) }
+        reloadTasks()
+    }
+
+    func runTaskNow(_ task: ScheduledTask) {
+        guard !isTaskRunning(task) else { return }
+        start(task)
+    }
+
+    private func startScheduler() {
+        notifications.model = self
+        UNUserNotificationCenter.current().delegate = notifications
+        schedulerTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tickScheduler() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.tickScheduler() }
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5)) // deja arrancar la app antes de lo atrasado
+            tickScheduler()
+        }
+    }
+
+    func tickScheduler() {
+        guard let due = try? db.dueTasks() else { return }
+        for task in due where !isTaskRunning(task) { start(task) }
+    }
+
+    private func start(_ task: ScheduledTask) {
+        guard let agent = agent(id: task.agentId), agent.status == .active else { return }
+        let taskRun: TaskRun
+        do { taskRun = try db.startTaskRun(taskId: task.id) } catch { return }
+        reloadTasks()
+        Task {
+            do {
+                let run = try await client.run(prompt: task.instruction, agent: agent, brand: nil, model: task.model, task: task)
+                try? db.attachAgentRun(taskRunId: taskRun.id, agentRunId: run.id)
+                scheduledRuns[run.id] = ScheduledRunLog(taskRunId: taskRun.id, task: task, startedAt: taskRun.startedAt)
+                for update in orphanUpdates.removeValue(forKey: run.id) ?? [] { handleScheduled(update) }
+            } catch {
+                try? db.finishTaskRun(id: taskRun.id, status: .failed, summary: error.localizedDescription, notified: false,
+                                      conversationId: nil, costUsd: 0)
+                reloadTasks()
+            }
+        }
+    }
+
+    /// Eventos de una ejecución programada. Devuelve false si el run no es programado.
+    @discardableResult
+    private func handleScheduled(_ update: AgentUpdate) -> Bool {
+        switch update {
+        case .event(let runId, let type, let text):
+            guard scheduledRuns[runId] != nil else { return false }
+            if type == "text" { scheduledRuns[runId]?.record(.agent, text) }
+            if type == "tool_call" { scheduledRuns[runId]?.record(.tool, "→ \(text)") }
+            return true
+        case .notify(let runId, let title, let message):
+            guard scheduledRuns[runId] != nil else { return false }
+            scheduledRuns[runId]?.notification = (title, message)
+            return true
+        case .finished(let run):
+            guard let log = scheduledRuns.removeValue(forKey: run.id) else { return false }
+            let proposals = (try? db.proposalsCount(agentId: log.task.agentId, since: log.startedAt)) ?? 0
+            let result = try? db.completeScheduledRun(log, run: run, workspaceId: workspace.id, proposalsCreated: proposals)
+            if let note = log.notification {
+                deliverNotification(title: note.title, body: note.message, conversationId: result?.conversationId)
+            } else if run.status == .failed {
+                deliverNotification(title: "Falló «\(log.task.name)»", body: run.resultSummary ?? "Error", conversationId: result?.conversationId)
+            }
+            reloadTasks()
+            reloadConversations()
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Un run programado puede emitir eventos antes de que `run()` devuelva su id: se guardan un momento
+    /// y se reproducen al registrarlo. Los de otros runs (chat, resúmenes) se descartan al llenarse el búfer.
+    private func bufferIfUnknown(_ update: AgentUpdate) {
+        let runId: String
+        switch update {
+        case .event(let id, _, _), .notify(let id, _, _): runId = id
+        case .finished(let run): runId = run.id
+        default: return
+        }
+        guard runId != currentRunId else { return }
+        if orphanUpdates.count > 30 { orphanUpdates.removeAll() }
+        if orphanUpdates[runId, default: []].count < 200 { orphanUpdates[runId, default: []].append(update) }
+    }
+
+    func deliverNotification(title: String, body: String, conversationId: String?) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        if let conversationId { content.userInfo = ["conversationId": conversationId] }
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        }
+    }
+
+    /// Al tocar un aviso: abrir su conversación.
+    func openConversation(id: String) {
+        reloadConversations()
+        if let c = conversations.first(where: { $0.id == id }) ?? (try? db.conversations(workspaceId: workspace.id, limit: 200))?.first(where: { $0.id == id }) {
+            openConversation(c)
+        }
+        showMainWindow(section: .chat)
+    }
+
+    // MARK: Arranque al iniciar sesión
+
+    var launchAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            do { newValue ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() }
+            catch { errorMessage = "No se pudo cambiar el inicio automático: \(error.localizedDescription)" }
+            launchAtLoginVersion += 1
+        }
+    }
+    var launchAtLoginVersion = 0
+
     // MARK: Trading
 
     var proposals: [TradeProposal] = []
@@ -482,10 +660,12 @@ final class AppModel {
         perform {
             let agent = try db.createAgent(workspaceId: workspace.id, draft: draft, status: .active)
             try library.installTemplateSkills(for: agent)
+            try db.installTemplateTasks(for: agent)
             created = agent
         }
         reloadAgents()
         reloadSkills()
+        reloadTasks()
         if let created { section = .agent(created.id) }
         return created
     }
@@ -677,6 +857,8 @@ final class AppModel {
 
     private func listen() async {
         for await update in await client.updates() {
+            if handleScheduled(update) { continue }
+            bufferIfUnknown(update)
             switch update {
             case .event(let runId, let type, let text) where runId == currentRunId:
                 if type == "text" {
@@ -715,3 +897,19 @@ struct BrowserHandoff: PublicationHandoff {
         guard NSWorkspace.shared.open(url) else { throw ValidationError("No se pudo abrir el navegador.") }
     }
 }
+
+/// Recibe los toques en los avisos de macOS y abre la conversación correspondiente.
+final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    weak var model: AppModel?
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        guard let id = response.notification.request.content.userInfo["conversationId"] as? String else { return }
+        await MainActor.run { model?.openConversation(id: id) }
+    }
+
+    /// Con la app en primer plano también se muestra el aviso.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+}
+
