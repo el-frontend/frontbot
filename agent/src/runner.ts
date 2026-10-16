@@ -1,9 +1,9 @@
 import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, ALLOWED_TOOLS, type AppCall } from "./tools.js";
-import { buildSystemPrompt } from "./prompt.js";
+import { buildSystemPrompt, buildUserPrompt, type HistoryTurn } from "./prompt.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
-export type RunParams = { run_id: string; prompt: string; model: string; brand?: Brand };
+export type RunParams = { run_id: string; prompt: string; model: string; brand?: Brand; history?: HistoryTurn[] };
 export type RunEvent = { run_id: string; type: "text" | "tool_call" | "status"; text: string };
 export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number; error?: string };
 
@@ -41,7 +41,7 @@ export class RealRunner implements Runner {
     const today = new Date().toISOString().slice(0, 10);
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
-      const stream = query({ prompt: params.prompt, options: buildQueryOptions(params, server, abortController, today) });
+      const stream = query({ prompt: buildUserPrompt(params.history ?? [], params.prompt), options: buildQueryOptions(params, server, abortController, today) });
       for await (const msg of stream) {
         if (msg.type === "assistant") {
           for (const block of msg.message.content) {
@@ -74,6 +74,7 @@ export class FakeRunner implements Runner {
     const { brands } = (await this.call("tool.brands_list", {})) as { brands: unknown[] };
     const summary = `Tienes ${brands.length} marca(s).`;
     emit({ run_id: params.run_id, type: "text", text: summary });
+    if (params.history?.length) emit({ run_id: params.run_id, type: "text", text: `Historial: ${params.history.length}` });
     if (params.prompt.includes("crear post") && params.brand) {
       await this.call("tool.posts_create_draft", { brand_id: params.brand.id, network: "instagram", body: "Post de prueba" });
       emit({ run_id: params.run_id, type: "tool_call", text: "posts_create_draft" });

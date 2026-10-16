@@ -79,7 +79,7 @@ public actor AgentClient {
         for c in subscribers.values { c.yield(update) }
     }
 
-    public func run(prompt: String, brand: Brand?) async throws -> AgentRun {
+    public func run(prompt: String, brand: Brand?, history: [ChatTurn] = []) async throws -> AgentRun {
         if !config.fakeAgent, CredentialStore.normalizedApiKey(config.apiKey) == nil {
             throw AgentClientError.missingApiKey
         }
@@ -92,6 +92,7 @@ public actor AgentClient {
                 let guide = try files.readGuide(brandId: brand.id)
                 params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
             }
+            if !history.isEmpty { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
             return run
         } catch {

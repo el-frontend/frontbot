@@ -20,3 +20,16 @@ describe("buildSystemPrompt", () => {
     expect(p).toContain("aún no tiene guía");
   });
 });
+
+import { buildUserPrompt } from "../src/prompt.js";
+
+describe("buildUserPrompt", () => {
+  it("returns the prompt unchanged without history", () => {
+    expect(buildUserPrompt([], "hola")).toBe("hola");
+  });
+
+  it("prefixes the conversation so far", () => {
+    const p = buildUserPrompt([{ role: "user", text: "¿tono?" }, { role: "agent", text: "Cercano" }], "sigue");
+    expect(p).toBe("Conversación hasta ahora:\nUsuario: ¿tono?\nFrontbot: Cercano\n\nMensaje nuevo del usuario:\nsigue");
+  });
+});
