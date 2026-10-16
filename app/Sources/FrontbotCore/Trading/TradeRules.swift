@@ -60,6 +60,13 @@ public enum TradeRules {
     /// Margen para redondeos del tamaño al tick del exchange.
     static let riskTolerance = 1.01
 
+    /// Deslizamiento máximo de una entrada a mercado (fracción del precio): 10 % de la distancia al stop, tope 0,5 %.
+    /// El sidecar usa el mismo límite en la orden IOC, así el riesgo real nunca supera el validado.
+    public static func marketSlippage(entry: Double, stop: Double) -> Double {
+        guard entry > 0 else { return 0 }
+        return min(0.005, 0.1 * abs(entry - stop) / entry)
+    }
+
     public static func check(_ idea: TradeIdea, mandate: TradingMandate, accountValue: Double, currentPrice: Double, tradesToday: Int) -> TradeCheck {
         var problems: [String] = []
         let coin = idea.coin.uppercased()
@@ -91,7 +98,8 @@ public enum TradeRules {
             if let tp = idea.takeProfit, tp >= entry { problems.append("el take profit debe estar por debajo de la entrada en un short") }
         }
 
-        let riskUsd = idea.sizeUsd * abs(entry - idea.stopLoss) / entry
+        let slippage = idea.entryType == .market ? marketSlippage(entry: entry, stop: idea.stopLoss) : 0
+        let riskUsd = idea.sizeUsd * (abs(entry - idea.stopLoss) / entry + slippage)
         let maxRisk = accountValue * mandate.maxRiskPct / 100
         if riskUsd > maxRisk * riskTolerance {
             problems.append(String(format: "riesgo de %.2f USD supera el %@%% de la cuenta (%.2f USD)",

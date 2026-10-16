@@ -73,6 +73,8 @@ enum TemplateSkills {
         ```
         Ejemplo: cuenta 1.000 USD, riesgo 1 % → 10 USD. Entrada 60.000, stop 58.800 → distancia 2 %. Tamaño = 10 / 0,02 = 500 USD nocional. Con 3x, margen ≈ 167 USD.
 
+        **Órdenes a mercado:** la app suma un deslizamiento de hasta el 10 % de la distancia al stop (máx. 0,5 %). Usa `distancia × 1,1` (o `distancia + 0,005` si la distancia supera el 5 %) en la fórmula. En el ejemplo: 10 / 0,022 ≈ 454 USD.
+
         ## Antes de llamar a trade_propose
         1. Lee el valor de la cuenta con account_state.
         2. Calcula el tamaño con la fórmula y redondea hacia abajo.

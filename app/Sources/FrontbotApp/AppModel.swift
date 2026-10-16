@@ -506,6 +506,7 @@ final class AppModel {
     func deleteAgent(_ id: String) {
         guard !(isRunning && selectedAgentId == id) else { return }
         guard perform({ try db.deleteAgent(id: id) }) else { return }
+        for network in TradeNetwork.allCases { try? tradeKeys.remove(agentId: id, network: network) }
         if selectedAgentId == id { selectedAgentId = agents.first { $0.isDefault }?.id ?? "" ; messages = []; currentConversationId = nil }
         reloadAgents()
         reloadConversations()

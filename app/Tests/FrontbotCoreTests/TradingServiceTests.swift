@@ -8,11 +8,16 @@ final class FakeExecutor: TradeExecutor, @unchecked Sendable {
     var executed: [(TradeNetwork, String, TradeProposal)] = []
     var closed: [String] = []
     var executeError: Error?
+    var position = 0.0
+    var snapshotDelay: Duration = .zero
+
+    func positionSize(network: TradeNetwork, address: String, coin: String) async throws -> Double { position }
 
     func snapshot(network: TradeNetwork, coin: String, address: String?) async throws -> MarketSnapshot {
-        MarketSnapshot(price: price, accountValue: address == nil ? nil : accountValue)
+        if snapshotDelay > .zero { try await Task.sleep(for: snapshotDelay) }
+        return MarketSnapshot(price: price, accountValue: address == nil ? nil : accountValue)
     }
-    func execute(network: TradeNetwork, privateKey: String, proposal: TradeProposal) async throws -> TradeOutcome {
+    func execute(network: TradeNetwork, privateKey: String, address: String, proposal: TradeProposal) async throws -> TradeOutcome {
         if let executeError { throw executeError }
         executed.append((network, privateKey, proposal))
         return outcome
@@ -143,6 +148,75 @@ final class TradingServiceTests: XCTestCase {
         XCTAssertEqual(executor.closed, ["BTC"])
     }
 
+    func testAProposalCanOnlyBeSentOnceEvenIfAutoAndManualRace() async throws {
+        executor.snapshotDelay = .milliseconds(200)
+        let id = try propose().proposal.id
+        let svc = service!
+        async let first = try? svc.approve(id: id)
+        async let second = try? svc.approve(id: id)
+        let results = await [first, second]
+        XCTAssertEqual(results.compactMap { $0 }.count, 1)
+        XCTAssertEqual(executor.executed.count, 1)
+    }
+
+    func testRejectDoesNotOverrideASendInProgress() async throws {
+        executor.snapshotDelay = .milliseconds(200)
+        let id = try propose().proposal.id
+        let svc = service!
+        async let sent = try? svc.approve(id: id)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertThrowsError(try service.reject(id: id))
+        _ = await sent
+        XCTAssertEqual(try db.proposal(id: id)?.status, .open)
+    }
+
+    func testFailedPreconditionsReleaseTheProposal() async throws {
+        let id = try propose().proposal.id
+        executor.price = 58_000 // la entrada límite ya está por debajo del stop: no cumple
+        try db.pauseAllTrading()
+        await XCTAssertThrowsAsync(try await service.approve(id: id))
+        let p = try XCTUnwrap(try db.proposal(id: id))
+        XCTAssertEqual(p.status, .proposed)
+        XCTAssertNil(p.executedAt)
+        XCTAssertEqual(try db.tradesToday(agentId: agent.id), 0)
+    }
+
+    func testAutoSendRequiresAutoModeAtSendTime() async throws {
+        let id = try propose().proposal.id // modo aprobación
+        await XCTAssertThrowsAsync(try await service.executeAuto(id: id))
+        XCTAssertTrue(executor.executed.isEmpty)
+    }
+
+    func testProposalFromAnotherNetworkIsRejected() throws {
+        var params: [String: JSONValue] = [
+            "agent_id": .string(agent.id), "coin": "BTC", "side": "long", "size_usd": 500, "leverage": 3, "entry_type": "limit",
+            "entry_price": 60_000, "stop_loss": 58_800, "rationale": "r",
+            "snapshot": ["price": 60_000, "account_value": 1_000, "network": "mainnet"],
+        ]
+        params["take_profit"] = 63_000
+        let r = try service.propose(params: .object(params))
+        XCTAssertEqual(r.proposal.status, .rejected)
+        XCTAssertTrue(r.proposal.error?.contains("red") == true)
+    }
+
+    func testWhenTheExchangeDoesNotAnswerTheRealPositionDecides() async throws {
+        executor.executeError = AgentClientError.timeout
+        executor.position = 0.00833
+        let open = try await service.approve(id: try propose().proposal.id)
+        XCTAssertEqual(open.status, .open)
+        XCTAssertTrue(open.error?.contains("stop loss") == true)
+        executor.position = 0
+        let failed = try await service.approve(id: try propose().proposal.id)
+        XCTAssertEqual(failed.status, .failed)
+    }
+
+    func testAgentsWithOpenTradesCannotBeDeleted() async throws {
+        _ = try await service.approve(id: try propose().proposal.id)
+        XCTAssertThrowsError(try db.deleteAgent(id: agent.id)) { error in
+            XCTAssertEqual((error as? ValidationError)?.message, "Crypto Trader tiene trades abiertos: ciérralos antes de borrarlo.")
+        }
+    }
+
     func testUnfinishedSendsAreFlaggedOnLaunch() throws {
         var p = try propose().proposal
         p.status = .sending
@@ -184,7 +258,7 @@ final class TradingFlowTests: XCTestCase {
 
         let done = try await client.trading.approve(id: pending.id)
         XCTAssertEqual(done.status, .open)
-        XCTAssertEqual(done.filledSize, "0.00833")
+        XCTAssertEqual(done.filledSize, "0.0075")
         await client.stop()
     }
 }

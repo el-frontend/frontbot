@@ -20,8 +20,10 @@ public struct TradeOutcome: Equatable, Sendable {
 /// El exchange (vía el sidecar). Solo la app lo usa; el agente nunca.
 public protocol TradeExecutor: Sendable {
     func snapshot(network: TradeNetwork, coin: String, address: String?) async throws -> MarketSnapshot
-    func execute(network: TradeNetwork, privateKey: String, proposal: TradeProposal) async throws -> TradeOutcome
+    func execute(network: TradeNetwork, privateKey: String, address: String, proposal: TradeProposal) async throws -> TradeOutcome
     func close(network: TradeNetwork, privateKey: String, address: String, coin: String) async throws
+    /// Tamaño actual de la posición en `coin` (0 si no hay): para saber qué pasó si no llegó respuesta.
+    func positionSize(network: TradeNetwork, address: String, coin: String) async throws -> Double
 }
 
 /// Claves de las API wallets (en la app: el llavero).
@@ -55,9 +57,14 @@ public struct TradingService: Sendable {
         let idea = try Self.idea(from: params)
         guard let price = params["snapshot"]?["price"]?.doubleValue, price > 0 else { throw ValidationError("Falta el precio de mercado.") }
         let account = params["snapshot"]?["account_value"]?.doubleValue
+        let snapshotNetwork = params["snapshot"]?["network"]?.stringValue.flatMap(TradeNetwork.init(rawValue:))
         // Sin cuenta conectada no se puede medir el riesgo todavía: se vuelve a validar al aprobar.
-        let check = TradeRules.check(idea, mandate: mandate, accountValue: account ?? .greatestFiniteMagnitude,
+        var check = TradeRules.check(idea, mandate: mandate, accountValue: account ?? .greatestFiniteMagnitude,
                                      currentPrice: price, tradesToday: try db.tradesToday(agentId: agentId))
+        if let snapshotNetwork, snapshotNetwork != mandate.network {
+            check = TradeCheck(entry: check.entry, riskUsd: check.riskUsd,
+                               problems: check.problems + ["el mandato cambió de red (ahora \(mandate.network.rawValue)): vuelve a analizar con los datos de esa red"])
+        }
         let now = Date.dbNow()
         let proposal = TradeProposal(
             id: UUID().uuidString, agentId: agentId, network: mandate.network, coin: idea.coin.uppercased(), side: idea.side,
@@ -90,9 +97,9 @@ public struct TradingService: Sendable {
     public func executeAuto(id: String) async throws -> TradeProposal { try await send(id: id, auto: true) }
 
     public func reject(id: String) throws -> TradeProposal {
-        guard var p = try db.proposal(id: id), p.status == .proposed else { throw ValidationError("Esa propuesta ya no está pendiente.") }
-        p.status = .cancelled
-        try db.saveProposal(p)
+        guard let p = try db.transitionProposal(id: id, from: .proposed, to: .cancelled) else {
+            throw ValidationError("Esa propuesta ya no está pendiente.")
+        }
         return p
     }
 
@@ -110,28 +117,42 @@ public struct TradingService: Sendable {
     }
 
     private func send(id: String, auto: Bool) async throws -> TradeProposal {
-        guard var p = try db.proposal(id: id), p.status == .proposed else { throw ValidationError("Esa propuesta ya no está pendiente.") }
-        let mandate = try db.mandate(agentId: p.agentId)
-        guard p.network == mandate.network else {
-            throw ValidationError("La propuesta es de \(p.network.rawValue) y el agente ahora opera en \(mandate.network.rawValue); pídele una nueva.")
-        }
-        guard let key = keys.privateKey(agentId: p.agentId, network: p.network), let address = mandate.address else {
-            throw ValidationError("Conecta tu API wallet de Hyperliquid (\(p.network.rawValue)) en la página del agente.")
-        }
-        let snapshot = try await executor.snapshot(network: p.network, coin: p.coin, address: address)
-        guard let account = snapshot.accountValue else { throw ValidationError("No se pudo leer el valor de tu cuenta en Hyperliquid.") }
-        let check = TradeRules.check(p.idea, mandate: mandate, accountValue: account, currentPrice: snapshot.price,
-                                     tradesToday: try db.tradesToday(agentId: p.agentId))
-        guard check.ok else { throw ValidationError("Ya no cumple el mandato: " + check.problems.joined(separator: "; ") + ".") }
-
-        p.status = .sending
-        p.auto = auto
-        p.riskUsd = check.riskUsd
-        p.referencePrice = snapshot.price
-        p.executedAt = .dbNow()
-        try db.saveProposal(p)
+        // Se reclama antes de cualquier espera: dos envíos (auto + manual, doble clic) nunca salen a la vez.
+        guard var p = try db.claimProposal(id: id) else { throw ValidationError("Esa propuesta ya no está pendiente.") }
+        var delivering = false
         do {
-            let outcome = try await executor.execute(network: p.network, privateKey: key, proposal: p)
+            let mandate = try db.mandate(agentId: p.agentId)
+            if auto && mandate.mode != .auto { throw ValidationError("El agente ya no está en modo automático.") }
+            guard p.network == mandate.network else {
+                throw ValidationError("La propuesta es de \(p.network.rawValue) y el agente ahora opera en \(mandate.network.rawValue); pídele una nueva.")
+            }
+            guard let key = keys.privateKey(agentId: p.agentId, network: p.network), let address = mandate.address else {
+                throw ValidationError("Conecta tu API wallet de Hyperliquid (\(p.network.rawValue)) en la página del agente.")
+            }
+            let snapshot = try await executor.snapshot(network: p.network, coin: p.coin, address: address)
+            guard let account = snapshot.accountValue else { throw ValidationError("No se pudo leer el valor de tu cuenta en Hyperliquid.") }
+            // Esta propuesta ya cuenta como enviada hoy (executedAt): se descuenta para no contarla dos veces.
+            let others = max(0, try db.tradesToday(agentId: p.agentId) - 1)
+            let check = TradeRules.check(p.idea, mandate: mandate, accountValue: account, currentPrice: snapshot.price, tradesToday: others)
+            guard check.ok else { throw ValidationError("Ya no cumple el mandato: " + check.problems.joined(separator: "; ") + ".") }
+
+            p.auto = auto
+            p.riskUsd = check.riskUsd
+            p.referencePrice = snapshot.price
+            try db.saveProposal(p)
+            delivering = true
+            return try await deliver(p, key: key, address: address)
+        } catch {
+            if !delivering { _ = try? db.releaseProposal(id: id) } // no se llegó a enviar: vuelve a estar pendiente
+            throw error
+        }
+    }
+
+    /// Envía y registra el resultado. Si no llega respuesta, manda la posición real.
+    private func deliver(_ proposal: TradeProposal, key: String, address: String) async throws -> TradeProposal {
+        var p = proposal
+        do {
+            let outcome = try await executor.execute(network: p.network, privateKey: key, address: address, proposal: p)
             p.orderIds = outcome.orderIds
             p.filledSize = outcome.filledSize
             p.avgPrice = outcome.avgPrice
@@ -139,8 +160,15 @@ public struct TradingService: Sendable {
             p.status = outcome.status == "failed" ? .failed : .open
             if outcome.status == "resting" { p.error = "Orden límite en el libro: el stop loss se activa cuando se llene." }
         } catch {
-            p.status = .failed
-            p.error = error.localizedDescription
+            let size = try? await executor.positionSize(network: p.network, address: address, coin: p.coin)
+            if let size, size != 0 {
+                p.status = .open
+                p.filledSize = String(abs(size))
+                p.error = "No llegó la confirmación del exchange, pero la posición existe. Verifica en Hyperliquid que tenga su stop loss."
+            } else {
+                p.status = .failed
+                p.error = (size == nil ? "No se pudo confirmar el envío (revisa tus posiciones): " : "") + error.localizedDescription
+            }
         }
         try db.saveProposal(p)
         return p

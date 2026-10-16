@@ -74,6 +74,9 @@ public struct SkillLibrary: Sendable {
         try? FileManager.default.removeItem(at: dest)
         try FileManager.default.copyItem(at: source, to: dest)
         do {
+            // Solo name y description: campos como allowed-tools, hooks o model podrían ampliar lo que el skill puede hacer.
+            try SkillManifest.render(name: manifest.name, description: manifest.description, body: manifest.body)
+                .write(to: dest.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
             return try insert(name: manifest.name, description: manifest.description, source: .imported, status: .active,
                               hasScripts: Self.containsScripts(dest), createdBy: nil)
         } catch {

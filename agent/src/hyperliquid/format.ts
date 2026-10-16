@@ -22,8 +22,13 @@ export type OrderWire = {
   t: { limit: { tif: "Gtc" | "Ioc" } } | { trigger: { isMarket: boolean; triggerPx: string; tpsl: "tp" | "sl" } };
 };
 
+/** Deslizamiento máximo de una entrada a mercado: 10 % de la distancia al stop, tope 0,5 % (igual que la app). */
+export function marketSlippage(entry: number, stop: number): number {
+  return entry > 0 ? Math.min(0.005, (0.1 * Math.abs(entry - stop)) / entry) : 0;
+}
+
 export type BracketInput = {
-  asset: number; szDecimals: number; refPrice: number; slippage: number;
+  asset: number; szDecimals: number; refPrice: number;
   side: "long" | "short"; sizeUsd: number; entryType: "market" | "limit"; entryPrice?: number;
   stopLoss: number; takeProfit?: number;
 };
@@ -40,12 +45,17 @@ export function buildBracket(i: BracketInput): Bracket {
   const isBuy = i.side === "long";
   const entryPx = i.entryType === "market" ? i.refPrice : i.entryPrice;
   if (!entryPx || entryPx <= 0) throw new Error("Falta el precio de entrada.");
+  // Con el precio de ahora, el stop debe seguir del lado correcto (si no, se dispararía al instante).
+  if (isBuy ? i.stopLoss >= entryPx : i.stopLoss <= entryPx) {
+    throw new Error(`El stop loss (${i.stopLoss}) ya no está del lado correcto de la entrada (${entryPx}): vuelve a analizar.`);
+  }
+  const slippage = marketSlippage(entryPx, i.stopLoss);
   const size = formatSize(i.sizeUsd / entryPx, i.szDecimals);
   if (Number(size) * entryPx < MIN_ORDER_USD) throw new Error(`El tamaño queda por debajo del mínimo de Hyperliquid (${MIN_ORDER_USD} USD).`);
 
   const px = (p: number) => formatPrice(p, i.szDecimals);
   const entry: OrderWire = i.entryType === "market"
-    ? { a: i.asset, b: isBuy, p: px(i.refPrice * (isBuy ? 1 + i.slippage : 1 - i.slippage)), s: size, r: false, t: { limit: { tif: "Ioc" } } }
+    ? { a: i.asset, b: isBuy, p: px(i.refPrice * (isBuy ? 1 + slippage : 1 - slippage)), s: size, r: false, t: { limit: { tif: "Ioc" } } }
     : { a: i.asset, b: isBuy, p: px(entryPx), s: size, r: false, t: { limit: { tif: "Gtc" } } };
   const exit = (trigger: number, tpsl: "tp" | "sl"): OrderWire => ({
     a: i.asset, b: !isBuy, s: size, r: true,

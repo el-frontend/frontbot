@@ -398,15 +398,16 @@ extension AgentClient: TradeExecutor {
         return MarketSnapshot(price: price, accountValue: r["account_value"]?.doubleValue)
     }
 
-    public func execute(network: TradeNetwork, privateKey: String, proposal p: TradeProposal) async throws -> TradeOutcome {
+    public func execute(network: TradeNetwork, privateKey: String, address: String, proposal p: TradeProposal) async throws -> TradeOutcome {
         var params: [String: JSONValue] = [
-            "network": .string(network.rawValue), "private_key": .string(privateKey), "coin": .string(p.coin),
+            "network": .string(network.rawValue), "private_key": .string(privateKey), "address": .string(address), "coin": .string(p.coin),
             "side": .string(p.side.rawValue), "size_usd": .number(p.sizeUsd), "leverage": .number(Double(p.leverage)),
             "entry_type": .string(p.entryType.rawValue), "stop_loss": .number(p.stopLoss),
         ]
         if let e = p.entryPrice { params["entry_price"] = .number(e) }
         if let tp = p.takeProfit { params["take_profit"] = .number(tp) }
-        let r = try await call("trade.execute", params: .object(params), timeout: .seconds(45))
+        // Más que el presupuesto del sidecar (varias llamadas a Hyperliquid de hasta 15 s cada una).
+        let r = try await call("trade.execute", params: .object(params), timeout: .seconds(120))
         return TradeOutcome(status: r["status"]?.stringValue ?? "failed",
                             orderIds: (r["orderIds"]?.arrayValue ?? []).compactMap(\.intValue),
                             filledSize: r["filledSize"]?.stringValue, avgPrice: r["avgPrice"]?.stringValue, error: r["error"]?.stringValue)
@@ -414,7 +415,13 @@ extension AgentClient: TradeExecutor {
 
     public func close(network: TradeNetwork, privateKey: String, address: String, coin: String) async throws {
         _ = try await call("trade.close", params: ["network": .string(network.rawValue), "private_key": .string(privateKey),
-                                                   "address": .string(address), "coin": .string(coin)], timeout: .seconds(45))
+                                                   "address": .string(address), "coin": .string(coin)], timeout: .seconds(120))
+    }
+
+    public func positionSize(network: TradeNetwork, address: String, coin: String) async throws -> Double {
+        let overview = try await accountOverview(network: network, address: address)
+        let position = (overview["positions"]?.arrayValue ?? []).first { $0["coin"]?.stringValue == coin.uppercased() }
+        return position?["size"]?.doubleValue ?? 0
     }
 
     /// Valor de la cuenta, posiciones y órdenes abiertas (para la pestaña Trades).
