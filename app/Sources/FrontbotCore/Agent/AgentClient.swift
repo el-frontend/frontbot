@@ -13,6 +13,27 @@ public struct AgentConfig: Sendable {
     }
 }
 
+/// Modelos que se pueden elegir en la app.
+public enum AgentModel {
+    public static let all: [(id: String, label: String)] = [
+        (AgentConfig.defaultModel, "Sonnet 5.5 · día a día"),
+        ("claude-opus-5-5", "Opus 5.5 · investigación a fondo"),
+        ("claude-haiku-4-5-20251001", "Haiku 4.5 · rápido y barato"),
+    ]
+
+    /// El guardado si sigue en el catálogo; si no, el de por defecto.
+    public static func resolve(_ stored: String?) -> String {
+        all.contains { $0.id == stored } ? stored! : AgentConfig.defaultModel
+    }
+
+    /// "claude-sonnet-5-5" → "sonnet-5.5"; "claude-haiku-4-5-20251001" → "haiku-4.5".
+    public static func shortName(_ id: String) -> String {
+        let parts = id.replacingOccurrences(of: "claude-", with: "").split(separator: "-")
+        guard parts.count >= 3 else { return id }
+        return "\(parts[0])-\(parts[1]).\(parts[2])"
+    }
+}
+
 public enum AgentUpdate: Sendable, Equatable {
     case event(runId: String, type: String, text: String)
     case finished(AgentRun)
@@ -77,13 +98,14 @@ public actor AgentClient {
         for c in subscribers.values { c.yield(update) }
     }
 
+    /// `model`: el elegido en la app (si no, el de la configuración).
     /// `useBrowser`: el agente puede usar el Chrome del usuario (Claude in Chrome) detrás del guardián del sidecar.
-    public func run(prompt: String, brand: Brand?, history: [ChatTurn] = [], useBrowser: Bool = false) async throws -> AgentRun {
+    public func run(prompt: String, brand: Brand?, history: [ChatTurn] = [], model: String? = nil, useBrowser: Bool = false) async throws -> AgentRun {
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
         do {
-            var params: [String: JSONValue] = ["run_id": .string(run.id), "prompt": .string(prompt), "model": .string(config.model)]
+            var params: [String: JSONValue] = ["run_id": .string(run.id), "prompt": .string(prompt), "model": .string(model ?? config.model)]
             if let brand {
                 let guide = try files.readGuide(brandId: brand.id)
                 params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]

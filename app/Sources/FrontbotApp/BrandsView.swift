@@ -68,7 +68,7 @@ struct BrandsView: View {
                 }
             }
 
-            Spacer()
+            recents.frame(maxHeight: .infinity, alignment: .top)
 
             VStack(alignment: .leading, spacing: 2) {
                 Divider().overlay(Theme.border).padding(.bottom, 8)
@@ -111,6 +111,51 @@ struct BrandsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private var recents: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if !model.conversations.isEmpty {
+                SectionLabel("Recientes").padding(.horizontal, 10).padding(.bottom, 4)
+            }
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(model.conversations) { conversation in
+                        let selected = model.section == .chat && model.currentConversationId == conversation.id
+                        Button { model.openConversation(conversation) } label: {
+                            HStack(spacing: 8) {
+                                Text(conversation.title).lineLimit(1).truncationMode(.tail)
+                                Spacer(minLength: 4)
+                                Text(Self.age(conversation.updatedAt)).font(Theme.mono(10)).foregroundStyle(Theme.muted)
+                            }
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(selected ? Theme.text : Theme.textSecondary)
+                            .padding(.horizontal, 10)
+                            .frame(height: 30)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(selected ? Theme.selected : .clear))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Eliminar conversación", role: .destructive) { model.deleteConversation(conversation) }
+                        }
+                    }
+                }
+            }
+            .scrollIndicators(.never)
+        }
+    }
+
+    /// "ahora", "12m", "3h", "2d", "5sem".
+    static func age(_ date: Date, now: Date = Date()) -> String {
+        let minutes = Int(now.timeIntervalSince(date) / 60)
+        switch minutes {
+        case ..<1: return "ahora"
+        case ..<60: return "\(minutes)m"
+        case ..<(60 * 24): return "\(minutes / 60)h"
+        case ..<(60 * 24 * 7): return "\(minutes / (60 * 24))d"
+        default: return "\(minutes / (60 * 24 * 7))sem"
+        }
     }
 }
 

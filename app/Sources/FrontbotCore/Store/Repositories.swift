@@ -225,6 +225,53 @@ extension AppDatabase {
         try writer.read { try AgentRun.filter(Column("workspaceId") == workspaceId).order(Column("createdAt").desc).fetchAll($0) }
     }
 
+    // MARK: Conversaciones
+
+    /// Crea una conversación titulada con el primer mensaje (una línea, máximo 60 caracteres).
+    public func createConversation(workspaceId: String, brandId: String?, firstPrompt: String) throws -> Conversation {
+        let line = firstPrompt.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let title = line.count > 60 ? String(line.prefix(60)) + "…" : line
+        let now = Date.dbNow()
+        return try writer.write { db in
+            let c = Conversation(id: UUID().uuidString, workspaceId: workspaceId, brandId: brandId,
+                                 title: title.isEmpty ? "Conversación" : title, createdAt: now, updatedAt: now,
+                                 activity: try nextActivity(db))
+            try c.insert(db)
+            return c
+        }
+    }
+
+    public func appendMessage(conversationId: String, role: ChatRole, text: String) throws {
+        try writer.write { db in
+            guard var c = try Conversation.fetchOne(db, key: conversationId) else { throw notFound("conversación", conversationId) }
+            var message = StoredMessage(id: nil, conversationId: conversationId, role: role, text: text, createdAt: .dbNow())
+            try message.insert(db)
+            c.updatedAt = message.createdAt
+            c.activity = try nextActivity(db)
+            try c.update(db)
+        }
+    }
+
+    /// Las más recientes primero (por última actividad).
+    public func conversations(workspaceId: String, limit: Int) throws -> [Conversation] {
+        try writer.read {
+            try Conversation.filter(Column("workspaceId") == workspaceId)
+                .order(Column("activity").desc).limit(limit).fetchAll($0)
+        }
+    }
+
+    public func messages(conversationId: String) throws -> [StoredMessage] {
+        try writer.read { try StoredMessage.filter(Column("conversationId") == conversationId).order(Column("id")).fetchAll($0) }
+    }
+
+    private func nextActivity(_ db: Database) throws -> Int {
+        (try Int.fetchOne(db, sql: "SELECT MAX(activity) FROM conversation") ?? 0) + 1
+    }
+
+    public func deleteConversation(id: String) throws {
+        _ = try writer.write { try Conversation.deleteOne($0, key: id) }
+    }
+
     // MARK: Assets
     public func assets(brandId: String, kind: AssetKind?) throws -> [BrandAsset] {
         try writer.read { db in

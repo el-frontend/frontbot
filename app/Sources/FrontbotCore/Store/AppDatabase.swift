@@ -86,6 +86,25 @@ public final class AppDatabase: Sendable {
                 t.column("createdAt", .datetime).notNull()
             }
         }
+        m.registerMigration("v2-conversations") { db in
+            try db.create(table: "conversation") { t in
+                t.primaryKey("id", .text)
+                t.column("workspaceId", .text).notNull().references("workspace", onDelete: .cascade)
+                t.column("brandId", .text).references("brand", onDelete: .setNull)
+                t.column("title", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                // Orden de "Recientes": crece con cada mensaje; las horas pueden empatar en el mismo milisegundo.
+                t.column("activity", .integer).notNull().indexed()
+            }
+            try db.create(table: "chatMessage") { t in
+                t.autoIncrementedPrimaryKey("id") // el orden de inserción es el orden de la conversación
+                t.column("conversationId", .text).notNull().indexed().references("conversation", onDelete: .cascade)
+                t.column("role", .text).notNull()
+                t.column("text", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
         return m
     }
 

@@ -94,6 +94,7 @@ export class FakeRunner implements Runner {
     const { brands } = (await this.call("tool.brands_list", {})) as { brands: unknown[] };
     const summary = `Tienes ${brands.length} marca(s).`;
     emit({ run_id: params.run_id, type: "text", text: summary });
+    if (params.prompt === "modelo") emit({ run_id: params.run_id, type: "text", text: `Modelo: ${params.model}` });
     if (params.browser) emit({ run_id: params.run_id, type: "text", text: "Navegador: activado" });
     if (params.history?.length) emit({ run_id: params.run_id, type: "text", text: `Historial: ${params.history.length}` });
     if (params.prompt.includes("crear post") && params.brand) {

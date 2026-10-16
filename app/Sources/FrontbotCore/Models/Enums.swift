@@ -16,6 +16,10 @@ public enum RunStatus: String, Codable, Sendable {
     case running, done, failed
 }
 
+public enum ChatRole: String, Codable, Sendable {
+    case user, agent, tool, error
+}
+
 public struct ValidationError: Error, Equatable, Sendable {
     public let message: String
     public init(_ message: String) { self.message = message }

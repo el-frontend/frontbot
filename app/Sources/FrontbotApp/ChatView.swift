@@ -9,7 +9,7 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text(model.messages.first(where: { $0.role == .user })?.text ?? "Nueva conversación")
+                Text(model.conversations.first { $0.id == model.currentConversationId }?.title ?? "Nueva conversación")
                     .font(.system(size: 13, weight: .medium)).lineLimit(1)
                 if let brand = model.selectedBrand {
                     Text(brand.name).font(Theme.mono()).foregroundStyle(Theme.muted)
@@ -106,9 +106,25 @@ struct ChatView: View {
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
                 .fixedSize()
 
-                Text(model.modelName).font(Theme.mono()).foregroundStyle(Theme.muted)
+                Menu {
+                    ForEach(AgentModel.all, id: \.id) { option in
+                        Button { model.selectedModel = option.id } label: {
+                            if option.id == model.selectedModel { Label(option.label, systemImage: "checkmark") } else { Text(option.label) }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(model.modelName)
+                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                    }
+                    .font(Theme.mono()).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 10).frame(height: 28)
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.borderStrong))
+                    .contentShape(Rectangle())
+                }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                .fixedSize()
+                .help("Modelo del agente")
                 if model.useBrowser {
                     Label("Chrome", systemImage: "globe").font(Theme.mono()).foregroundStyle(Theme.muted)
                         .padding(.horizontal, 10).frame(height: 28)

@@ -72,3 +72,24 @@ public struct AgentRun: Codable, FetchableRecord, PersistableRecord, Identifiabl
     public var logPath: String?
     public var createdAt: Date
 }
+
+public struct Conversation: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public var id: String
+    public var workspaceId: String
+    public var brandId: String?
+    public var title: String
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var activity: Int
+}
+
+public struct StoredMessage: Codable, FetchableRecord, MutablePersistableRecord, Equatable, Sendable {
+    public static let databaseTableName = "chatMessage"
+    public var id: Int64?
+    public var conversationId: String
+    public var role: ChatRole
+    public var text: String
+    public var createdAt: Date
+
+    public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+}
