@@ -155,4 +155,21 @@ extension AppDatabase {
     public func runs(workspaceId: String) throws -> [AgentRun] {
         try writer.read { try AgentRun.filter(Column("workspaceId") == workspaceId).order(Column("createdAt").desc).fetchAll($0) }
     }
+
+    // MARK: Assets
+    public func assets(brandId: String, kind: AssetKind?) throws -> [BrandAsset] {
+        try writer.read { db in
+            var request = BrandAsset.filter(Column("brandId") == brandId)
+            if let kind { request = request.filter(Column("kind") == kind.rawValue) }
+            return try request.order(Column("createdAt")).fetchAll(db)
+        }
+    }
+
+    public func asset(id: String) throws -> BrandAsset? {
+        try writer.read { try BrandAsset.fetchOne($0, key: id) }
+    }
+
+    func insertAsset(_ asset: BrandAsset) throws {
+        try writer.write { try asset.insert($0) }
+    }
 }
