@@ -93,10 +93,11 @@ struct ChatView: View {
                 } label: {
                     HStack(spacing: 6) {
                         if let brand = model.selectedBrand { BrandAvatar(brand: brand, size: 14) }
-                        Text(model.selectedBrand?.name ?? "Sin marca")
+                        Text(model.selectedBrand?.name ?? "Sin marca").lineLimit(1)
                     }
                 }
-                .menuStyle(.borderlessButton).fixedSize()
+                .menuStyle(.borderlessButton)
+                .frame(minWidth: 300, maxWidth: 300, alignment: .leading)
                 .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
                 .padding(.horizontal, 10).frame(height: 28)
                 .panel(radius: 7, fill: Theme.raised)
