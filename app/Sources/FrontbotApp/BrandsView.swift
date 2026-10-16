@@ -6,14 +6,22 @@ struct BrandsView: View {
     @State private var showingNew = false
 
     var body: some View {
-        List(selection: $model.selectedBrandId) {
+        List {
+            Section {
+                Button { model.section = .chat } label: { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
+                    .buttonStyle(.plain).bold(model.section == .chat)
+                Button { model.section = .calendar } label: { Label("Calendario", systemImage: "calendar") }
+                    .buttonStyle(.plain).bold(model.section == .calendar)
+            }
             Section("Marcas") {
                 ForEach(model.brands) { brand in
-                    VStack(alignment: .leading) {
-                        Text(brand.name)
-                        Text(brand.networks.map(\.rawValue).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                    Button { model.select(brandId: brand.id) } label: {
+                        VStack(alignment: .leading) {
+                            Text(brand.name).bold(model.section == .brand(brand.id))
+                            Text(brand.networks.map(\.rawValue).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
-                    .tag(brand.id)
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -37,7 +45,6 @@ struct NewBrandSheet: View {
             TextField("Rubro", text: $industry)
             Toggle("Instagram", isOn: $instagram)
             Toggle("LinkedIn", isOn: $linkedin)
-            if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
             HStack {
                 Button("Cancelar") { dismiss() }
                 Spacer()
