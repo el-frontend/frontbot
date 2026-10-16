@@ -32,4 +32,11 @@ describe("scheduled runs", () => {
     expect(names).toEqual(expect.arrayContaining(["schedule_list", "schedule_create_draft", "schedule_update_draft"]));
     expect(allowedToolsFor({ agentId: "a", isDefault: false }).some((t) => /schedule_(activate|enable|pause|delete)/.test(t))).toBe(false);
   });
+
+  it("scheduled runs cannot run skill scripts (nobody is there to approve them)", () => {
+    const opts = buildQueryOptions({ run_id: "r9", prompt: "x", model: "m", agent, mode: "scheduled", task: { name: "t" } }, server, new AbortController(), "2026-10-17");
+    expect(opts.allowedTools).not.toContain("mcp__frontbot__skills_run_script");
+    expect(buildTools(async () => ({}), { agentId: "a1", isDefault: false, scheduled: true }).map((t) => t.name)).not.toContain("skills_run_script");
+  });
 });
+

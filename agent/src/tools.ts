@@ -51,7 +51,9 @@ export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: b
 
 const specsFor = (ctx: ToolContext) => {
   if (ctx.memoryOnly) return [...MEMORY_TOOL_SPECS];
-  return [...TOOL_SPECS, ...MEMORY_TOOL_SPECS, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : [])];
+  // En una tarea programada nadie puede aprobar un script: esa herramienta no existe ahí.
+  const base = ctx.scheduled ? TOOL_SPECS.filter((t) => t.name !== "skills_run_script") : [...TOOL_SPECS];
+  return [...base, ...MEMORY_TOOL_SPECS, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : [])];
 };
 
 export const allowedToolsFor = (ctx: ToolContext) => [...(ctx.memoryOnly ? [] : ["WebSearch", "WebFetch"]), ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];

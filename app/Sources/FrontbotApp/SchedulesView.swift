@@ -69,6 +69,8 @@ struct TaskRow: View {
                 Spacer()
                 if model.isTaskRunning(task) {
                     ProgressView().controlSize(.small)
+                    Button { model.cancelTaskRun(task) } label: { Image(systemName: "stop.fill") }
+                        .buttonStyle(OutlineButtonStyle()).help("Cancelar esta ejecución")
                 } else {
                     Button { model.runTaskNow(task) } label: { Image(systemName: "play.fill") }
                         .buttonStyle(OutlineButtonStyle()).help("Ejecutar ahora")
@@ -89,6 +91,10 @@ struct TaskRow: View {
             if task.status == .draft, let author = model.agent(id: task.createdByAgentId) {
                 Text("\(author.name) propuso esta tarea. Revisa la instrucción y la frecuencia antes de activarla.")
                     .font(.system(size: 12)).foregroundStyle(Theme.draft)
+            }
+            if let agent = model.agent(id: task.agentId), agent.trading, model.mandate(agentId: agent.id).mode == .auto, task.status != .paused {
+                Text("⚠️ \(agent.name) opera en modo automático: esta tarea puede ejecutar trades sin que estés mirando (siempre dentro del mandato y con stop loss).")
+                    .font(.system(size: 12)).foregroundStyle(Theme.draft).fixedSize(horizontal: false, vertical: true)
             }
             Text(task.instruction).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(expanded ? nil : 2)
             if expanded { history }
@@ -186,7 +192,7 @@ struct TaskEditorSheet: View {
                     case .interval:
                         HStack(spacing: 12) {
                             Picker("Cada", selection: $everyMinutes) {
-                                ForEach(Self.intervals, id: \.self) { m in Text(m % 60 == 0 ? "\(m / 60) h" : "\(m) min").tag(m) }
+                                ForEach(Array(Set(Self.intervals + [everyMinutes])).sorted(), id: \.self) { m in Text(m % 60 == 0 ? "\(m / 60) h" : "\(m) min").tag(m) }
                             }
                             .fixedSize()
                             Toggle("Solo de", isOn: $useWindow).toggleStyle(.checkbox)
@@ -256,7 +262,7 @@ struct TaskEditorSheet: View {
         switch task.schedule {
         case .interval(let minutes, let window):
             kind = .interval
-            everyMinutes = Self.intervals.contains(minutes) ? minutes : 240
+            everyMinutes = minutes // también valores que no están en la lista (p. ej. 20 min de un borrador del agente)
             if let window {
                 useWindow = true
                 windowStart = Self.time(window.start.hour, window.start.minute)

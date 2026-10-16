@@ -67,6 +67,21 @@ final class ScheduledTaskTests: XCTestCase {
         XCTAssertFalse(try db.dueTasks(now: now.addingTimeInterval(86_400 * 2)).contains { $0.id == other.id })
     }
 
+    func testSkippingMovesTheNextRunWithoutRunning() throws {
+        let task = try db.createTask(agentId: agent.id, draft: draft(), status: .active, createdBy: nil, now: now)
+        let later = now.addingTimeInterval(5 * 3_600)
+        try db.skipTask(id: task.id, now: later)
+        XCTAssertEqual(try db.task(id: task.id)?.nextRunAt, later.addingTimeInterval(3_600))
+        XCTAssertTrue(try db.taskRuns(taskId: task.id).isEmpty)
+    }
+
+    func testHasRunningRun() throws {
+        let task = try db.createTask(agentId: agent.id, draft: draft(), status: .active, createdBy: nil, now: now)
+        XCTAssertFalse(try db.hasRunningRun(taskId: task.id))
+        _ = try db.startTaskRun(taskId: task.id, now: now)
+        XCTAssertTrue(try db.hasRunningRun(taskId: task.id))
+    }
+
     func testInterruptedRunsAreClosedOnLaunch() throws {
         let task = try db.createTask(agentId: agent.id, draft: draft(), status: .active, createdBy: nil, now: now)
         let run = try db.startTaskRun(taskId: task.id, now: now)

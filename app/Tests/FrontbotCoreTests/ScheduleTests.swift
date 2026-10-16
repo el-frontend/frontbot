@@ -68,4 +68,12 @@ final class ScheduleTests: XCTestCase {
                        .interval(minutes: 60, window: TimeWindow(start: TimeOfDay(8, 0), end: TimeOfDay(22, 0))))
         XCTAssertThrowsError(try Schedule.parse(["kind": "cron"]))
     }
+
+    func testWindowIsCheckedAtDispatchTime() {
+        let s = Schedule.interval(minutes: 240, window: TimeWindow(start: TimeOfDay(8, 0), end: TimeOfDay(22, 0)))
+        XCTAssertTrue(s.allows(date("2026-10-17 21:30"), calendar: cal))
+        XCTAssertFalse(s.allows(date("2026-10-18 03:00"), calendar: cal))
+        XCTAssertTrue(Schedule.daily(TimeOfDay(9, 0)).allows(date("2026-10-18 03:00"), calendar: cal))
+    }
 }
+
