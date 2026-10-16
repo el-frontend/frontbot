@@ -15,7 +15,7 @@ struct FrontbotApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Frontbot") {
+        WindowGroup("Frontbot", id: AppModel.mainWindowId) {
             if let model {
                 RootView(model: model)
                     .task {

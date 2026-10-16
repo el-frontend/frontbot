@@ -36,6 +36,8 @@ final class AppModel {
     var notchExpanded = false
     var lastAgentReply: String?
     var hotKeyRegistered = true
+    /// Reabre la ventana principal si el usuario la cerró (lo fija la vista con `openWindow`).
+    var openMainWindowAction: (() -> Void)?
     var preparationMessage: String?
 
     private let db: AppDatabase
@@ -166,10 +168,16 @@ final class AppModel {
         reloadContent()
     }
 
+    static let mainWindowId = "main"
+
     func showMainWindow(section: Section) {
         self.section = section
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix(Self.mainWindowId) == true }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            openMainWindowAction?()
+        }
     }
 
     func currentPost(_ id: String) -> Post? { posts.first { $0.id == id } }
