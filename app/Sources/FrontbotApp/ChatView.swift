@@ -91,16 +91,20 @@ struct ChatView: View {
                     Button("Sin marca") { model.selectedBrandId = nil }
                     ForEach(model.brands) { brand in Button(brand.name) { model.selectedBrandId = brand.id } }
                 } label: {
+                    // Etiqueta propia: el estilo borderlessButton de macOS reduce un HStack a su primer elemento.
                     HStack(spacing: 6) {
                         if let brand = model.selectedBrand { BrandAvatar(brand: brand, size: 14) }
-                        Text(model.selectedBrand?.name ?? "Sin marca").lineLimit(1)
+                        Text(model.selectedBrand?.name ?? "Sin marca").lineLimit(1).truncationMode(.tail)
+                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.muted)
                     }
+                    .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 10).frame(height: 28)
+                    .frame(maxWidth: 180)
+                    .panel(radius: 7, fill: Theme.raised)
+                    .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .frame(minWidth: 300, maxWidth: 300, alignment: .leading)
-                .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
-                .padding(.horizontal, 10).frame(height: 28)
-                .panel(radius: 7, fill: Theme.raised)
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                .fixedSize()
 
                 Text(model.modelName).font(Theme.mono()).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 10).frame(height: 28)
