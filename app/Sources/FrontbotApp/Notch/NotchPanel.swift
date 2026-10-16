@@ -21,7 +21,7 @@ final class NotchController {
 
     /// La pantalla con notch si hay una; si no, la principal.
     private var screen: NSScreen? {
-        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
+        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.screens.first // la de la barra de menú
     }
 
     private func geometry(for screen: NSScreen) -> NotchGeometry {
@@ -40,6 +40,10 @@ final class NotchController {
             p.backgroundColor = .clear
             p.hasShadow = true
             p.contentView = NSHostingView(rootView: NotchView(model: model, controller: self))
+            // Al hacer clic fuera, el panel deja de ser key: se recoge.
+            NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.collapse() }
+            }
             panel = p
         }
         layout(animated: false)
@@ -49,10 +53,8 @@ final class NotchController {
     func toggle() {
         model.notchExpanded.toggle()
         layout(animated: true)
-        if model.notchExpanded {
-            NSApp.activate(ignoringOtherApps: true)
-            panel?.makeKey()
-        }
+        // Panel no activante: toma el teclado sin activar la app (no trae la ventana principal al frente).
+        if model.notchExpanded { panel?.makeKeyAndOrderFront(nil) }
     }
 
     func collapse() {

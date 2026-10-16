@@ -3,6 +3,7 @@ import FrontbotCore
 
 struct RootView: View {
     @Bindable var model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         NavigationSplitView {
@@ -23,6 +24,7 @@ struct RootView: View {
             }
         }
         .frame(minWidth: 1000, minHeight: 640)
+        .onAppear { model.openMainWindowAction = { [openWindow] in openWindow(id: AppModel.mainWindowId) } }
         .alert("Frontbot", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
         } message: {

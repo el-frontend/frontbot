@@ -25,8 +25,11 @@ final class HotKey {
             InstallEventHandler(GetApplicationEventTarget(), frontbotHotKeyHandler, 1, &spec, nil, &gHandler)
         }
         if let ref { UnregisterEventHotKey(ref) }
+        ref = nil
         let id = EventHotKeyID(signature: OSType(0x46524254), id: 1) // "FRBT"
-        let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), id, GetApplicationEventTarget(), 0, &ref)
+        // Exclusivo: sin esta opción el registro "funciona" aunque otra app ya tenga ⌥Espacio y nunca nos llega.
+        let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), id, GetApplicationEventTarget(),
+                                         OptionBits(kEventHotKeyExclusive), &ref)
         registered = status == noErr
     }
 }

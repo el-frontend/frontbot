@@ -16,6 +16,11 @@ final class NotchGeometryTests: XCTestCase {
         XCTAssertEqual(g.height, 24)
     }
 
+    func testNoNotchWithAutoHiddenMenuBarStillHasClickableHeight() {
+        let g = NotchGeometry(screenWidth: 2560, safeAreaTop: 0, auxiliaryLeftWidth: nil, auxiliaryRightWidth: nil, menuBarHeight: 0)
+        XCTAssertEqual(g.height, 24)
+    }
+
     func testBogusAuxiliaryWidthsFallBack() {
         let g = NotchGeometry(screenWidth: 1512, safeAreaTop: 38, auxiliaryLeftWidth: 900, auxiliaryRightWidth: 900, menuBarHeight: 38)
         XCTAssertEqual(g.width, NotchGeometry.fallbackNotchWidth)

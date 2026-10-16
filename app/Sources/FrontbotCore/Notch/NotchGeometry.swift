@@ -26,7 +26,8 @@ public struct NotchGeometry: Equatable, Sendable {
             height = safeAreaTop
         } else {
             width = Self.noNotchWidth
-            height = min(Self.noNotchHeight, menuBarHeight)
+            // Barra de menú oculta automáticamente: alto 0; se usa el alto por defecto para que siga siendo clicable.
+            height = menuBarHeight > 0 ? min(Self.noNotchHeight, menuBarHeight) : Self.noNotchHeight
         }
     }
 
