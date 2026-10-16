@@ -7,12 +7,9 @@ public struct AgentConfig: Sendable {
     public var apiKey: String?
     public var model: String
     public var fakeAgent: Bool
-    /// Perfil de Chrome dedicado para la publicación asistida.
-    public var browserProfileDir: String
 
-    public init(nodePath: String, scriptPath: String, apiKey: String?, model: String, fakeAgent: Bool, browserProfileDir: String = "") {
+    public init(nodePath: String, scriptPath: String, apiKey: String?, model: String, fakeAgent: Bool) {
         self.nodePath = nodePath; self.scriptPath = scriptPath; self.apiKey = apiKey; self.model = model; self.fakeAgent = fakeAgent
-        self.browserProfileDir = browserProfileDir
     }
 }
 
@@ -24,15 +21,11 @@ public enum AgentUpdate: Sendable, Equatable {
 public enum AgentClientError: Error, Equatable, LocalizedError {
     case restartLimit
     case launchFailed(String)
-    case remote(String)
-    case timeout
 
     public var errorDescription: String? {
         switch self {
         case .restartLimit: "El agente se reinició demasiadas veces. Revisa los logs y vuelve a intentar en un minuto."
         case .launchFailed(let why): "No se pudo iniciar el agente: \(why)"
-        case .remote(let why): why
-        case .timeout: "El agente no respondió a tiempo."
         }
     }
 }
@@ -51,7 +44,6 @@ public actor AgentClient {
     private var nextId = 1
     private var generation = 0
     private var activeRuns: Set<String> = []
-    private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
     private var launches: [Date] = []
     private var subscribers: [UUID: AsyncStream<AgentUpdate>.Continuation] = [:]
 
@@ -105,30 +97,6 @@ public actor AgentClient {
             fail(runId: run.id, summary: error.localizedDescription)
             throw error
         }
-    }
-
-    /// Llamada con respuesta al sidecar (p. ej. `publish.prepare`). No exige API key.
-    public func call(_ method: String, params: JSONValue, timeout: Duration = .seconds(120)) async throws -> JSONValue {
-        try ensureProcess()
-        let id = takeId()
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            do {
-                try send(.request(id: id, method: method, params: params))
-            } catch {
-                resolve(id, with: .failure(error))
-                return
-            }
-            Task { [weak self] in
-                try? await Task.sleep(for: timeout)
-                await self?.resolve(id, with: .failure(AgentClientError.timeout))
-            }
-        }
-    }
-
-    private func resolve(_ id: Int, with result: Result<JSONValue, Error>) {
-        guard let continuation = pending.removeValue(forKey: id) else { return }
-        continuation.resume(with: result)
     }
 
     public func cancel(runId: String) async {
@@ -234,7 +202,6 @@ public actor AgentClient {
 
     private func handleExit() {
         for runId in activeRuns { fail(runId: runId, summary: "El agente se detuvo inesperadamente.") }
-        for id in Array(pending.keys) { resolve(id, with: .failure(AgentClientError.remote("El agente se detuvo inesperadamente."))) }
     }
 
     private func send(_ message: RPCMessage) throws {
@@ -277,29 +244,8 @@ public actor AgentClient {
                                            costUsd: params["cost_usd"]?.doubleValue ?? 0) {
                 broadcast(.finished(run))
             }
-        case .response(let id, let result):
-            resolve(id, with: .success(result)) // las de agent.run / agent.cancel no tienen continuación: se ignoran
-        case .error(let id, _, let message):
-            resolve(id, with: .failure(AgentClientError.remote(message)))
         default:
             break
         }
-    }
-}
-
-extension AgentClient: PublicationPreparer {
-    public func preparePublication(network: Network, body: String, mediaPaths: [String]) async throws -> PreparationResult {
-        let result = try await call("publish.prepare", params: [
-            "network": .string(network.rawValue), "body": .string(body),
-            "media": .array(mediaPaths.map(JSONValue.string)), "profile_dir": .string(config.browserProfileDir),
-        ])
-        guard let mode = result["mode"]?.stringValue.flatMap(PreparationResult.Mode.init(rawValue:)) else {
-            throw AgentClientError.remote("Respuesta inválida del agente.")
-        }
-        return PreparationResult(mode: mode, message: result["message"]?.stringValue ?? "", url: result["url"]?.stringValue ?? "")
-    }
-
-    public func openLogin(network: Network) async throws {
-        _ = try await call("publish.login", params: ["network": .string(network.rawValue), "profile_dir": .string(config.browserProfileDir)])
     }
 }

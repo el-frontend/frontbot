@@ -1,18 +1,30 @@
 import XCTest
 @testable import FrontbotCore
 
-final class FakePreparer: PublicationPreparer, @unchecked Sendable {
-    var calls: [(Network, String, [String])] = []
-    var result = PreparationResult(mode: .composer, message: "ok", url: "https://www.instagram.com/")
+final class FakeHandoff: PublicationHandoff, @unchecked Sendable {
+    var calls: [(URL, String, [String])] = []
     var error: Error?
 
-    func preparePublication(network: Network, body: String, mediaPaths: [String]) async throws -> PreparationResult {
-        calls.append((network, body, mediaPaths))
+    func handOff(url: URL, body: String, mediaPaths: [String]) throws {
         if let error { throw error }
-        return result
+        calls.append((url, body, mediaPaths))
+    }
+}
+
+final class PublishingLinksTests: XCTestCase {
+    func testLinkedInComposerCarriesTheEncodedText() throws {
+        let url = PublishingLinks.composeURL(network: .linkedin, body: "Hola & adiós #marca\nlínea 2")
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(url.host(), "www.linkedin.com")
+        XCTAssertEqual(items?.first { $0.name == "shareActive" }?.value, "true")
+        XCTAssertEqual(items?.first { $0.name == "text" }?.value, "Hola & adiós #marca\nlínea 2")
+        XCTAssertFalse(url.absoluteString.contains("#"), "un # sin codificar cortaría la URL")
     }
 
-    func openLogin(network: Network) async throws {}
+    func testInstagramOpensTheHome() {
+        XCTAssertEqual(PublishingLinks.composeURL(network: .instagram, body: "x").absoluteString, "https://www.instagram.com/")
+        XCTAssertEqual(PublishingLinks.homeURL(.linkedin).absoluteString, "https://www.linkedin.com/feed/")
+    }
 }
 
 final class PublishingServiceTests: XCTestCase {
@@ -20,7 +32,7 @@ final class PublishingServiceTests: XCTestCase {
     var brand: Brand!
     var image: BrandAsset!
     var root: URL!
-    var preparer: FakePreparer!
+    var handoff: FakeHandoff!
     var service: PublishingService!
 
     override func setUpWithError() throws {
@@ -32,8 +44,8 @@ final class PublishingServiceTests: XCTestCase {
         let png = root.appendingPathComponent("x.png")
         try Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).write(to: png)
         image = try AssetImporter(db: db, paths: AppPaths(root: root)).importImage(from: png, brandId: brand.id)
-        preparer = FakePreparer()
-        service = PublishingService(db: db, preparer: preparer)
+        handoff = FakeHandoff()
+        service = PublishingService(db: db, handoff: handoff)
     }
 
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
@@ -43,37 +55,38 @@ final class PublishingServiceTests: XCTestCase {
         return try db.transitionPost(id: p.id, to: .approved, actor: .user)
     }
 
-    func testPrepareMovesToPreparingAndPassesAbsolutePaths() async throws {
+    func testPrepareHandsOffToTheBrowserAndMovesToPreparing() throws {
         let post = try approved(.instagram, media: [image.id])
-        let (updated, result) = try await service.prepare(postId: post.id)
+        let (updated, result) = try service.prepare(postId: post.id)
         XCTAssertEqual(updated.status, .preparing)
-        XCTAssertEqual(result.mode, .composer)
-        XCTAssertEqual(preparer.calls.first?.2, [image.path])
-        XCTAssertEqual(preparer.calls.first?.1, "hola")
+        XCTAssertEqual(handoff.calls.first?.0.absoluteString, "https://www.instagram.com/")
+        XCTAssertEqual(handoff.calls.first?.1, "hola")
+        XCTAssertEqual(handoff.calls.first?.2, [image.path])
+        XCTAssertTrue(result.message.contains("portapapeles"))
     }
 
-    func testRejectsDraftAndInstagramWithoutImages() async throws {
+    func testRejectsDraftAndInstagramWithoutImages() throws {
         let draft = try db.createDraft(brandId: brand.id, network: .linkedin, body: "hola", media: [], scheduledFor: nil)
-        do { _ = try await service.prepare(postId: draft.id); XCTFail() } catch let e as ValidationError {
+        do { _ = try service.prepare(postId: draft.id); XCTFail() } catch let e as ValidationError {
             XCTAssertEqual(e.message, "Solo se pueden preparar posts aprobados.")
         }
         let ig = try approved(.instagram, media: [])
-        do { _ = try await service.prepare(postId: ig.id); XCTFail() } catch let e as ValidationError {
+        do { _ = try service.prepare(postId: ig.id); XCTFail() } catch let e as ValidationError {
             XCTAssertEqual(e.message, "Instagram necesita al menos una imagen.")
         }
-        XCTAssertTrue(preparer.calls.isEmpty)
+        XCTAssertTrue(handoff.calls.isEmpty)
     }
 
-    func testPreparerFailureRevertsToApproved() async throws {
-        preparer.error = ValidationError("Chrome no está disponible")
+    func testHandoffFailureKeepsThePostApproved() throws {
+        handoff.error = ValidationError("No se pudo abrir el navegador")
         let post = try approved(.linkedin, media: [])
-        do { _ = try await service.prepare(postId: post.id); XCTFail() } catch {}
+        XCTAssertThrowsError(try service.prepare(postId: post.id))
         XCTAssertEqual(try db.posts(brandId: brand.id, status: nil).first { $0.id == post.id }?.status, .approved)
     }
 
-    func testConfirmPublishedWithUrlAndValidation() async throws {
+    func testConfirmPublishedWithUrlAndValidation() throws {
         let post = try approved(.linkedin, media: [])
-        _ = try await service.prepare(postId: post.id)
+        _ = try service.prepare(postId: post.id)
         XCTAssertThrowsError(try service.confirmPublished(postId: post.id, url: "linkedin.com/x")) { error in
             XCTAssertEqual((error as? ValidationError)?.message, "La URL debe empezar con https://.")
         }
@@ -82,18 +95,18 @@ final class PublishingServiceTests: XCTestCase {
         XCTAssertEqual(done.publishedUrl, "https://www.linkedin.com/feed/update/1")
     }
 
-    func testScheduledThenPublishedWithoutUrl() async throws {
+    func testScheduledThenPublishedWithoutUrl() throws {
         let post = try approved(.linkedin, media: [])
-        _ = try await service.prepare(postId: post.id)
+        _ = try service.prepare(postId: post.id)
         XCTAssertEqual(try service.confirmScheduled(postId: post.id).status, .scheduled)
         let done = try service.confirmPublished(postId: post.id, url: "")
         XCTAssertEqual(done.status, .published)
         XCTAssertNil(done.publishedUrl)
     }
 
-    func testCancelPreparationReturnsToApproved() async throws {
+    func testCancelPreparationReturnsToApproved() throws {
         let post = try approved(.linkedin, media: [])
-        _ = try await service.prepare(postId: post.id)
+        _ = try service.prepare(postId: post.id)
         XCTAssertEqual(try service.cancelPreparation(postId: post.id).status, .approved)
     }
 }

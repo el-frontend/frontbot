@@ -36,7 +36,6 @@ final class AppModel {
     var calendarDate = Date()
     var calendarNetwork: Network?
     var calendarBrandId: String?
-    var preparingPostId: String?
     var notchExpanded = false
     var lastAgentReply: String?
     var hotKeyRegistered = true
@@ -79,8 +78,7 @@ final class AppModel {
             scriptPath: location?.script ?? "",
             apiKey: apiKey,
             model: env["FRONTBOT_MODEL"] ?? AgentConfig.defaultModel,
-            fakeAgent: env["FRONTBOT_FAKE_AGENT"] == "1",
-            browserProfileDir: AppPaths.standard().browserProfile.path)
+            fakeAgent: env["FRONTBOT_FAKE_AGENT"] == "1")
     }
 
     var selectedBrand: Brand? { brands.first { $0.id == selectedBrandId } }
@@ -188,30 +186,12 @@ final class AppModel {
 
     // MARK: Publicación asistida
 
-    private var publishing: PublishingService { PublishingService(db: db, preparer: client) }
+    private var publishing: PublishingService { PublishingService(db: db, handoff: BrowserHandoff()) }
 
     func preparePublication(_ post: Post) {
-        preparingPostId = post.id
         preparationMessage = nil
-        Task {
-            defer { preparingPostId = nil }
-            do {
-                let (_, result) = try await publishing.prepare(postId: post.id)
-                if result.mode == .manual {
-                    // Modo manual: el texto al portapapeles y las imágenes en Finder.
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(post.body, forType: .string)
-                    let files = post.media.compactMap { try? db.asset(id: $0)?.path }.map { URL(fileURLWithPath: $0) }
-                    if !files.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(files) }
-                }
-                preparationMessage = result.message
-            } catch let e as ValidationError {
-                errorMessage = e.message
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            reloadContent()
-        }
+        perform { preparationMessage = try publishing.prepare(postId: post.id).1.message }
+        reloadContent()
     }
 
     func confirmPublished(_ post: Post, url: String) {
@@ -232,11 +212,9 @@ final class AppModel {
         reloadContent()
     }
 
-    func openLogin(_ network: Network) {
-        Task {
-            do { try await client.openLogin(network: network) }
-            catch { errorMessage = error.localizedDescription }
-        }
+    /// Abre la red en el navegador del usuario, donde ya tiene la sesión iniciada.
+    func openNetwork(_ network: Network) {
+        NSWorkspace.shared.open(PublishingLinks.homeURL(network))
     }
 
     func brandAssets(_ brandId: String) -> [BrandAsset] { (try? db.assets(brandId: brandId, kind: .image)) ?? [] }
@@ -369,5 +347,17 @@ final class AppModel {
                 break
             }
         }
+    }
+}
+
+/// Entrega el post al navegador por defecto: el texto al portapapeles, las imágenes en el Finder.
+struct BrowserHandoff: PublicationHandoff {
+    func handOff(url: URL, body: String, mediaPaths: [String]) throws {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(body, forType: .string)
+        if !mediaPaths.isEmpty {
+            NSWorkspace.shared.activateFileViewerSelecting(mediaPaths.map { URL(fileURLWithPath: $0) })
+        }
+        guard NSWorkspace.shared.open(url) else { throw ValidationError("No se pudo abrir el navegador.") }
     }
 }

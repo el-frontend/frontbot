@@ -1,11 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { RpcPeer } from "./rpc.js";
 import { RealRunner, FakeRunner, type Runner, type RunParams } from "./runner.js";
-import { ChromePublisher, FakePublisher, type Publisher } from "./browser/session.js";
 
 // stdout es solo para JSON-RPC; cualquier log va a stderr.
 
-export function startServer(peer: RpcPeer, runner: Runner, publisher?: Publisher) {
+export function startServer(peer: RpcPeer, runner: Runner) {
   const active = new Map<string, AbortController>();
 
   peer.onRequest("agent.run", async (params: RunParams) => {
@@ -23,12 +22,6 @@ export function startServer(peer: RpcPeer, runner: Runner, publisher?: Publisher
     active.get(run_id)?.abort();
     return { ok: true };
   });
-
-  // Publicación asistida: solo la app llama a estos métodos; el agente no tiene herramientas para publicar.
-  if (publisher) {
-    peer.onRequest("publish.prepare", (params) => publisher.prepare(params));
-    peer.onRequest("publish.login", (params) => publisher.login(params));
-  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -36,6 +29,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const call = (m: string, p: Record<string, unknown>) => peer.request(m, p);
   const fake = process.env.FRONTBOT_FAKE_AGENT === "1";
   const runner = fake ? new FakeRunner(call) : new RealRunner(call);
-  startServer(peer, runner, fake ? new FakePublisher() : new ChromePublisher());
+  startServer(peer, runner);
   process.stdin.on("end", () => process.exit(0));
 }

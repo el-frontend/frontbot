@@ -32,7 +32,7 @@ Frontbot.app (Swift 6, SwiftUI + AppKit)
 ├── Store: SQLite + carpeta de archivos                ├── Claude Agent SDK (TypeScript)
 └── CredentialStore (Keychain)                         ├── Herramientas propias (llaman a la app)
                                                        ├── WebSearch / WebFetch del SDK
-                                                       └── BrowserAssistProvider (Playwright)
+                                                       └── PublishingService (abre el navegador del usuario)
 ```
 
 ### 3.1 Componentes
@@ -42,7 +42,7 @@ Frontbot.app (Swift 6, SwiftUI + AppKit)
 | **App Swift** | Toda la UI; **única dueña de los datos** (SQLite y archivos). Arranca, vigila y reinicia el sidecar. | Store, AgentClient, CredentialStore |
 | **Store** | SQLite en `~/Library/Application Support/Frontbot/frontbot.sqlite`; archivos de marca en `brands/<brand_id>/`. | — |
 | **AgentClient** | Cliente JSON-RPC hacia el sidecar: manda prompts, recibe eventos en streaming y atiende las llamadas a herramientas que vienen del sidecar. | Store |
-| **frontbot-agent** | Proceso Node empaquetado en el `.app` (runtime de Node incluido). Corre el Agent SDK y expone las herramientas propias, que se resuelven con llamadas JSON-RPC de vuelta a la app. | Agent SDK, Playwright |
+| **frontbot-agent** | Proceso Node empaquetado en el `.app` (runtime de Node incluido). Corre el Agent SDK y expone las herramientas propias, que se resuelven con llamadas JSON-RPC de vuelta a la app. | Agent SDK |
 | **PublishingProvider** | Interfaz para publicar. v1: `BrowserAssistProvider`. v2: proveedores con API oficial por red. | — |
 | **CredentialStore** | Guarda en el Keychain la API key de Anthropic, por workspace. Nunca secretos en disco ni en git. | Keychain |
 
@@ -121,13 +121,18 @@ Generación de imágenes y video · analíticas · voz/wake word · iPhone · re
 
 Por defecto `claude-sonnet-5-5` (equilibrio costo/calidad para uso diario), configurable en Ajustes (p. ej. `claude-opus-5-5` para investigaciones de negocio). El costo de cada `agent_run` se muestra en su historial.
 
-## 7. Publicación asistida (`BrowserAssistProvider`)
+## 7. Publicación asistida
 
-- **Perfil dedicado.** Playwright lanza Chrome con un perfil propio de Frontbot en `Application Support/Frontbot/browser-profile/`. La primera vez el usuario inicia sesión a mano en Instagram y LinkedIn, y la sesión persiste. No se toca el Chrome personal.
-- **Flujo.** El usuario pulsa "Preparar publicación" en un post `aprobado` y el post pasa a `preparando`. Se ejecuta el script de compositor de esa red (`composers/instagram.ts`, `composers/linkedin.ts`): abre el compositor, sube las imágenes y pega el texto. **Se detiene ahí.**
-- **Clic final.** El usuario revisa y pulsa Publicar o Programar dentro de la red, con su programador nativo. Después confirma en Frontbot ("Publicado" o "Programado") y opcionalmente pega la URL.
-- **Modo manual (fallback).** Si un selector falla, si no hay sesión o si aparece un captcha, el script deja abierta la página de la red, copia el texto al portapapeles, abre la carpeta con las imágenes en Finder y avisa al usuario. Nunca se queda trabado ni reintenta en bucle.
-- **Nunca se pulsa Publicar de forma automática.**
+> **Cambio (2026-10-16):** se retiró el Chrome dedicado con Playwright y los scripts de compositor. Frontbot ahora usa el navegador del usuario, donde ya tiene sus sesiones.
+
+- **Flujo.** El usuario pulsa "Abrir en <red> para publicar" en un post `aprobado` y el post pasa a `preparando`. La app abre la red en el navegador por defecto, copia el texto al portapapeles y selecciona las imágenes en el Finder.
+  - **LinkedIn** abre el compositor con el texto ya escrito (`/feed/?shareActive=true&text=…`). Es un parámetro no documentado, así que el texto también va al portapapeles.
+  - **Instagram** no admite nada parecido en la web: abre el inicio, y el usuario pulsa Crear, sube las imágenes y pega el texto.
+- **Clic final.** El usuario publica o programa dentro de la red. Después lo confirma en Frontbot ("Publicado" o "Programado") y, si quiere, pega la URL.
+- **Nunca se pulsa Publicar de forma automática.** El agente puede usar el Chrome del usuario para investigar (Claude in Chrome, opcional en Ajustes), pero detrás de un guardián (`agent/src/browserGuard.ts`):
+  - bloquea JavaScript, subidas de archivos y lotes;
+  - exige verificar las pestañas con `tabs_context_mcp` antes de cada clic o tecla;
+  - rechaza cualquier clic o escritura mientras haya abierta una red social o un programador de posts.
 
 ## 8. Errores
 
@@ -137,7 +142,7 @@ Por defecto `claude-sonnet-5-5` (equilibrio costo/calidad para uso diario), conf
 | Error de la API de Claude (rate limit, sin crédito, key inválida) | Mensaje claro en la UI y enlace a Ajustes si es la key. Sin reintentos infinitos: el SDK reintenta según su política y luego falla. |
 | La herramienta recibe datos inválidos (marca inexistente, texto sobre el límite de la red, media inexistente) | La app responde con un error descriptivo para que el agente corrija. |
 | Imagen inválida al subirla (formato o tamaño) | Se rechaza en la UI antes de guardarla. |
-| Falla un script de compositor | Se activa el modo manual (sección 7). |
+| No se puede abrir el navegador | El post sigue `aprobado` y se muestra el error. |
 
 Límites de texto validados: Instagram 2.200 caracteres de caption y 30 hashtags; LinkedIn 3.000 caracteres.
 
@@ -162,5 +167,5 @@ frontbot/
 ```
 
 - SQLite mediante GRDB.swift (excepción justificada a "cero dependencias": migraciones y observación de cambios para la UI en vivo).
-- Sidecar: `@anthropic-ai/claude-agent-sdk` y `playwright-core`, con el Chrome instalado del sistema.
+- Sidecar: `@anthropic-ai/claude-agent-sdk`. Opcionalmente usa Claude in Chrome (la extensión de Claude) en el Chrome del usuario.
 - Requisito mínimo: macOS 14+. El notch es opcional: en Macs sin notch se muestra como panel bajo la barra de menú.
