@@ -150,3 +150,21 @@ public struct AgentMemory: Codable, FetchableRecord, MutablePersistableRecord, I
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
+
+/// Índice de un skill; el contenido vive en su carpeta (`SKILL.md` es la fuente de verdad).
+public struct Skill: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    public var description: String
+    public var source: SkillSource
+    public var status: SkillStatus
+    public var hasScripts: Bool
+    public var createdByAgentId: String?
+    public var createdAt: Date
+    public var updatedAt: Date
+}
+
+struct AgentSkill: Codable, FetchableRecord, PersistableRecord {
+    var agentId: String
+    var skillId: String
+}

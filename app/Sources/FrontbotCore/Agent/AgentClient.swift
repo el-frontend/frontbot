@@ -69,6 +69,11 @@ public actor AgentClient {
     private var subscribers: [UUID: AsyncStream<AgentUpdate>.Continuation] = [:]
 
     private let cancelGrace: Duration
+    /// La app muestra la petición y devuelve si el usuario permite el script (sin respuesta = denegado).
+    private var scriptApprover: (@Sendable (ScriptRequest) async -> Bool)?
+    static let scriptApprovalTimeout: Duration = .seconds(120)
+
+    public func setScriptApprover(_ approver: @escaping @Sendable (ScriptRequest) async -> Bool) { scriptApprover = approver }
 
     public init(config: AgentConfig, db: AppDatabase, files: BrandFiles, workspaceId: String, cancelGrace: Duration = .seconds(10)) {
         self.cancelGrace = cancelGrace
@@ -119,6 +124,10 @@ public actor AgentClient {
                 params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
                                    "is_default": .bool(agent.isDefault), "memory": MemoryPrompt.json(memory)]
                 if agent.browser { params["browser"] = .bool(true) }
+                let skills = try SkillLibrary(db: db, paths: files.paths).skills(assignedTo: agent.id, activeOnly: true)
+                if !skills.isEmpty {
+                    params["skills"] = .array(skills.map { ["name": .string($0.name), "dir": .string(ScriptSandbox.realPath(files.paths.skillDir($0.name)))] })
+                }
             }
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
             return run
@@ -252,6 +261,20 @@ public actor AgentClient {
 
     private func handle(_ message: RPCMessage) {
         switch message {
+        case .request(let id, "tool.skills_run_script", let params):
+            let tool = ScriptTool(library: SkillLibrary(db: db, paths: files.paths), sandbox: ScriptSandbox(nodePath: config.nodePath))
+            let approver = scriptApprover
+            Task {
+                do {
+                    let result = try await tool.run(params: params) { request in
+                        guard let approver else { return false }
+                        return await Self.withTimeout(Self.scriptApprovalTimeout, default: false) { await approver(request) }
+                    }
+                    self.reply(id, .success(result))
+                } catch {
+                    self.reply(id, .failure(error))
+                }
+            }
         case .request(let id, let method, let params):
             do {
                 let result = try tools.handle(method: method, params: params)
@@ -276,6 +299,25 @@ public actor AgentClient {
             }
         default:
             break
+        }
+    }
+
+    private func reply(_ id: Int, _ result: Result<JSONValue, Error>) {
+        switch result {
+        case .success(let value): try? send(.response(id: id, result: value))
+        case .failure(let error as ValidationError): try? send(.error(id: id, code: -32000, message: error.message))
+        case .failure(let error): try? send(.error(id: id, code: -32000, message: error.localizedDescription))
+        }
+    }
+
+    /// El primero que termine: la operación o el plazo (que devuelve `default`).
+    static func withTimeout<T: Sendable>(_ timeout: Duration, default value: T, _ operation: @escaping @Sendable () async -> T) async -> T {
+        await withTaskGroup(of: T.self) { group in
+            group.addTask { await operation() }
+            group.addTask { try? await Task.sleep(for: timeout); return value }
+            let first = await group.next() ?? value
+            group.cancelAll()
+            return first
         }
     }
 }

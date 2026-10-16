@@ -23,6 +23,8 @@ struct RootView: View {
                 TasksView(model: model)
             case .ideas:
                 IdeasView(model: model)
+            case .skills:
+                SkillsView(model: model)
             }
         }
         .frame(minWidth: 1000, minHeight: 640)
@@ -30,10 +32,18 @@ struct RootView: View {
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
         .onAppear { model.openMainWindowAction = { [openWindow] in openWindow(id: AppModel.mainWindowId) } }
+        .sheet(item: Binding(get: { model.pendingScript.map(IdentifiedScript.init) }, set: { if $0 == nil { model.answerScript(false) } })) { item in
+            ScriptApprovalSheet(model: model, request: item.request)
+        }
         .alert("Frontbot", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
         } message: {
             Text(model.errorMessage ?? "")
         }
     }
+}
+
+private struct IdentifiedScript: Identifiable {
+    let request: ScriptRequest
+    var id: String { request.agentName + request.skillName + request.command }
 }

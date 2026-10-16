@@ -37,6 +37,7 @@ struct BrandsView: View {
                 navRow("Calendario", icon: "calendar", section: .calendar, count: model.today?.draftsToReview, countColor: Theme.draft)
                 navRow("Tareas", icon: "checklist", section: .tasks, count: model.today?.tasks.count)
                 navRow("Ideas", icon: "lightbulb", section: .ideas)
+                navRow("Skills", icon: "puzzlepiece.extension", section: .skills, count: model.skillDraftCount, countColor: Theme.draft)
             }
 
             VStack(alignment: .leading, spacing: 2) {

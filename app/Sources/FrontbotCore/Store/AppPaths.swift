@@ -10,6 +10,8 @@ public struct AppPaths: Sendable {
         return AppPaths(root: support.appendingPathComponent("Frontbot", isDirectory: true))
     }
 
+    public var skillsDir: URL { root.appendingPathComponent("skills", isDirectory: true) }
+    public func skillDir(_ name: String) -> URL { skillsDir.appendingPathComponent(name, isDirectory: true) }
     public var database: URL { root.appendingPathComponent("frontbot.sqlite") }
     public func brandDir(_ brandId: String) -> URL { root.appendingPathComponent("brands/\(brandId)", isDirectory: true) }
     public func assetsDir(_ brandId: String) -> URL { brandDir(brandId).appendingPathComponent("assets", isDirectory: true) }

@@ -13,6 +13,8 @@ public struct ToolHandler: Sendable {
         self.workspaceId = workspaceId
     }
 
+    var skills: SkillLibrary { SkillLibrary(db: db, paths: files.paths) }
+
     public func handle(method: String, params: JSONValue) throws -> JSONValue {
         switch method {
         case "tool.brands_list":
@@ -86,6 +88,25 @@ public struct ToolHandler: Sendable {
             guard let id = params["memory_id"]?.intValue else { throw ValidationError("Falta el parámetro memory_id.") }
             try db.forget(agentId: try string(params, "agent_id"), memoryId: Int64(id))
             return ["ok": true]
+        case "tool.skills_list":
+            let agentId = try string(params, "agent_id")
+            let assigned = Set(try skills.skills(assignedTo: agentId, activeOnly: false).map(\.id))
+            return ["skills": .array(try skills.all().map { sk in
+                ["name": .string(sk.name), "description": .string(sk.description), "status": .string(sk.status.rawValue),
+                 "assigned": .bool(assigned.contains(sk.id)), "has_scripts": .bool(sk.hasScripts),
+                 "mine": .bool(sk.createdByAgentId == agentId)]
+            })]
+        case "tool.skills_create_draft":
+            let skill = try skills.createDraft(agentId: try string(params, "agent_id"), name: try string(params, "name"),
+                                               description: try string(params, "description"), body: try string(params, "body"),
+                                               files: try stringMap(params, "files") ?? [:])
+            return ["name": .string(skill.name), "status": "draft",
+                    "note": "Quedó en borrador: el usuario debe revisarlo y activarlo para que se cargue."]
+        case "tool.skills_update_draft":
+            let skill = try skills.updateDraft(agentId: try string(params, "agent_id"), name: try string(params, "name"),
+                                               description: params["description"]?.stringValue, body: params["body"]?.stringValue,
+                                               files: try stringMap(params, "files"))
+            return ["name": .string(skill.name), "status": .string(skill.status.rawValue)]
         case "tool.agents_create_draft":
             let caller = try string(params, "agent_id")
             guard try db.agent(id: caller)?.isDefault == true else { throw ValidationError("Solo Frontbot puede crear agentes.") }
@@ -104,6 +125,15 @@ public struct ToolHandler: Sendable {
 
     static func isoString(_ date: Date) -> String {
         date.formatted(.iso8601)
+    }
+
+    private func stringMap(_ params: JSONValue, _ key: String) throws -> [String: String]? {
+        guard let value = params[key], value != .null else { return nil }
+        guard case .object(let dict) = value else { throw ValidationError("\(key) debe ser un objeto ruta → texto.") }
+        return try dict.mapValues { v in
+            guard let text = v.stringValue else { throw ValidationError("Cada archivo de \(key) debe ser texto.") }
+            return text
+        }
     }
 
     private func string(_ params: JSONValue, _ key: String) throws -> String {
