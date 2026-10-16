@@ -113,11 +113,11 @@ struct BrandDetailView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text("Redes").font(.system(size: 13, weight: .medium))
-                Text("Inicia sesión una vez en el Chrome de Frontbot para preparar publicaciones.")
+                Text("Se abren en tu navegador, con tu sesión.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
                 HStack {
                     ForEach(brand.networks, id: \.self) { network in
-                        Button("Abrir \(Theme.networkName(network))") { model.openLogin(network) }.buttonStyle(OutlineButtonStyle())
+                        Button("Abrir \(Theme.networkName(network))") { model.openNetwork(network) }.buttonStyle(OutlineButtonStyle())
                     }
                 }
             }

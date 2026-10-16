@@ -1,35 +1,44 @@
 import Foundation
 
 public struct PreparationResult: Equatable, Sendable {
-    public enum Mode: String, Sendable { case composer, manual }
-    public let mode: Mode
     public let message: String
-    public let url: String
+    public let url: URL
+}
 
-    public init(mode: Mode, message: String, url: String) {
-        self.mode = mode
-        self.message = message
-        self.url = url
+/// Entrega el post al navegador del usuario: abre la red, copia el texto y muestra las imágenes.
+/// La implementación vive en la app (AppKit); los tests usan una falsa.
+public protocol PublicationHandoff: Sendable {
+    func handOff(url: URL, body: String, mediaPaths: [String]) throws
+}
+
+/// URLs de las redes en el navegador del usuario (con sus sesiones).
+public enum PublishingLinks {
+    public static func homeURL(_ network: Network) -> URL {
+        URL(string: network == .instagram ? "https://www.instagram.com/" : "https://www.linkedin.com/feed/")!
+    }
+
+    /// LinkedIn abre el compositor con el texto ya escrito (`shareActive`, no documentado: el texto
+    /// también va al portapapeles por si deja de funcionar). Instagram no admite nada parecido en la web.
+    public static func composeURL(network: Network, body: String) -> URL {
+        guard network == .linkedin else { return homeURL(network) }
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/")
+        let text = body.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        return URL(string: "https://www.linkedin.com/feed/?shareActive=true&text=\(text)")!
     }
 }
 
-/// Quien abre el navegador y rellena el compositor (el sidecar vía `AgentClient`).
-public protocol PublicationPreparer: Sendable {
-    func preparePublication(network: Network, body: String, mediaPaths: [String]) async throws -> PreparationResult
-    func openLogin(network: Network) async throws
-}
-
-/// Publicación asistida: Frontbot deja el post listo en la red; publicar lo hace siempre el usuario.
+/// Publicación asistida: Frontbot deja el post listo en el navegador del usuario; publicar lo hace siempre el usuario.
 public struct PublishingService: Sendable {
     let db: AppDatabase
-    let preparer: any PublicationPreparer
+    let handoff: any PublicationHandoff
 
-    public init(db: AppDatabase, preparer: any PublicationPreparer) {
+    public init(db: AppDatabase, handoff: any PublicationHandoff) {
         self.db = db
-        self.preparer = preparer
+        self.handoff = handoff
     }
 
-    public func prepare(postId: String) async throws -> (Post, PreparationResult) {
+    public func prepare(postId: String) throws -> (Post, PreparationResult) {
         guard let post = try db.posts(brandId: nil, status: nil).first(where: { $0.id == postId }) else {
             throw ValidationError("No existe post con id \(postId).")
         }
@@ -39,14 +48,14 @@ public struct PublishingService: Sendable {
             guard let asset = try db.asset(id: id) else { throw ValidationError("La imagen \(id) ya no existe.") }
             return asset.path
         }
+        let url = PublishingLinks.composeURL(network: post.network, body: post.body)
+        try handoff.handOff(url: url, body: post.body, mediaPaths: paths)
         let preparing = try db.transitionPost(id: post.id, to: .preparing, actor: .user)
-        do {
-            let result = try await preparer.preparePublication(network: post.network, body: post.body, mediaPaths: paths)
-            return (preparing, result)
-        } catch {
-            _ = try? db.transitionPost(id: post.id, to: .approved, actor: .user)
-            throw error
-        }
+        let images = paths.isEmpty ? "" : " Las imágenes están seleccionadas en el Finder."
+        let message = post.network == .linkedin
+            ? "Abrí LinkedIn en tu navegador con el texto escrito (también está en el portapapeles).\(images) Revisa y publica."
+            : "Abrí Instagram en tu navegador. El texto está en el portapapeles.\(images) Pulsa Crear, sube las imágenes, pega el texto y publica."
+        return (preparing, PreparationResult(message: message, url: url))
     }
 
     public func confirmPublished(postId: String, url: String?) throws -> Post {

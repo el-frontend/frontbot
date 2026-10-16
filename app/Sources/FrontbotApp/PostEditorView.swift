@@ -144,19 +144,19 @@ struct PostEditorView: View {
             Text("Publicación asistida").font(.system(size: 13, weight: .medium))
             switch current.status {
             case .draft:
-                Text("Al aprobarlo podrás prepararlo: Frontbot lo deja listo en el Chrome de Frontbot y tú das el clic final en \(Theme.networkName(post.network)).")
+                Text("Al aprobarlo podrás prepararlo: Frontbot abre \(Theme.networkName(post.network)) en tu navegador con el texto y las imágenes listos, y tú publicas.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(2)
             case .approved:
-                Button(model.preparingPostId == post.id ? "Preparando…" : "Preparar publicación en \(Theme.networkName(post.network))") {
+                Button("Abrir en \(Theme.networkName(post.network)) para publicar") {
                     model.preparePublication(current)
                 }
                 .buttonStyle(OutlineButtonStyle(prominent: true))
-                .disabled(model.preparingPostId != nil || dirty)
+                .disabled(dirty)
                 if dirty { Text("Guarda los cambios antes de preparar la publicación.").font(.system(size: 12)).foregroundStyle(Theme.muted) }
             case .preparing, .scheduled:
                 if let message = model.preparationMessage { Text(message).font(.system(size: 12)) }
                 Text(current.status == .preparing
-                     ? "Publica o programa el post en la ventana de Chrome y confírmalo aquí."
+                     ? "Publica o programa el post en tu navegador y confírmalo aquí."
                      : "Programado en la red. Confírmalo cuando se publique.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
                 TextField("URL del post publicado (opcional)", text: $publishedUrl)
