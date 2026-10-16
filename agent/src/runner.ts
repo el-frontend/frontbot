@@ -1,10 +1,14 @@
 import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
-import { buildTools, ALLOWED_TOOLS, type AppCall } from "./tools.js";
+import { buildTools, allowedToolsFor, type AppCall, type ToolContext } from "./tools.js";
 import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
 import { buildSystemPrompt, buildUserPrompt, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
-export type RunParams = { run_id: string; prompt: string; model: string; brand?: Brand; history?: HistoryTurn[]; browser?: boolean };
+export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean };
+export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean };
+
+/** Sin agente (clientes viejos o tests), el run es de Frontbot. */
+export const toolContext = (params: RunParams): ToolContext => ({ agentId: params.agent?.id, isDefault: params.agent?.is_default ?? true });
 export type RunEvent = { run_id: string; type: "text" | "tool_call" | "status"; text: string };
 export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number; error?: string };
 
@@ -36,9 +40,9 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   const browser = params.browser === true;
   return {
     model: params.model,
-    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser }),
+    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent }),
     tools: ["WebSearch", "WebFetch"],
-    allowedTools: browser ? [...ALLOWED_TOOLS, ...BROWSER_ALLOWED_TOOLS] : ALLOWED_TOOLS,
+    allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : [])],
     ...(browser ? { extraArgs: { chrome: null }, hooks: browserHooks(new BrowserGuard()) } : {}),
     mcpServers: { frontbot: server },
     strictMcpConfig: true,
@@ -57,11 +61,11 @@ export class RealRunner implements Runner {
     if (signal.aborted) return cancelled(params.run_id);
     const abortController = new AbortController();
     signal.addEventListener("abort", () => abortController.abort());
-    const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: buildTools(this.call) });
+    const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: buildTools(this.call, toolContext(params)) });
     const today = localToday();
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
-      const stream = query({ prompt: buildUserPrompt(params.history ?? [], params.prompt), options: buildQueryOptions(params, server, abortController, today) });
+      const stream = query({ prompt: buildUserPrompt(params.history ?? [], params.prompt, params.agent?.name), options: buildQueryOptions(params, server, abortController, today) });
       for await (const msg of stream) {
         if (msg.type === "assistant") {
           for (const block of msg.message.content) {
@@ -94,6 +98,7 @@ export class FakeRunner implements Runner {
     const { brands } = (await this.call("tool.brands_list", {})) as { brands: unknown[] };
     const summary = `Tienes ${brands.length} marca(s).`;
     emit({ run_id: params.run_id, type: "text", text: summary });
+    if (params.prompt === "agente") emit({ run_id: params.run_id, type: "text", text: `Agente: ${params.agent?.name ?? "ninguno"}` });
     if (params.prompt === "modelo") emit({ run_id: params.run_id, type: "text", text: `Modelo: ${params.model}` });
     if (params.browser) emit({ run_id: params.run_id, type: "text", text: "Navegador: activado" });
     if (params.history?.length) emit({ run_id: params.run_id, type: "text", text: `Historial: ${params.history.length}` });

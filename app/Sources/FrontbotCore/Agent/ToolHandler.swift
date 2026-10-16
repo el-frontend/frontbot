@@ -74,6 +74,15 @@ public struct ToolHandler: Sendable {
             let url = try files.writeIdeaReport(ideaId: idea.id, markdown: try string(params, "report_markdown"))
             try db.setIdeaReportPath(id: idea.id, path: url.path)
             return ["idea_id": .string(idea.id)]
+        case "tool.agents_create_draft":
+            let caller = try string(params, "agent_id")
+            guard try db.agent(id: caller)?.isDefault == true else { throw ValidationError("Solo Frontbot puede crear agentes.") }
+            let draft = AgentDraft(name: try string(params, "name"), icon: params["icon"]?.stringValue ?? "person.crop.circle",
+                                   description: params["description"]?.stringValue ?? "", instructions: try string(params, "instructions"),
+                                   model: params["model"]?.stringValue ?? AgentConfig.defaultModel,
+                                   browser: params["browser"]?.boolValue ?? false)
+            let agent = try db.createAgent(workspaceId: workspaceId, draft: draft, status: .draft)
+            return ["agent_id": .string(agent.id), "status": "draft"]
         default:
             throw ValidationError("Herramienta desconocida: \(method).")
         }

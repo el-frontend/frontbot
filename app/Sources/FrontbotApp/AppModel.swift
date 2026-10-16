@@ -12,7 +12,7 @@ struct ChatMessage: Identifiable, Equatable {
 
 @MainActor @Observable
 final class AppModel {
-    enum Section: Hashable { case brand(String), calendar, chat, tasks, ideas }
+    enum Section: Hashable { case agent(String), brand(String), calendar, chat, tasks, ideas }
 
     var section: Section = .chat
     var brands: [Brand] = []
@@ -21,13 +21,20 @@ final class AppModel {
     var isRunning = false
     var errorMessage: String?
     var apiKeyPresent = false
-    /// El agente puede usar el Chrome del usuario (Claude in Chrome) con sus sesiones.
-    var useBrowser = UserDefaults.standard.bool(forKey: "useBrowser") {
-        didSet { UserDefaults.standard.set(useBrowser, forKey: "useBrowser") }
-    }
-    /// Modelo del agente, elegido en el composer o en Ajustes.
-    var selectedModel = AgentModel.resolve(UserDefaults.standard.string(forKey: "model") ?? ProcessInfo.processInfo.environment["FRONTBOT_MODEL"]) {
-        didSet { UserDefaults.standard.set(selectedModel, forKey: "model") }
+    /// Agentes (Frontbot primero) y con cuál se habla en el chat.
+    var agents: [Agent] = []
+    var selectedAgentId = ""
+    var selectedAgent: Agent? { agents.first { $0.id == selectedAgentId } }
+
+    /// Modelo del agente del chat; elegirlo en el composer lo guarda en el agente.
+    var selectedModel: String {
+        get { selectedAgent?.model ?? AgentConfig.defaultModel }
+        set {
+            guard let agent = selectedAgent, agent.model != newValue else { return }
+            var draft = AgentDraft(agent: agent)
+            draft.model = newValue
+            updateAgent(agent.id, draft: draft)
+        }
     }
     /// Conversaciones recientes (barra lateral) y la abierta en el chat.
     var conversations: [Conversation] = []
@@ -68,6 +75,10 @@ final class AppModel {
         let key = try? credentials.get("\(workspace.id).\(CredentialStore.anthropicKey)")
         apiKeyPresent = CredentialStore.normalizedApiKey(key) != nil
         client = AgentClient(config: Self.makeConfig(apiKey: key), db: db, files: BrandFiles(paths: paths), workspaceId: workspace.id)
+        let frontbot = try db.ensureDefaultAgent(workspaceId: workspace.id)
+        try Self.migrateChatPreferences(db: db, frontbot: frontbot)
+        agents = try db.agents(workspaceId: workspace.id)
+        selectedAgentId = frontbot.id
         brands = try db.brands(workspaceId: workspace.id)
         selectedBrandId = brands.first?.id
         reloadContent()
@@ -76,6 +87,18 @@ final class AppModel {
             errorMessage = AgentLocator.notFoundMessage
         }
         Task { await listen() }
+    }
+
+    /// Antes de los agentes, el modelo y el navegador eran ajustes globales: pasan a Frontbot una sola vez.
+    private static func migrateChatPreferences(db: AppDatabase, frontbot: Agent) throws {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "useBrowser") != nil || defaults.string(forKey: "model") != nil else { return }
+        var draft = AgentDraft(agent: frontbot)
+        draft.browser = defaults.bool(forKey: "useBrowser") || frontbot.browser
+        if let model = defaults.string(forKey: "model") { draft.model = AgentModel.resolve(model) }
+        _ = try db.updateAgent(id: frontbot.id, draft: draft)
+        defaults.removeObject(forKey: "useBrowser")
+        defaults.removeObject(forKey: "model")
     }
 
     static func makeConfig(apiKey: String?) -> AgentConfig {
@@ -256,11 +279,56 @@ final class AppModel {
         idea.reportPath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
     }
 
+    // MARK: Agentes
+
+    func reloadAgents() {
+        agents = (try? db.agents(workspaceId: workspace.id)) ?? agents
+        if selectedAgent == nil { selectedAgentId = agents.first?.id ?? "" }
+    }
+
+    @discardableResult
+    func createAgent(_ draft: AgentDraft) -> Agent? {
+        var created: Agent?
+        perform { created = try db.createAgent(workspaceId: workspace.id, draft: draft, status: .active) }
+        reloadAgents()
+        if let created { section = .agent(created.id) }
+        return created
+    }
+
+    @discardableResult
+    func updateAgent(_ id: String, draft: AgentDraft) -> Bool {
+        let ok = perform { _ = try db.updateAgent(id: id, draft: draft) }
+        reloadAgents()
+        return ok
+    }
+
+    func activateAgent(_ id: String) {
+        perform { _ = try db.activateAgent(id: id) }
+        reloadAgents()
+    }
+
+    /// Borra el agente y sus conversaciones (o descarta un borrador).
+    func deleteAgent(_ id: String) {
+        guard !(isRunning && selectedAgentId == id) else { return }
+        guard perform({ try db.deleteAgent(id: id) }) else { return }
+        if selectedAgentId == id { selectedAgentId = agents.first { $0.isDefault }?.id ?? "" ; messages = []; currentConversationId = nil }
+        reloadAgents()
+        reloadConversations()
+        section = .chat
+    }
+
+    func agent(id: String?) -> Agent? { agents.first { $0.id == id } }
+
     // MARK: Chat
 
     func send(prompt: String) {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isRunning else { return }
+        guard let agent = selectedAgent else { return }
+        guard agent.status == .active else {
+            errorMessage = "\(agent.name) es un borrador: actívalo en su página para hablar con él."
+            return
+        }
         let history = messages.compactMap { m -> ChatTurn? in
             switch m.role {
             case .user: ChatTurn(role: .user, text: m.text)
@@ -270,14 +338,14 @@ final class AppModel {
         }
         if currentConversationId == nil {
             guard perform({
-                currentConversationId = try db.createConversation(workspaceId: workspace.id, brandId: selectedBrandId, firstPrompt: text).id
+                currentConversationId = try db.createConversation(workspaceId: workspace.id, agentId: selectedAgentId, brandId: selectedBrandId, firstPrompt: text).id
             }) else { return }
         }
         record(.user, text)
         isRunning = true
         Task {
             do {
-                let id = try await client.run(prompt: text, brand: selectedBrand, history: history, model: selectedModel, useBrowser: useBrowser).id
+                let id = try await client.run(prompt: text, agent: agent, brand: selectedBrand, history: history, model: agent.model).id
                 if let run = earlyFinished.removeValue(forKey: id) { finish(run) } else { currentRunId = id }
             } catch {
                 isRunning = false
@@ -289,8 +357,10 @@ final class AppModel {
     /// Nombre corto del modelo para el composer ("sonnet-5.5").
     var modelName: String { AgentModel.shortName(selectedModel) }
 
-    func newConversation() {
+    /// Empieza una conversación nueva con el agente (por defecto, el del chat actual).
+    func newConversation(agentId: String? = nil) {
         guard !isRunning else { return }
+        if let agentId { selectedAgentId = agentId }
         messages = []
         currentConversationId = nil
         lastAgentReply = nil
@@ -304,6 +374,7 @@ final class AppModel {
         perform {
             messages = try db.messages(conversationId: conversation.id).map { ChatMessage(role: $0.role, text: $0.text) }
             currentConversationId = conversation.id
+            if let agentId = conversation.agentId, agents.contains(where: { $0.id == agentId }) { selectedAgentId = agentId }
             lastAgentReply = messages.last { $0.role == .agent }?.text
             if let brandId = conversation.brandId, brands.contains(where: { $0.id == brandId }) { selectedBrandId = brandId }
         }
@@ -366,6 +437,7 @@ final class AppModel {
         currentRunId = nil
         if run.status == .failed { record(.error, run.resultSummary ?? "Error") }
         brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
+        reloadAgents()
         reloadContent()
     }
 

@@ -16,6 +16,10 @@ public enum RunStatus: String, Codable, Sendable {
     case running, done, failed
 }
 
+public enum AgentStatus: String, Codable, Sendable {
+    case draft, active
+}
+
 public enum ChatRole: String, Codable, Sendable {
     case user, agent, tool, error
 }

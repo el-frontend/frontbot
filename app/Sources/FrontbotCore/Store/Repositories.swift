@@ -225,17 +225,111 @@ extension AppDatabase {
         try writer.read { try AgentRun.filter(Column("workspaceId") == workspaceId).order(Column("createdAt").desc).fetchAll($0) }
     }
 
+    // MARK: Agentes
+
+    /// Frontbot, el agente por defecto: lo crea si falta y le asigna las conversaciones sin agente.
+    @discardableResult
+    public func ensureDefaultAgent(workspaceId: String) throws -> Agent {
+        try writer.write { db in
+            let agent: Agent
+            if let existing = try Agent.filter(Column("workspaceId") == workspaceId && Column("isDefault") == true).fetchOne(db) {
+                agent = existing
+            } else {
+                let now = Date.dbNow()
+                agent = Agent(id: UUID().uuidString, workspaceId: workspaceId, name: "Frontbot", icon: "sparkles",
+                              description: "Marcas, redes sociales, tareas e ideas de negocio.",
+                              instructions: AgentTemplate.frontbotInstructions, model: AgentConfig.defaultModel,
+                              browser: false, trading: false, status: .active, isDefault: true, templateId: nil,
+                              createdAt: now, updatedAt: now)
+                try agent.insert(db)
+            }
+            try db.execute(sql: "UPDATE conversation SET agentId = ? WHERE agentId IS NULL AND workspaceId = ?",
+                           arguments: [agent.id, workspaceId])
+            return agent
+        }
+    }
+
+    public func createAgent(workspaceId: String, draft: AgentDraft, status: AgentStatus) throws -> Agent {
+        let clean = try Self.validated(draft)
+        let now = Date.dbNow()
+        let agent = Agent(id: UUID().uuidString, workspaceId: workspaceId, name: clean.name, icon: clean.icon,
+                          description: clean.description, instructions: clean.instructions, model: clean.model,
+                          browser: clean.browser, trading: clean.trading, status: status, isDefault: false,
+                          templateId: clean.templateId, createdAt: now, updatedAt: now)
+        try writer.write { try agent.insert($0) }
+        return agent
+    }
+
+    public func updateAgent(id: String, draft: AgentDraft) throws -> Agent {
+        let clean = try Self.validated(draft)
+        return try writer.write { db in
+            guard var agent = try Agent.fetchOne(db, key: id) else { throw notFound("agente", id) }
+            agent.name = clean.name; agent.icon = clean.icon; agent.description = clean.description
+            agent.instructions = clean.instructions; agent.model = clean.model
+            agent.browser = clean.browser; agent.trading = clean.trading
+            agent.updatedAt = .dbNow()
+            try agent.update(db)
+            return agent
+        }
+    }
+
+    /// Solo el usuario activa agentes: ninguna herramienta llama a esto.
+    public func activateAgent(id: String) throws -> Agent {
+        try writer.write { db in
+            guard var agent = try Agent.fetchOne(db, key: id) else { throw notFound("agente", id) }
+            agent.status = .active
+            agent.updatedAt = .dbNow()
+            try agent.update(db)
+            return agent
+        }
+    }
+
+    /// Frontbot primero; luego por nombre.
+    public func agents(workspaceId: String) throws -> [Agent] {
+        try writer.read {
+            try Agent.filter(Column("workspaceId") == workspaceId)
+                .order(Column("isDefault").desc, Column("name").collating(.localizedCaseInsensitiveCompare)).fetchAll($0)
+        }
+    }
+
+    public func agent(id: String) throws -> Agent? {
+        try writer.read { try Agent.fetchOne($0, key: id) }
+    }
+
+    /// Borra el agente con sus conversaciones (cascade). Frontbot no se borra.
+    public func deleteAgent(id: String) throws {
+        try writer.write { db in
+            guard let agent = try Agent.fetchOne(db, key: id) else { return }
+            if agent.isDefault { throw ValidationError("Frontbot no se puede borrar.") }
+            try agent.delete(db)
+        }
+    }
+
+    static func validated(_ draft: AgentDraft) throws -> AgentDraft {
+        var d = draft
+        d.name = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        d.instructions = d.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+        d.description = d.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !d.name.isEmpty else { throw ValidationError("El agente necesita un nombre.") }
+        guard d.name.count <= 40 else { throw ValidationError("El nombre del agente admite hasta 40 caracteres.") }
+        guard !d.instructions.isEmpty else { throw ValidationError("El agente necesita instrucciones.") }
+        guard d.instructions.count <= 20_000 else { throw ValidationError("Las instrucciones admiten hasta 20.000 caracteres.") }
+        d.model = AgentModel.resolve(d.model)
+        if d.icon.isEmpty { d.icon = "person.crop.circle" }
+        return d
+    }
+
     // MARK: Conversaciones
 
     /// Crea una conversación titulada con el primer mensaje (una línea, máximo 60 caracteres).
-    public func createConversation(workspaceId: String, brandId: String?, firstPrompt: String) throws -> Conversation {
+    public func createConversation(workspaceId: String, agentId: String, brandId: String?, firstPrompt: String) throws -> Conversation {
         let line = firstPrompt.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let title = line.count > 60 ? String(line.prefix(60)) + "…" : line
         let now = Date.dbNow()
         return try writer.write { db in
             let c = Conversation(id: UUID().uuidString, workspaceId: workspaceId, brandId: brandId,
                                  title: title.isEmpty ? "Conversación" : title, createdAt: now, updatedAt: now,
-                                 activity: try nextActivity(db))
+                                 activity: try nextActivity(db), agentId: agentId, summarizedAt: nil)
             try c.insert(db)
             return c
         }

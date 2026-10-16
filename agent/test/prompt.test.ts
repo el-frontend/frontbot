@@ -33,3 +33,21 @@ describe("buildUserPrompt", () => {
     expect(p).toBe("Conversación hasta ahora:\nUsuario: ¿tono?\nFrontbot: Cercano\n\nMensaje nuevo del usuario:\nsigue");
   });
 });
+
+describe("buildSystemPrompt per agent", () => {
+  it("defaults to Frontbot", () => {
+    expect(buildSystemPrompt({ today: "2026-10-16" })).toContain("Eres Frontbot");
+  });
+
+  it("uses the agent's name and instructions and keeps the shared rules", () => {
+    const p = buildSystemPrompt({ today: "2026-10-16", agent: { name: "Crypto Trader", instructions: "Nunca sin stop loss." } });
+    expect(p).toContain("Eres Crypto Trader");
+    expect(p).toContain("Nunca sin stop loss.");
+    expect(p).toContain("Nunca publicas");
+    expect(p).toContain("2026-10-16");
+  });
+
+  it("labels history turns with the agent's name", () => {
+    expect(buildUserPrompt([{ role: "agent", text: "hola" }], "sigue", "Crypto Trader")).toContain("Crypto Trader: hola");
+  });
+});

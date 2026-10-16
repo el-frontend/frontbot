@@ -5,6 +5,7 @@ import FrontbotCore
 struct BrandsView: View {
     @Bindable var model: AppModel
     @State private var showingNew = false
+    @State private var showingNewAgent = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -36,6 +37,33 @@ struct BrandsView: View {
                 navRow("Calendario", icon: "calendar", section: .calendar, count: model.today?.draftsToReview, countColor: Theme.draft)
                 navRow("Tareas", icon: "checklist", section: .tasks, count: model.today?.tasks.count)
                 navRow("Ideas", icon: "lightbulb", section: .ideas)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    SectionLabel("Agentes")
+                    Spacer()
+                    Button { showingNewAgent = true } label: { Image(systemName: "plus").foregroundStyle(Theme.muted) }
+                        .buttonStyle(.plain).help("Nuevo agente").accessibilityLabel("Nuevo agente")
+                }
+                .padding(.horizontal, 10).padding(.bottom, 4)
+                ForEach(model.agents) { agent in
+                    let selected = model.section == .agent(agent.id)
+                    Button { model.section = .agent(agent.id) } label: {
+                        HStack(spacing: 10) {
+                            AgentAvatar(agent: agent)
+                            Text(agent.name).lineLimit(1)
+                            Spacer()
+                            if agent.status == .draft { Text("borrador").font(Theme.mono(10)).foregroundStyle(Theme.draft) }
+                        }
+                        .foregroundStyle(selected ? Theme.text : agent.status == .draft ? Theme.muted : Theme.textSecondary)
+                        .padding(.horizontal, 10)
+                        .frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(selected ? Theme.selected : .clear))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -93,6 +121,7 @@ struct BrandsView: View {
         .background(Theme.sidebar)
         .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 300)
         .sheet(isPresented: $showingNew) { NewBrandSheet(model: model) }
+        .sheet(isPresented: $showingNewAgent) { NewAgentSheet(model: model) }
     }
 
     private func navRow(_ title: String, icon: String, section: AppModel.Section, count: Int? = nil, countColor: Color = Theme.muted) -> some View {
@@ -124,6 +153,7 @@ struct BrandsView: View {
                         let selected = model.section == .chat && model.currentConversationId == conversation.id
                         Button { model.openConversation(conversation) } label: {
                             HStack(spacing: 8) {
+                                if let agent = model.agent(id: conversation.agentId), !agent.isDefault { AgentAvatar(agent: agent, size: 14) }
                                 Text(conversation.title).lineLimit(1).truncationMode(.tail)
                                 Spacer(minLength: 4)
                                 Text(Self.age(conversation.updatedAt)).font(Theme.mono(10)).foregroundStyle(Theme.muted)

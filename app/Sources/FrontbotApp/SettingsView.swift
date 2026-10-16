@@ -37,20 +37,8 @@ struct SettingsView: View {
                 }
             }
 
-            section("Modelo") {
-                Picker("Modelo", selection: $model.selectedModel) {
-                    ForEach(AgentModel.all, id: \.id) { Text($0.label).tag($0.id) }
-                }
-                .labelsHidden().pickerStyle(.radioGroup)
-                note("También puedes cambiarlo en el chat, junto al botón de enviar.")
-            }
-
-            section("Navegador") {
-                Toggle(isOn: $model.useBrowser) {
-                    Text("Usar mi Chrome para buscar en la web").font(.system(size: 13, weight: .medium))
-                }
-                .toggleStyle(.switch).controlSize(.small)
-                note("Frontbot navega en tu Chrome con tus sesiones. Necesita la extensión Claude in Chrome. Puede hacer clic y rellenar formularios, pero en redes sociales solo lee: nunca publica.")
+            section("Agentes") {
+                note("El modelo y el uso de tu Chrome se configuran en cada agente, desde su página en la barra lateral.")
             }
 
             section("Redes") {

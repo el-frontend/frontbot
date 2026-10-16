@@ -10,6 +10,8 @@ struct RootView: View {
             BrandsView(model: model)
         } detail: {
             switch model.section {
+            case .agent(let id):
+                if let agent = model.agent(id: id) { AgentDetailView(model: model, agent: agent).id(agent.id) }
             case .brand(let id):
                 // .id: cada marca tiene su propio estado (si no, el editor de guía de una marca se queda abierto en otra).
                 if let brand = model.brand(id: id) { BrandDetailView(model: model, brand: brand).id(brand.id) }

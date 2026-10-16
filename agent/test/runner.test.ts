@@ -32,4 +32,14 @@ describe("buildQueryOptions", () => {
     const out = await pre!({ hook_event_name: "PreToolUse", tool_name: "mcp__claude-in-chrome__javascript_tool", tool_input: {}, tool_use_id: "u", session_id: "s", transcript_path: "", cwd: "" } as never, "u", { signal: new AbortController().signal });
     expect(out).toMatchObject({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" } });
   });
+
+  it("uses the agent's prompt and hides Frontbot-only tools from specialists", () => {
+    const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [] });
+    const agent = { id: "a1", name: "Crypto Trader", instructions: "Siempre stop loss.", is_default: false };
+    const opts = buildQueryOptions({ run_id: "r", prompt: "p", model: "m", agent }, server, new AbortController(), "2026-10-16");
+    expect(opts.systemPrompt).toContain("Eres Crypto Trader");
+    expect(opts.allowedTools).not.toContain("mcp__frontbot__agents_create_draft");
+    const def = buildQueryOptions({ run_id: "r", prompt: "p", model: "m" }, server, new AbortController(), "2026-10-16");
+    expect(def.allowedTools).toContain("mcp__frontbot__agents_create_draft");
+  });
 });
