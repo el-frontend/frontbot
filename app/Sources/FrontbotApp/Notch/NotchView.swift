@@ -38,11 +38,17 @@ struct NotchView: View {
                 if model.isRunning { ProgressView().controlSize(.small) }
                 Button { controller.collapse() } label: { Image(systemName: "chevron.up") }.buttonStyle(.plain)
             }
-            .padding(8).background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.1)))
+            .padding(.horizontal, 12).frame(height: 40)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x141416)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0x26262A)))
 
             if let reply = model.lastAgentReply {
-                ScrollView { Text(reply).font(.callout).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
-                    .frame(maxHeight: 110)
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "rectangle.roundedtop").foregroundStyle(Theme.accent)
+                    ScrollView { Text(reply).font(.system(size: 13)).lineSpacing(3).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
+                        .frame(maxHeight: 110)
+                }
+                .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x0E0E10)))
             }
 
             if let today = model.today {
@@ -55,20 +61,30 @@ struct NotchView: View {
                 }
                 HStack {
                     if today.draftsToReview > 0 {
-                        Button("\(today.draftsToReview) por revisar") { model.showMainWindow(section: .calendar); controller.collapse() }
+                        pill("\(today.draftsToReview) por revisar", color: Theme.draft) { model.showMainWindow(section: .calendar); controller.collapse() }
                     }
                     if today.readyToPublish > 0 {
-                        Button("\(today.readyToPublish) listos para publicar") { model.showMainWindow(section: .calendar); controller.collapse() }
+                        pill("\(today.readyToPublish) listos para publicar", color: Theme.approved) { model.showMainWindow(section: .calendar); controller.collapse() }
                     }
                     Spacer()
                     Button("Abrir Frontbot") { model.showMainWindow(section: .chat); controller.collapse() }
+                        .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
                 }
-                .buttonStyle(.link)
             }
             Spacer(minLength: 0)
         }
         .padding(.top, 34).padding(.horizontal, 16).padding(.bottom, 12)
         .onAppear { focused = true }
         .onExitCommand { controller.collapse() }
+    }
+
+    private func pill(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) { StatusDot(color: color); Text(title) }
+                .font(.system(size: 12)).foregroundStyle(color)
+                .padding(.horizontal, 10).frame(height: 30)
+                .background(RoundedRectangle(cornerRadius: 8).fill(color.opacity(0.1)))
+        }
+        .buttonStyle(.plain)
     }
 }

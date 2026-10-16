@@ -291,6 +291,19 @@ final class AppModel {
         }
     }
 
+    /// Nombre corto del modelo para el composer ("sonnet-5.5").
+    var modelName: String {
+        (ProcessInfo.processInfo.environment["FRONTBOT_MODEL"] ?? AgentConfig.defaultModel)
+            .replacingOccurrences(of: "claude-", with: "").replacingOccurrences(of: "-5-", with: "-5.")
+    }
+
+    func newConversation() {
+        guard !isRunning else { return }
+        messages = []
+        lastAgentReply = nil
+        section = .chat
+    }
+
     func cancel() {
         guard let id = currentRunId else { return }
         Task { await client.cancel(runId: id) }

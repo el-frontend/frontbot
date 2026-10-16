@@ -9,7 +9,7 @@ struct TasksView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Tareas").font(.largeTitle).bold()
+            Text("Tareas").font(.system(size: 22, weight: .semibold))
             HStack {
                 TextField("Nueva tarea…", text: $title).onSubmit(add)
                 Toggle("Fecha", isOn: $hasDate).toggleStyle(.checkbox)
@@ -28,7 +28,7 @@ struct TasksView: View {
                                 Spacer()
                                 if let due = task.dueDate {
                                     Text(due.formatted(date: .abbreviated, time: .omitted)).font(.caption)
-                                        .foregroundStyle(bucket == .overdue ? .red : .secondary)
+                                        .foregroundStyle(bucket == .overdue ? Theme.danger : Theme.muted)
                                 }
                             }
                             .contextMenu { Button("Eliminar", role: .destructive) { model.deleteTask(task) } }
@@ -41,7 +41,9 @@ struct TasksView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(20)
+        .padding(24)
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
     }
 
     private func add() {
