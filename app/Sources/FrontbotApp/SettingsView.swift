@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    let model: AppModel
+    @Bindable var model: AppModel
     @State private var key = ""
     @State private var saved = false
 
@@ -19,6 +19,10 @@ struct SettingsView: View {
             .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             if saved { Text("Guardada.").font(.caption) }
             if !saved, let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+            Divider()
+            Toggle("Usar mi Chrome para buscar en la web", isOn: $model.useBrowser)
+            Text("Frontbot navega en tu Chrome con tus sesiones (necesita la extensión Claude in Chrome). Puede hacer clic y rellenar formularios, pero en redes sociales solo lee: nunca publica.")
+                .font(.caption).foregroundStyle(.secondary)
             Divider()
             Text("Redes: inicia sesión una vez en la ventana de Chrome de Frontbot (separada de tu Chrome personal).")
                 .font(.caption).foregroundStyle(.secondary)

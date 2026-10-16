@@ -21,6 +21,10 @@ final class AppModel {
     var isRunning = false
     var errorMessage: String?
     var apiKeyPresent = false
+    /// El agente puede usar el Chrome del usuario (Claude in Chrome) con sus sesiones.
+    var useBrowser = UserDefaults.standard.bool(forKey: "useBrowser") {
+        didSet { UserDefaults.standard.set(useBrowser, forKey: "useBrowser") }
+    }
 
     var posts: [Post] = []
     var tasks: [TaskItem] = []
@@ -282,7 +286,7 @@ final class AppModel {
         isRunning = true
         Task {
             do {
-                let id = try await client.run(prompt: text, brand: selectedBrand, history: history).id
+                let id = try await client.run(prompt: text, brand: selectedBrand, history: history, useBrowser: useBrowser).id
                 if let run = earlyFinished.removeValue(forKey: id) { finish(run) } else { currentRunId = id }
             } catch {
                 isRunning = false

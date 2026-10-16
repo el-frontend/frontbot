@@ -85,7 +85,8 @@ public actor AgentClient {
         for c in subscribers.values { c.yield(update) }
     }
 
-    public func run(prompt: String, brand: Brand?, history: [ChatTurn] = []) async throws -> AgentRun {
+    /// `useBrowser`: el agente puede usar el Chrome del usuario (Claude in Chrome) detrás del guardián del sidecar.
+    public func run(prompt: String, brand: Brand?, history: [ChatTurn] = [], useBrowser: Bool = false) async throws -> AgentRun {
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
@@ -96,6 +97,7 @@ public actor AgentClient {
                 params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
             }
             if !history.isEmpty { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
+            if useBrowser { params["browser"] = .bool(true) }
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
             return run
         } catch {

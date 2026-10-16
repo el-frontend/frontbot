@@ -109,6 +109,12 @@ struct ChatView: View {
                 Text(model.modelName).font(Theme.mono()).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 10).frame(height: 28)
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.borderStrong))
+                if model.useBrowser {
+                    Label("Chrome", systemImage: "globe").font(Theme.mono()).foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 10).frame(height: 28)
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.borderStrong))
+                        .help("Frontbot puede usar tu Chrome con tus sesiones (Ajustes)")
+                }
 
                 Spacer()
                 if model.isRunning {

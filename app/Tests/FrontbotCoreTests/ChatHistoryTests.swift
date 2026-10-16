@@ -39,4 +39,24 @@ final class ChatHistoryTests: XCTestCase {
         XCTAssertTrue(texts.contains("Historial: 2"))
         await client.stop()
     }
+
+    func testFakeAgentReceivesBrowserFlag() async throws {
+        let db = try AppDatabase.inMemory()
+        let ws = try db.ensureDefaultWorkspace()
+        let node = ProcessInfo.processInfo.environment["FRONTBOT_NODE"] ?? "/opt/homebrew/bin/node"
+        let script = AgentClientTests.repoRoot.appendingPathComponent("agent/dist/main.js").path
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: node), "usa FRONTBOT_NODE=$(which node)")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let client = AgentClient(config: AgentConfig(nodePath: node, scriptPath: script, apiKey: nil, model: "m", fakeAgent: true),
+                                 db: db, files: BrandFiles(paths: AppPaths(root: root)), workspaceId: ws.id)
+        let stream = await client.updates()
+        let run = try await client.run(prompt: "hola", brand: nil, useBrowser: true)
+        var texts: [String] = []
+        for await update in stream {
+            if case .event(let id, "text", let text) = update, id == run.id { texts.append(text) }
+            if case .finished(let r) = update, r.id == run.id { break }
+        }
+        XCTAssertTrue(texts.contains("Navegador: activado"))
+        await client.stop()
+    }
 }
