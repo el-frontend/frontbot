@@ -250,9 +250,20 @@ final class LabController {
 
     func reloadDatasets() { datasets = (try? datasetStore.list()) ?? datasets }
 
-    func importDataset(folder: URL, name: String, description: String) {
-        change { _ = try datasetStore.importFolder(folder, name: name, description: description) }
+    /// La copia (hasta 500 MB) corre fuera del hilo principal. Devuelve `true` si se importó.
+    func importDataset(folder: URL, name: String, description: String) async -> Bool {
+        let store = datasetStore
+        var ok = true
+        do {
+            _ = try await Task.detached { try store.importFolder(folder, name: name, description: description) }.value
+        } catch let e as ValidationError {
+            model?.errorMessage = e.message; ok = false
+        } catch {
+            model?.errorMessage = error.localizedDescription; ok = false
+        }
+        version += 1
         reloadDatasets()
+        return ok
     }
 
     func deleteDataset(_ meta: DatasetMeta) {

@@ -59,8 +59,7 @@ struct LabDatasetsSettings: View {
         .sheet(item: Binding(get: { importing.map(FolderChoice.init) }, set: { importing = $0?.url })) { choice in
             DatasetNameSheet(folder: choice.url) { name, description in
                 model.errorMessage = nil
-                model.lab.importDataset(folder: choice.url, name: name, description: description)
-                return model.errorMessage == nil
+                return await model.lab.importDataset(folder: choice.url, name: name, description: description)
             }
         }
         .confirmationDialog("¿Borrar \(deleting?.name ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
@@ -95,7 +94,7 @@ private struct FolderChoice: Identifiable { let url: URL; var id: String { url.p
 /// Nombre y descripción de un dataset que viene de una carpeta local.
 private struct DatasetNameSheet: View {
     let folder: URL
-    let onSave: (String, String) -> Bool
+    let onSave: (String, String) async -> Bool
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var description = ""
@@ -117,7 +116,10 @@ private struct DatasetNameSheet: View {
             HStack {
                 Spacer()
                 Button("Cancelar") { dismiss() }.buttonStyle(OutlineButtonStyle())
-                Button("Añadir") { if onSave(name.trimmingCharacters(in: .whitespacesAndNewlines), description) { dismiss() } }
+                Button("Añadir") {
+                    let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    Task { if await onSave(n, description) { dismiss() } }
+                }
                     .buttonStyle(AccentButtonStyle()).keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -184,8 +186,10 @@ final class LabPythonEnv {
                 let text = String(decoding: data, as: UTF8.self)
                 Task { @MainActor in self?.append(text) }
             }
-            process.terminationHandler = { p in
+            process.terminationHandler = { [weak self] p in
                 pipe.fileHandleForReading.readabilityHandler = nil
+                let rest = pipe.fileHandleForReading.readDataToEndOfFile()
+                if !rest.isEmpty { Task { @MainActor in self?.append(String(decoding: rest, as: UTF8.self)) } }
                 cont.resume(returning: p.terminationStatus)
             }
             do { try process.run() } catch {
