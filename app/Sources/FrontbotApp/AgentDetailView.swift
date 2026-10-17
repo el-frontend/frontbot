@@ -19,20 +19,10 @@ struct AgentDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if agent.status == .draft { draftBanner }
-                    instructions
-                    settings
-                    if agent.trading { TradingSettings(model: model, agent: agent).id(agent.id) }
-                    AgentFoldersSection(model: model, agent: agent)
-                    skillsSection
-                    tasksSection
-                    memory
-                }
-                .frame(maxWidth: 820, alignment: .leading)
-                .padding(.horizontal, 28).padding(.vertical, 22)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            tabPicker
+            switch tab {
+            case .general: general
+            case .lab: LabTabView(model: model, agent: agent).id(agent.id)
             }
         }
         .background(Theme.background)
@@ -40,6 +30,36 @@ struct AgentDetailView: View {
             Button("Borrar agente y sus conversaciones", role: .destructive) { model.deleteAgent(agent.id) }
         } message: {
             Text("Se borran también sus conversaciones. Esto no se puede deshacer.")
+        }
+    }
+
+    private var tab: AgentTab { model.agentTab[agent.id] ?? .general }
+
+    private var tabPicker: some View {
+        Picker("Sección", selection: Binding(get: { tab }, set: { model.agentTab[agent.id] = $0 })) {
+            Text("General").tag(AgentTab.general)
+            Text("Laboratorio").tag(AgentTab.lab)
+        }
+        .pickerStyle(.segmented).labelsHidden().fixedSize()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 28).padding(.vertical, 10)
+    }
+
+    private var general: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if agent.status == .draft { draftBanner }
+                instructions
+                settings
+                if agent.trading { TradingSettings(model: model, agent: agent).id(agent.id) }
+                AgentFoldersSection(model: model, agent: agent)
+                skillsSection
+                tasksSection
+                memory
+            }
+            .frame(maxWidth: 820, alignment: .leading)
+            .padding(.horizontal, 28).padding(.vertical, 22)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

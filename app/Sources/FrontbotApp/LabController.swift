@@ -171,6 +171,11 @@ final class LabController {
         change { try db.saveLabSettings(settings) }
     }
 
+    /// Solo lectura desde la UI: lista y lee los archivos de un tema.
+    func workspace(agentId: String, topicId: String) -> LabWorkspace {
+        LabWorkspace(paths: paths, db: db, agentId: agentId, topicId: topicId)
+    }
+
     // MARK: Temas
 
     func openTopic(agentId: String, question: String, why: String) {
