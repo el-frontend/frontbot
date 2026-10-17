@@ -6,15 +6,24 @@ public struct LabSandbox: Sendable {
     let paths: AppPaths
     let db: AppDatabase
     let sandbox: ScriptSandbox
+    let maxAgentBytes: Int
 
-    public init(paths: AppPaths, db: AppDatabase, nodePath: String? = nil, timeout: TimeInterval = 300) {
+    public init(paths: AppPaths, db: AppDatabase, nodePath: String? = nil, timeout: TimeInterval = 300,
+                maxAgentBytes: Int = LabWorkspace.defaultMaxAgentBytes) {
+        self.maxAgentBytes = maxAgentBytes
         self.paths = paths
         self.db = db
         self.sandbox = ScriptSandbox(timeout: timeout, nodePath: nodePath)
     }
 
     public func run(agentId: String, topicId: String, script: String, args: [String]) throws -> ScriptSandbox.Result {
-        let workspace = LabWorkspace(paths: paths, db: db, agentId: agentId, topicId: topicId)
+        if script.trimmingCharacters(in: .whitespaces).hasPrefix("dataset:") {
+            throw ValidationError("Los datasets no se ejecutan: copia el script a tu tema.")
+        }
+        let workspace = LabWorkspace(paths: paths, db: db, agentId: agentId, topicId: topicId, maxAgentBytes: maxAgentBytes)
+        guard workspace.usedBytes <= maxAgentBytes else {
+            throw ValidationError("Tu laboratorio superó el límite de \(maxAgentBytes >= 1_000_000 ? "\(maxAgentBytes / 1_000_000) MB" : "\(maxAgentBytes) bytes"): borra archivos antes de ejecutar scripts.")
+        }
         let fm = FileManager.default
         // Las carpetas existen antes de resolver, para que el perfil use sus rutas reales.
         let topic = paths.labTopicDir(agentId, topicId), shared = paths.labSharedDir(agentId)

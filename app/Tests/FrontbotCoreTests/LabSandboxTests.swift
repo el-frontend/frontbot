@@ -99,4 +99,22 @@ final class LabSandboxTests: XCTestCase {
         XCTAssertThrowsError(try run("no-existe.py"))
         XCTAssertThrowsError(try run("dataset:d/a.py"))
     }
+
+    func testDatasetScriptsAreNotExecuted() throws {
+        let dir = paths.datasetDir("d")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "print(1)".write(to: dir.appendingPathComponent("x.py"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try run("dataset:d/x.py")) { error in
+            XCTAssertEqual((error as? ValidationError)?.message, "Los datasets no se ejecutan: copia el script a tu tema.")
+        }
+    }
+
+    func testRefusesToRunWhenLabExceedsTheCap() throws {
+        try workspace().write("a.py", content: "print(1)" + String(repeating: " ", count: 2000))
+        let small = LabSandbox(paths: paths, db: db, maxAgentBytes: 1000)
+        XCTAssertThrowsError(try small.run(agentId: agent.id, topicId: "t1", script: "a.py", args: [])) { error in
+            XCTAssertTrue((error as? ValidationError)?.message.contains("límite") == true)
+        }
+        XCTAssertEqual(try run("a.py").exitCode, 0)
+    }
 }
