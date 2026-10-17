@@ -27,6 +27,16 @@ final class ScriptSandboxTests: XCTestCase {
         }
     }
 
+    func testRunsFromTheSkillRootSoRelativeDataPathsWork() throws {
+        // Como en los skills de Anthropic: scripts/x.py lee data/... relativo a la raíz del skill.
+        try FileManager.default.createDirectory(at: skillDir.appendingPathComponent("data/1h"), withIntermediateDirectories: true)
+        try script("data/1h/BTC.csv", "1,2,3")
+        try script("scripts/lee.py", "print(open('data/1h/BTC.csv').read())")
+        let result = try ScriptSandbox().run(script: "scripts/lee.py", args: [], in: skillDir)
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "1,2,3")
+    }
+
     func testRunsWithArgumentsAndCanWriteInsideTheSkill() throws {
         try script("scripts/eco.py", """
         import sys, os

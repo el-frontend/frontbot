@@ -1,5 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { unaliasSkillPaths, type SkillPlugin } from "./skills.js";
 
 export type AppCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
@@ -20,7 +21,7 @@ export const TOOL_SPECS = [
   { name: "skills_list", description: "Lista los skills de la biblioteca: nombre, descripción, estado (draft/active), si los tienes asignados, si traen scripts y si son borradores tuyos.", shape: {} },
   { name: "skills_create_draft", description: "Crea un skill nuevo (estándar de Anthropic) a partir de tu investigación o de lo que pida el usuario. Queda en BORRADOR asignado a ti: el usuario lo revisa y lo activa. name: kebab-case. description: qué hace y cuándo usarlo. body: el contenido markdown del SKILL.md (sin frontmatter). files: archivos de apoyo opcionales, ruta relativa → texto.", shape: { name: z.string(), description: z.string(), body: z.string(), files: z.record(z.string(), z.string()).optional() } },
   { name: "skills_update_draft", description: "Edita un skill que sigue en borrador y que creaste tú. Los campos omitidos no cambian; files añade o reemplaza archivos.", shape: { name: z.string(), description: z.string().optional(), body: z.string().optional(), files: z.record(z.string(), z.string()).optional() } },
-  { name: "skills_run_script", description: "Ejecuta un script de uno de tus skills activos (.py, .sh o .js) en una sandbox sin red. El usuario debe aprobar cada ejecución; si la deniega, no insistas. script: ruta relativa dentro del skill.", shape: { skill: z.string(), script: z.string(), args: z.array(z.string()).optional() } },
+  { name: "skills_run_script", description: "Ejecuta un script de uno de tus skills activos (.py, .sh o .js) en una sandbox sin red. El usuario debe aprobar cada ejecución; si la deniega, no insistas. script: ruta relativa dentro del skill. Se ejecuta desde la carpeta raíz del skill: en args usa rutas relativas a ella (p. ej. data/1h).", shape: { skill: z.string(), script: z.string(), args: z.array(z.string()).optional() } },
   { name: "schedule_list", description: "Lista tus tareas programadas (nombre, instrucción, frecuencia, estado, próxima ejecución).", shape: {} },
   { name: "schedule_create_draft", description: "Crea una tarea programada para ti cuando el usuario te pida hacer algo de forma recurrente. Queda en BORRADOR hasta que el usuario la active. schedule: {kind:'interval', every_minutes (mín. 15), window?:{start:'08:00', end:'22:00'}} | {kind:'daily', time:'09:00'} | {kind:'weekly', days:['mon','fri'], time:'18:00'}. instruction: qué debes hacer en cada ejecución, autocontenida (no habrá nadie para aclarar).", shape: { name: z.string(), instruction: z.string(), schedule: z.record(z.string(), z.unknown()), model: z.string().optional(), max_runs_per_day: z.number().int().min(1).max(96).optional() } },
   { name: "schedule_update_draft", description: "Edita una tarea programada tuya que sigue en borrador. Los campos omitidos no cambian.", shape: { task_id: z.string(), name: z.string().optional(), instruction: z.string().optional(), schedule: z.record(z.string(), z.unknown()).optional(), model: z.string().optional(), max_runs_per_day: z.number().int().min(1).max(96).optional() } },
@@ -56,7 +57,7 @@ export const DEFAULT_AGENT_TOOL_SPECS = [
 export const ALLOWED_TOOLS = ["WebSearch", "WebFetch", ...TOOL_SPECS.map((t) => `mcp__frontbot__${t.name}`)];
 
 /** Contexto del run: lo pone el sidecar, nunca el modelo. */
-export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean };
+export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean; skillPlugin?: SkillPlugin };
 
 const specsFor = (ctx: ToolContext) => {
   if (ctx.memoryOnly) return [...MEMORY_TOOL_SPECS];
@@ -75,6 +76,9 @@ export function buildTools(call: AppCall, ctx: ToolContext = { isDefault: true }
       try {
         const params: Record<string, unknown> = ctx.agentId ? { ...args, agent_id: ctx.agentId } : { ...args };
         if (spec.name === "notify_user" || spec.name === "files_write") params.run_id = ctx.runId; // el run lo identifica el sidecar, no el modelo
+        if (spec.name === "skills_run_script" && ctx.skillPlugin && Array.isArray(params.args)) {
+          params.args = params.args.map((a) => (typeof a === "string" ? unaliasSkillPaths(a, ctx.skillPlugin!) : a));
+        }
         const result = await call(`tool.${spec.name}`, params);
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       } catch (err) {

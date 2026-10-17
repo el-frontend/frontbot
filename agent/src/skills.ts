@@ -5,7 +5,9 @@ import { join, resolve, sep } from "node:path";
 
 export const PLUGIN_NAME = "frontbot-agent";
 export type RunSkill = { name: string; dir: string };
-export type SkillPlugin = { path: string; skillNames: string[]; dirs: string[]; cleanup: () => void };
+export type SkillPlugin = { path: string; skillNames: string[]; dirs: string[]; cleanup: () => void;
+  /** Ruta temporal del plugin (la que el SDK le enseña al modelo) → carpeta real del skill. */
+  aliases?: [string, string][] };
 
 const SAFE_NAME = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
@@ -17,15 +19,17 @@ export function prepareSkillPlugin(skills: RunSkill[]): SkillPlugin {
   writeFileSync(join(path, ".claude-plugin", "plugin.json"), JSON.stringify({ name: PLUGIN_NAME, version: "1.0.0", description: "Skills del agente de Frontbot" }));
   const names: string[] = [];
   const dirs: string[] = [];
+  const aliases: [string, string][] = [];
   for (const s of skills) {
     if (!SAFE_NAME.test(s.name)) continue;
     try {
       symlinkSync(s.dir, join(path, "skills", s.name), "dir");
       names.push(`${PLUGIN_NAME}:${s.name}`);
       dirs.push(s.dir);
+      aliases.push([join(path, "skills", s.name), s.dir], [join(real(path), "skills", s.name), s.dir]);
     } catch { /* skill ilegible: se omite */ }
   }
-  return { path, skillNames: names, dirs, cleanup: () => rmSync(path, { recursive: true, force: true }) };
+  return { path, skillNames: names, dirs, aliases, cleanup: () => rmSync(path, { recursive: true, force: true }) };
 }
 
 const real = (p: string) => { try { return realpathSync(p); } catch { return resolve(p); } };
@@ -37,4 +41,12 @@ export function readGuard(skillDirs: string[], pluginPath: string) {
     const target = real(resolve(filePath));
     return roots.some((root) => target === root || target.startsWith(root + sep));
   };
+}
+
+/** El modelo solo conoce la ruta temporal del skill: la sandbox de scripts necesita la real (la temporal se borra al terminar). */
+export function unaliasSkillPaths(arg: string, plugin: SkillPlugin): string {
+  for (const [alias, dir] of plugin.aliases ?? []) {
+    if (arg === alias || arg.startsWith(alias + sep)) return dir + arg.slice(alias.length);
+  }
+  return arg;
 }

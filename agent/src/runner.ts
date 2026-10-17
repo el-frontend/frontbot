@@ -113,12 +113,12 @@ export class RealRunner implements Runner {
     if (signal.aborted) return cancelled(params.run_id);
     const abortController = new AbortController();
     signal.addEventListener("abort", () => abortController.abort());
+    const plugin = params.skills?.length ? prepareSkillPlugin(params.skills) : undefined;
     const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [
-      ...buildTools(this.call, toolContext(params)),
+      ...buildTools(this.call, { ...toolContext(params), skillPlugin: plugin }),
       ...(params.trading && params.mode !== "summarize" ? buildTradingTools(this.call, { agentId: params.agent?.id, trading: params.trading }) : []),
     ] });
     const today = localToday();
-    const plugin = params.skills?.length ? prepareSkillPlugin(params.skills) : undefined;
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
       const stream = query({ prompt: userPrompt(params), options: buildQueryOptions(params, server, abortController, today, plugin) });
