@@ -3,9 +3,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, lstatS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { prepareSkillPlugin, readGuard, PLUGIN_NAME } from "../src/skills.js";
+import { prepareSkillPlugin, readGuard, unaliasSkillPaths, PLUGIN_NAME } from "../src/skills.js";
 import { buildQueryOptions } from "../src/runner.js";
-import { TOOL_SPECS } from "../src/tools.js";
+import { TOOL_SPECS, buildTools } from "../src/tools.js";
 
 const made: (() => void)[] = [];
 afterEach(() => { while (made.length) made.pop()!(); });
@@ -96,5 +96,28 @@ describe("skill tools", () => {
     const names = TOOL_SPECS.map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(["skills_list", "skills_create_draft", "skills_update_draft", "skills_run_script"]));
     expect(names.some((n) => /activate|approve/.test(n))).toBe(false);
+  });
+});
+
+describe("skill paths in script arguments", () => {
+  it("the temporary plugin path the model sees becomes the real skill folder", () => {
+    const a = skillDir("backtest");
+    const plugin = prepareSkillPlugin([{ name: "backtest", dir: a }]);
+    made.push(plugin.cleanup);
+    const alias = join(plugin.path, "skills", "backtest");
+    expect(unaliasSkillPaths(`${alias}/data`, plugin)).toBe(`${a}/data`);
+    expect(unaliasSkillPaths(`${realpathSync(plugin.path)}/skills/backtest/data/1h`, plugin)).toBe(`${a}/data/1h`);
+    expect(unaliasSkillPaths("data/1h", plugin)).toBe("data/1h");
+    expect(unaliasSkillPaths(`${alias}-otro/x`, plugin)).toBe(`${alias}-otro/x`); // solo la carpeta exacta
+  });
+
+  it("skills_run_script forwards real paths to the app", async () => {
+    const a = skillDir("backtest");
+    const plugin = prepareSkillPlugin([{ name: "backtest", dir: a }]);
+    made.push(plugin.cleanup);
+    const calls: unknown[] = [];
+    const tools = buildTools(async (_m, p) => { calls.push(p); return {}; }, { isDefault: true, skillPlugin: plugin });
+    await tools.find((t) => t.name === "skills_run_script")!.handler({ skill: "backtest", script: "scripts/b.py", args: [join(plugin.path, "skills", "backtest", "data"), "4h"] } as never, {});
+    expect(calls).toEqual([{ skill: "backtest", script: "scripts/b.py", args: [join(a, "data"), "4h"] }]);
   });
 });

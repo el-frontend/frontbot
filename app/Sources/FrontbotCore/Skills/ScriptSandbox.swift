@@ -104,7 +104,8 @@ public struct ScriptSandbox: Sendable {
                        "-p", Self.profile(skillDir: real(skillDir), tmpDir: real(tmp), home: real(home),
                                           interpreterDir: real(URL(fileURLWithPath: interpreter).deletingLastPathComponent())),
                        interpreter, url.path] + args
-        p.currentDirectoryURL = url.deletingLastPathComponent()
+        // Desde la raíz del skill, como esperan los skills de Anthropic (scripts/x.py lee data/...).
+        p.currentDirectoryURL = URL(fileURLWithPath: real(skillDir))
         p.environment = ["PATH": "/usr/bin:/bin", "HOME": real(tmp), "TMPDIR": real(tmp), "LANG": "en_US.UTF-8"]
         let out = Pipe(), err = Pipe()
         p.standardOutput = out
