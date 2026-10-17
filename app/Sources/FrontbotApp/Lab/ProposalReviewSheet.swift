@@ -41,7 +41,7 @@ struct ProposalReviewSheet: View {
             HStack {
                 Button("Cerrar") { dismiss() }.buttonStyle(OutlineButtonStyle())
                 Spacer()
-                Button("Rechazar") { decide { model.lab.reject(proposal, comment: trimmedComment) } }
+                Button("Rechazar") { decide { model.lab.reject(proposal, comment: trimmedComment); return false } }
                     .buttonStyle(OutlineButtonStyle()).foregroundStyle(Theme.danger)
                 if !stale {
                     Button("Aprobar") { decide { model.lab.approve(proposal) } }
@@ -65,11 +65,12 @@ struct ProposalReviewSheet: View {
 
     /// Los errores quedan en `model.errorMessage`: si no hay, la propuesta se resolvió y la hoja se cierra.
     /// Si el skill cambió, la propuesta ya no se puede aprobar: solo queda rechazarla.
-    private func decide(_ action: () -> Void) {
+    /// `action` devuelve `true` si la propuesta quedó obsoleta (`SkillVersions.StaleProposal`).
+    private func decide(_ action: () -> Bool) {
         model.errorMessage = nil
-        action()
-        if let error = model.errorMessage {
-            if error.contains("cambió") { stale = true }
+        let isStale = action()
+        if model.errorMessage != nil {
+            if isStale { stale = true }
         } else {
             dismiss()
         }
