@@ -218,7 +218,8 @@ private struct SkillHistory: View {
 
     private func label(_ v: SkillVersion) -> String {
         let date = v.createdAt.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "es")))
-        let origin = model.lab.proposalAgentName(v.proposalId).map { "desde propuesta de \($0)" } ?? "edición tuya"
+        let origin = v.proposalId == nil ? "antes de un cambio tuyo"
+            : "antes de la propuesta de " + (model.lab.proposalAgentName(v.proposalId) ?? "un agente")
         return "v\(v.number) · \(date) · \(origin)"
     }
 }

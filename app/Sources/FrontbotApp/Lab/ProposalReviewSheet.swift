@@ -83,16 +83,29 @@ private struct ProposalFileDiff: View {
     let old: String?
     let new: String
     @State private var expanded = false
+    @State private var lines: [DiffLine]?
+    @State private var tooBig = false
+
+    /// Por encima de esto el LCS (tabla n×m) es demasiado caro.
+    private static let maxDiffLines = 2000
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            ScrollView(.horizontal) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in row(line) }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if tooBig {
+                Text("Archivo demasiado grande para comparar línea a línea.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.top, 6)
             }
-            .padding(.top, 6)
+            if let lines {
+                ScrollView(.horizontal) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in row(line) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.top, 6)
+            } else {
+                ProgressView().controlSize(.small).padding(.top, 6)
+            }
         } label: {
             HStack(spacing: 8) {
                 Text(path).font(Theme.mono(12))
@@ -100,11 +113,23 @@ private struct ProposalFileDiff: View {
                 else if old == new { LabPill(text: "sin cambios") }
             }
         }
+        .task(id: expanded) { if expanded { await compute() } }
     }
 
-    private var lines: [DiffLine] {
-        guard let old, kind == .update else { return new.components(separatedBy: "\n").map { DiffLine.same($0) } }
-        return LineDiff.diff(old: old, new: new)
+    private func compute() async {
+        guard lines == nil else { return }
+        let (old, new, kind) = (self.old, self.new, self.kind)
+        let max = Self.maxDiffLines
+        let result: (lines: [DiffLine], big: Bool) = await Task.detached {
+            let newLines = new.components(separatedBy: "\n")
+            guard let old, kind == .update else { return (newLines.map { DiffLine.same($0) }, false) }
+            if newLines.count > max || old.components(separatedBy: "\n").count > max {
+                return (newLines.map { DiffLine.added($0) }, true)
+            }
+            return (LineDiff.diff(old: old, new: new), false)
+        }.value
+        tooBig = result.big
+        lines = result.lines
     }
 
     @ViewBuilder private func row(_ line: DiffLine) -> some View {
