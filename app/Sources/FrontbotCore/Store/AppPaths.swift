@@ -12,6 +12,17 @@ public struct AppPaths: Sendable {
 
     public var skillsDir: URL { root.appendingPathComponent("skills", isDirectory: true) }
     public func skillDir(_ name: String) -> URL { skillsDir.appendingPathComponent(name, isDirectory: true) }
+    public var skillsVersionsDir: URL { skillsDir.appendingPathComponent(".versions", isDirectory: true) }
+    public func skillVersionsDir(_ name: String) -> URL { skillsVersionsDir.appendingPathComponent(name, isDirectory: true) }
+    public var labsDir: URL { root.appendingPathComponent("labs", isDirectory: true) }
+    public func labDir(_ agentId: String) -> URL { labsDir.appendingPathComponent(agentId, isDirectory: true) }
+    public func labTopicDir(_ agentId: String, _ topicId: String) -> URL {
+        labDir(agentId).appendingPathComponent("topics", isDirectory: true).appendingPathComponent(topicId, isDirectory: true)
+    }
+    public func labSharedDir(_ agentId: String) -> URL { labDir(agentId).appendingPathComponent("shared", isDirectory: true) }
+    public var datasetsDir: URL { root.appendingPathComponent("datasets", isDirectory: true) }
+    public func datasetDir(_ name: String) -> URL { datasetsDir.appendingPathComponent(name, isDirectory: true) }
+    public var labVenvPython: URL { labsDir.appendingPathComponent(".venv/bin/python3") }
     public var database: URL { root.appendingPathComponent("frontbot.sqlite") }
     public func brandDir(_ brandId: String) -> URL { root.appendingPathComponent("brands/\(brandId)", isDirectory: true) }
     public func assetsDir(_ brandId: String) -> URL { brandDir(brandId).appendingPathComponent("assets", isDirectory: true) }

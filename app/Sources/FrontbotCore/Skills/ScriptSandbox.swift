@@ -60,17 +60,18 @@ public struct ScriptSandbox: Sendable {
         return String(cString: resolved)
     }
 
-    static func profile(skillDir: String, tmpDir: String, home: String, interpreterDir: String = "/usr/bin") -> String {
+    static func profile(readDirs: [String], writeDirs: [String], tmpDir: String, home: String, interpreterDir: String = "/usr/bin") -> String {
         func q(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
+        func subpaths(_ dirs: [String]) -> String { dirs.map { "(subpath \(q($0)))" }.joined(separator: " ") }
         return """
         (version 1)
         (deny default)
         (allow process-exec process-fork signal sysctl-read mach-lookup ipc-posix-shm)
         (allow file-read*)
         (deny file-read* (subpath \(q(home))))
-        (allow file-read* (subpath \(q(skillDir))) (subpath \(q(tmpDir))) (subpath \(q(interpreterDir))))
+        (allow file-read* \(subpaths(readDirs)) (subpath \(q(tmpDir))) (subpath \(q(interpreterDir))))
         (allow file-read-metadata)
-        (allow file-write* (subpath \(q(skillDir))) (subpath \(q(tmpDir))) (literal "/dev/null"))
+        (allow file-write* \(subpaths(writeDirs)) (subpath \(q(tmpDir))) (literal "/dev/null"))
         (deny network*)
         (deny appleevent-send)
         (deny mach-lookup
@@ -91,6 +92,37 @@ public struct ScriptSandbox: Sendable {
 
     public func run(script: String, args: [String], in skillDir: URL) throws -> Result {
         let (url, interpreter) = try Self.resolve(script: script, in: skillDir, nodePath: nodePath)
+        return try execute(scriptURL: url, interpreter: interpreter, args: args, workDir: skillDir, readDirs: [skillDir], writeDirs: [skillDir])
+    }
+
+    /// Variante general: `script` es relativo a `workDir` o una ruta absoluta que cae dentro de `readDirs`/`writeDirs`.
+    /// `interpreter` sustituye al que correspondería por la extensión.
+    public func run(script: String, args: [String], in workDir: URL, readDirs: [URL], writeDirs: [URL], interpreter: String? = nil) throws -> Result {
+        let url: URL, byExtension: String
+        if script.hasPrefix("/") {
+            let real = URL(fileURLWithPath: Self.realPath(URL(fileURLWithPath: script)))
+            let allowed = (readDirs + writeDirs).map { Self.realPath($0) }
+            guard allowed.contains(where: { real.path.hasPrefix($0 + "/") }) else { throw ValidationError("El script debe estar dentro del laboratorio: \(script).") }
+            guard FileManager.default.fileExists(atPath: real.path) else { throw ValidationError("No existe el script \(script).") }
+            (url, byExtension) = (real, try Self.interpreter(forExtension: real.pathExtension, script: script, nodePath: nodePath))
+        } else {
+            (url, byExtension) = try Self.resolve(script: script, in: workDir, nodePath: nodePath)
+        }
+        return try execute(scriptURL: url, interpreter: interpreter ?? byExtension, args: args, workDir: workDir, readDirs: readDirs, writeDirs: writeDirs)
+    }
+
+    static func interpreter(forExtension ext: String, script: String, nodePath: String?) throws -> String {
+        switch ext.lowercased() {
+        case "py": return pythonPath
+        case "sh", "bash": return "/bin/sh"
+        case "js", "mjs", "cjs":
+            guard let nodePath else { throw ValidationError("No hay node disponible para ejecutar \(script).") }
+            return nodePath
+        default: throw ValidationError("Tipo de script no soportado: \(script) (usa .py, .sh o .js).")
+        }
+    }
+
+    private func execute(scriptURL url: URL, interpreter: String, args: [String], workDir skillDir: URL, readDirs: [URL], writeDirs: [URL]) throws -> Result {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("frontbot-script-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -101,7 +133,7 @@ public struct ScriptSandbox: Sendable {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
         p.arguments = ["-e", "setpgrp(0, 0); exec @ARGV or die $!", "/usr/bin/sandbox-exec",
-                       "-p", Self.profile(skillDir: real(skillDir), tmpDir: real(tmp), home: real(home),
+                       "-p", Self.profile(readDirs: readDirs.map(real), writeDirs: writeDirs.map(real), tmpDir: real(tmp), home: real(home),
                                           interpreterDir: real(URL(fileURLWithPath: interpreter).deletingLastPathComponent())),
                        interpreter, url.path] + args
         // Desde la raíz del skill, como esperan los skills de Anthropic (scripts/x.py lee data/...).
