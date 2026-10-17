@@ -34,6 +34,8 @@ struct MascotView: View {
             } else {
                 TimelineView(.animation(minimumInterval: 1 / 30, paused: !visible || !(blending || MascotMotion.needsFrames(state, reduceMotion: reduceMotion)))) { context in
                     reality(pose: pose(at: context.date))
+                        // Mientras la escena carga, el logo ocupa el hueco (el RealityView sigue montado para que `make` corra).
+                        .overlay { if scene == nil { FrontbotLogo(size: size * 0.8) } }
                 }
             }
         }

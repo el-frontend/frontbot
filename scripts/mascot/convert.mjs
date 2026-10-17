@@ -9,7 +9,7 @@ import sharp from "sharp";
 import { writeFileSync, mkdirSync, rmSync, renameSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { packUsdz } from "./usdz.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -120,7 +120,7 @@ ${base ? "   color3f inputs:diffuseColor.connect = </Frontbot/Mat/Base.outputs:r
 `;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [input, output] = process.argv.slice(2);
   if (!input) { console.error("Uso: node convert.mjs <modelo.glb> [salida.usdz]"); process.exit(2); }
   try {

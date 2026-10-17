@@ -1,6 +1,7 @@
 import Foundation
 import RealityKit
 import CoreGraphics
+import os
 
 /// La mascota lista para RealityKit: modelo, luces (incluida la ambiental, sin la que el blanco se ve gris) y cámara.
 /// `apply` mueve solo el modelo; luces y cámara quedan fijas.
@@ -13,12 +14,23 @@ public final class MascotScene {
 
     /// Una carga por URL; cada escena usa un clon.
     private static var templates: [URL: Entity] = [:]
+    /// Fallos por URL: un archivo corrupto no se vuelve a leer en cada instancia.
+    private static var failures: [URL: Error] = [:]
     private static var environment: EnvironmentResource?
+    private static let log = Logger(subsystem: "app.frontbot.Frontbot", category: "mascot")
 
     public static func load(from url: URL) async throws -> MascotScene {
+        if let failure = failures[url] { throw failure }
         let template: Entity
         if let cached = templates[url] { template = cached } else {
-            template = try await Entity(contentsOf: url)
+            do {
+                template = try await Entity(contentsOf: url)
+            } catch {
+                // Se registra una sola vez, al primer fallo.
+                failures[url] = error
+                log.error("No se pudo cargar el modelo \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                throw error
+            }
             templates[url] = template
         }
         let scene = MascotScene()
