@@ -97,6 +97,17 @@ final class LabStoreTests: XCTestCase {
         XCTAssertNotNil(saved?.finishedAt)
     }
 
+    func testFinishSessionAppliesBackoff() throws {
+        let t = try open()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let s = try db.startLabSession(topicId: t.id, now: now)
+        let topic = try db.finishLabSession(id: s.id, status: .failed, outcome: nil, summary: nil, conclusion: nil,
+                                            tokens: 10, models: [], now: now)
+        XCTAssertEqual(topic.consecutiveFailures, 1)
+        XCTAssertEqual(topic.nextSessionAfter, now.addingTimeInterval(1200))
+        XCTAssertEqual(try db.topic(id: t.id)?.nextSessionAfter, now.addingTimeInterval(1200))
+    }
+
     func testTokensUsedByLocalDay() throws {
         let t = try open()
         var cal = Calendar(identifier: .gregorian)

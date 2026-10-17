@@ -115,7 +115,7 @@ extension AppDatabase {
         }
     }
 
-    /// Registra la sesión y los totales del tema. Las reglas de espera y fallos (`LabScheduler.apply`, Tarea 2) se llaman desde aquí.
+    /// Registra la sesión y los totales del tema. Las reglas de espera y fallos las aplica `LabScheduler.apply`.
     @discardableResult
     public func finishLabSession(id: String, status: LabSessionStatus, outcome: LabOutcome?, summary: String?, conclusion: String?,
                                  tokens: Int, models: [LabModelUsage], now: Date) throws -> LabTopic {
@@ -133,7 +133,7 @@ extension AppDatabase {
             topic.tokensUsed += tokens
             if let conclusion { topic.conclusion = conclusion }
             topic.updatedAt = now
-            // TODO(Tarea 2): aquí se aplica LabScheduler.apply (backoff, fallos seguidos, estado según outcome).
+            LabScheduler.apply(finished: status, outcome: outcome, to: &topic, now: now)
             try topic.update(db)
             return topic
         }
