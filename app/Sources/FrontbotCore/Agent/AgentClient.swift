@@ -75,6 +75,8 @@ public actor AgentClient {
     private var activeRuns: Set<String> = []
     /// Runs de tareas programadas: nadie puede aprobar nada en ellos.
     private var unattendedRuns: Set<String> = []
+    /// Runs de sesiones de estudio: runId → sessionId. Un fallo o un `agent.done` cierran la sesión una sola vez.
+    private var studyRuns: [String: String] = [:]
     private var launches: [Date] = []
     private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
     private var subscribers: [UUID: AsyncStream<AgentUpdate>.Continuation] = [:]
@@ -107,6 +109,16 @@ public actor AgentClient {
         self.tools = ToolHandler(db: db, files: files, workspaceId: workspaceId)
     }
 
+    public struct StudyContext: Sendable {
+        public var topic: LabTopic
+        public var session: LabSession
+        public var budgetTokens: Int
+        public var allowOpus: Bool
+        public init(topic: LabTopic, session: LabSession, budgetTokens: Int, allowOpus: Bool) {
+            self.topic = topic; self.session = session; self.budgetTokens = budgetTokens; self.allowOpus = allowOpus
+        }
+    }
+
     public func setConfig(_ config: AgentConfig) {
         self.config = config
         stop() // el próximo run relanza con la nueva config (p. ej. nueva API key)
@@ -131,10 +143,11 @@ public actor AgentClient {
     /// `summarize`: run en segundo plano que solo guarda en la memoria lo aprendido en `history`.
     /// `task`: ejecución de una tarea programada (sin nadie mirando; puede usar notify_user).
     public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil,
-                    summarize: Bool = false, task: ScheduledTask? = nil) async throws -> AgentRun {
+                    summarize: Bool = false, task: ScheduledTask? = nil, study: StudyContext? = nil) async throws -> AgentRun {
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
+        if let study { studyRuns[run.id] = study.session.id }
         do {
             var params: [String: JSONValue] = ["run_id": .string(run.id), "prompt": .string(prompt), "model": .string(model ?? config.model)]
             if let brand {
@@ -168,6 +181,21 @@ public actor AgentClient {
                 if !skills.isEmpty {
                     params["skills"] = .array(skills.map { ["name": .string($0.name), "dir": .string(ScriptSandbox.realPath(files.paths.skillDir($0.name)))] })
                 }
+            }
+            if let study {
+                guard let agent else { throw ValidationError("Una sesión de estudio necesita un agente.") }
+                unattendedRuns.insert(run.id)
+                params["mode"] = "study"
+                let datasets = (try? Datasets(paths: files.paths, downloader: URLSessionDatasetDownloader()).list()) ?? []
+                let workspace = LabWorkspace(paths: files.paths, db: db, agentId: agent.id, topicId: study.topic.id)
+                let notebook = StudyPrompt.payload(topic: study.topic, entries: try db.entries(topicId: study.topic.id),
+                                                   modelNotes: try db.modelNotes(agentId: agent.id, limit: StudyPrompt.maxModelNotes),
+                                                   datasets: datasets, files: (try? workspace.list(nil)) ?? [])
+                params["study"] = ["topic_id": .string(study.topic.id), "session_id": .string(study.session.id),
+                                   "question": .string(study.topic.question), "why": .string(study.topic.why),
+                                   "budget_tokens": .number(Double(study.budgetTokens)), "allow_opus": .bool(study.allowOpus),
+                                   "notebook": notebook]
+                try db.attachAgentRun(labSessionId: study.session.id, agentRunId: run.id)
             }
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
             return run
@@ -221,9 +249,23 @@ public actor AgentClient {
     private func fail(runId: String, summary: String) {
         activeRuns.remove(runId)
         unattendedRuns.remove(runId)
+        finishStudy(runId: runId, status: .failed, params: nil)
         if let run = try? db.finishRun(id: runId, status: .failed, summary: summary, inputTokens: 0, outputTokens: 0, costUsd: 0) {
             broadcast(.finished(run))
         }
+    }
+
+    /// Cierra la sesión de estudio del run (si lo es) con lo que dejó `lab_end_session` y los tokens del medidor.
+    private func finishStudy(runId: String, status: LabSessionStatus, params: JSONValue?) {
+        guard let sessionId = studyRuns.removeValue(forKey: runId) else { return }
+        let saved = try? db.labSession(id: sessionId)
+        let outcome: LabOutcome? = status == .failed ? nil : (saved?.outcome ?? (status == .done ? .continue : nil))
+        let models = (params?["models"]?.arrayValue ?? []).compactMap { m -> LabModelUsage? in
+            guard let name = m["model"]?.stringValue, let tokens = m["tokens"]?.intValue else { return nil }
+            return LabModelUsage(model: name, tokens: tokens)
+        }
+        _ = try? db.finishLabSession(id: sessionId, status: status, outcome: outcome, summary: saved?.summary, conclusion: nil,
+                                     tokens: params?["lab_tokens"]?.intValue ?? 0, models: models, now: .dbNow())
     }
 
     public func stop() {
@@ -364,6 +406,19 @@ public actor AgentClient {
                     self.reply(id, .failure(error))
                 }
             }
+        case .request(let id, let method, let params) where method == "tool.lab_run" || method == "tool.lab_fetch_dataset":
+            // Sin aprobación, pero solo dentro de una sesión de estudio que esta app lanzó. El sidecar no manda run_id
+            // en estas herramientas: se valida por session_id (debe ser de un run de estudio activo) y, dentro del
+            // manejador, que la sesión esté `running`, sea del tema y el tema del agente.
+            guard let sessionId = params["session_id"]?.stringValue, studyRuns.values.contains(sessionId) else {
+                reply(id, .failure(ValidationError(LabToolHandler.notInStudy)))
+                return
+            }
+            let handler = LabToolHandler(db: db, paths: files.paths, nodePath: config.nodePath)
+            Task {
+                do { self.reply(id, .success(try await handler.handleAsync(method: method, params: params))) }
+                catch { self.reply(id, .failure(error)) }
+            }
         case .request(let id, "tool.files_write", let params):
             guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId), !unattendedRuns.contains(runId) else {
                 reply(id, .failure(ValidationError("files_write solo funciona en un chat, con el usuario delante para aprobarlo.")))
@@ -398,6 +453,7 @@ public actor AgentClient {
             activeRuns.remove(runId)
             unattendedRuns.remove(runId)
             let ok = params["ok"]?.boolValue ?? false
+            finishStudy(runId: runId, status: params["cut"]?.boolValue == true ? .cut : (ok ? .done : .failed), params: params)
             let summary = ok ? params["summary"]?.stringValue : (params["error"]?.stringValue ?? "Error desconocido")
             if let run = try? db.finishRun(id: runId, status: ok ? .done : .failed, summary: summary,
                                            inputTokens: params["input_tokens"]?.intValue ?? 0,

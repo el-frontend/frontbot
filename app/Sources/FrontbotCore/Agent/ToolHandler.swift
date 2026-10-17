@@ -156,6 +156,7 @@ public struct ToolHandler: Sendable {
             let contents = try agentFiles(params).read(try string(params, "path"))
             return ["path": .string(contents.path), "content": .string(contents.text), "truncated": .bool(contents.truncated)]
         default:
+            if method.hasPrefix("tool.lab_") { return try LabToolHandler(db: db, paths: files.paths).handle(method: method, params: params) }
             throw ValidationError("Herramienta desconocida: \(method).")
         }
     }
