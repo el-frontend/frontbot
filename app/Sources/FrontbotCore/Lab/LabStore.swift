@@ -186,13 +186,14 @@ extension AppDatabase {
         return topic
     }
 
-    /// Cierra como fallida una sesión cuyo final nunca llegó, cobrando su presupuesto entero (lo gastado es desconocido).
+    /// Cierra una sesión cuyo final nunca llegó, cobrando su presupuesto entero (lo gastado es desconocido).
+    /// `failed` (el watchdog) cuenta como fallo; `cut` con `.user` ("Detener") solo espera.
     @discardableResult
-    public func failLabSessionChargingBudget(id: String, now: Date) throws -> LabTopic {
+    public func closeLabSessionChargingBudget(id: String, status: LabSessionStatus, cutReason: LabCutReason? = nil, now: Date) throws -> LabTopic {
         try writer.write { db in
             guard let session = try LabSession.fetchOne(db, key: id) else { throw ValidationError("No existe sesión con id \(id).") }
-            return try Self.finish(session, status: .failed, outcome: nil, summary: session.summary, conclusion: nil,
-                                   tokens: max(session.tokens, session.budgetTokens), models: session.models, cutReason: nil, now: now, db: db)
+            return try Self.finish(session, status: status, outcome: nil, summary: session.summary, conclusion: nil,
+                                   tokens: max(session.tokens, session.budgetTokens), models: session.models, cutReason: cutReason, now: now, db: db)
         }
     }
 

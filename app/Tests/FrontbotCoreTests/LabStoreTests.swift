@@ -99,7 +99,7 @@ final class LabStoreTests: XCTestCase {
         XCTAssertEqual(try db.labTokensUsed(agentId: agent.id, from: start, to: now), 150_000)
     }
 
-    func testFinishClockCutBacksOffAndChargingBudgetFails() throws {
+    func testFinishClockCutBacksOffAndClosingStuckSessionsChargesBudget() throws {
         let t = try open()
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let s = try db.startLabSession(topicId: t.id, budgetTokens: 90_000, now: now)
@@ -107,10 +107,14 @@ final class LabStoreTests: XCTestCase {
                                             tokens: 10, models: [], cutReason: .clock, now: now)
         XCTAssertEqual(topic.consecutiveFailures, 1)
         let s2 = try db.startLabSession(topicId: t.id, budgetTokens: 90_000, now: now)
-        let after = try db.failLabSessionChargingBudget(id: s2.id, now: now)
+        let after = try db.closeLabSessionChargingBudget(id: s2.id, status: .failed, now: now)
         XCTAssertEqual(after.consecutiveFailures, 2)
         XCTAssertEqual(try db.labSession(id: s2.id)?.tokens, 90_000)
         XCTAssertEqual(try db.labSession(id: s2.id)?.status, .failed)
+        let s3 = try db.startLabSession(topicId: t.id, budgetTokens: 90_000, now: now)
+        let cut = try db.closeLabSessionChargingBudget(id: s3.id, status: .cut, cutReason: .user, now: now)
+        XCTAssertEqual(cut.consecutiveFailures, 2) // "Detener" no cuenta como fallo
+        XCTAssertEqual(try db.labSession(id: s3.id)?.tokens, 90_000)
     }
 
     func testFinishSessionRecordsFieldsAndTopicTotals() throws {
