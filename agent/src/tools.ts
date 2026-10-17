@@ -1,5 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { LAB_TOOL_SPECS, LAB_ANYWHERE } from "./lab.js";
 import { unaliasSkillPaths, type SkillPlugin } from "./skills.js";
 
 export type AppCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -57,16 +58,33 @@ export const DEFAULT_AGENT_TOOL_SPECS = [
 export const ALLOWED_TOOLS = ["WebSearch", "WebFetch", ...TOOL_SPECS.map((t) => `mcp__frontbot__${t.name}`)];
 
 /** Contexto del run: lo pone el sidecar, nunca el modelo. */
-export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean; skillPlugin?: SkillPlugin };
+export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean; skillPlugin?: SkillPlugin;
+  /** Sesión de estudio del laboratorio: lista cerrada de herramientas, sin nada que publique, opere o escriba fuera. */
+  study?: { topicId: string; sessionId: string } };
+
+const STUDY_BASE = ["brands_list", "brands_get_guide", "brands_list_assets", "posts_list", "tasks_list", "skills_list"];
+const STUDY_MEMORY = ["memory_list", "memory_remember"];
 
 const specsFor = (ctx: ToolContext) => {
+  if (ctx.study) {
+    // Nadie mira: solo lectura de la app, memoria propia y el laboratorio. Nada que publique, opere o escriba fuera.
+    return [
+      ...TOOL_SPECS.filter((t) => STUDY_BASE.includes(t.name)),
+      ...MEMORY_TOOL_SPECS.filter((t) => STUDY_MEMORY.includes(t.name)),
+      ...LAB_TOOL_SPECS,
+    ];
+  }
   if (ctx.memoryOnly) return [...MEMORY_TOOL_SPECS];
   // En una tarea programada nadie puede aprobar un script: esa herramienta no existe ahí.
   const base = ctx.scheduled ? TOOL_SPECS.filter((t) => t.name !== "skills_run_script") : [...TOOL_SPECS];
   // Tampoco hay nadie para aprobar una escritura: en una tarea programada solo se lee.
   const files = !ctx.files ? [] : ctx.scheduled ? FILE_TOOL_SPECS.filter((t) => t.name !== "files_write") : [...FILE_TOOL_SPECS];
-  return [...base, ...files, ...MEMORY_TOOL_SPECS, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : [])];
+  const lab = LAB_TOOL_SPECS.filter((t) => (LAB_ANYWHERE as readonly string[]).includes(t.name));
+  return [...base, ...files, ...MEMORY_TOOL_SPECS, ...lab, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : [])];
 };
+
+/** Nombres exactos (sin prefijo mcp) de la lista cerrada del modo estudio. */
+export const STUDY_TOOL_NAMES: string[] = specsFor({ isDefault: false, study: { topicId: "", sessionId: "" } }).map((t) => t.name);
 
 export const allowedToolsFor = (ctx: ToolContext) => [...(ctx.memoryOnly ? [] : ["WebSearch", "WebFetch"]), ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];
 
@@ -75,6 +93,11 @@ export function buildTools(call: AppCall, ctx: ToolContext = { isDefault: true }
     tool(spec.name, spec.description, spec.shape, async (args: Record<string, unknown>) => {
       try {
         const params: Record<string, unknown> = ctx.agentId ? { ...args, agent_id: ctx.agentId } : { ...args };
+        if (ctx.study && spec.name.startsWith("lab_")) {
+          // El tema y la sesión los pone el sidecar. Solo leer un cuaderno ajeno admite otro tema.
+          params.topic_id = spec.name === "lab_read_notebook" && typeof args.topic_id === "string" ? args.topic_id : ctx.study.topicId;
+          params.session_id = ctx.study.sessionId;
+        }
         if (spec.name === "notify_user" || spec.name === "files_write") params.run_id = ctx.runId; // el run lo identifica el sidecar, no el modelo
         if (spec.name === "skills_run_script" && ctx.skillPlugin && Array.isArray(params.args)) {
           params.args = params.args.map((a) => (typeof a === "string" ? unaliasSkillPaths(a, ctx.skillPlugin!) : a));

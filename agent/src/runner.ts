@@ -1,7 +1,8 @@
 import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, allowedToolsFor, type AppCall, type ToolContext } from "./tools.js";
 import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
-import { buildTradingTools, TRADING_TOOL_NAMES, type RunTrading } from "./trading.js";
+import { buildTradingTools, buildMarketTools, realMarket, TRADING_TOOL_NAMES, type RunTrading } from "./trading.js";
+import type { RunStudy } from "./lab.js";
 import { prepareSkillPlugin, readGuard, type RunSkill, type SkillPlugin } from "./skills.js";
 import { buildSystemPrompt, buildUserPrompt, buildSummaryPrompt, type MemoryNote, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 
@@ -9,14 +10,17 @@ export type Brand = { id: string; name: string; guide: string | null };
 export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
 /** mode "summarize": run en segundo plano que solo actualiza la memoria del agente.
  *  mode "scheduled": tarea programada, sin nadie mirando; puede avisar con notify_user. */
-export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled"; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
+export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled" | "study"; study?: RunStudy; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
   /** Carpetas del usuario autorizadas para este agente (rutas reales). */
   folders?: string[] };
+
+const MARKET_TOOL_NAMES = ["market_price", "market_candles", "market_funding", "market_book"];
 
 /** Sin agente (clientes viejos o tests), el run es de Frontbot. */
 export const toolContext = (params: RunParams): ToolContext => ({
   agentId: params.agent?.id, isDefault: params.agent?.is_default ?? true, memoryOnly: params.mode === "summarize",
   runId: params.run_id, scheduled: params.mode === "scheduled", files: (params.folders?.length ?? 0) > 0,
+  study: params.mode === "study" && params.study ? { topicId: params.study.topic_id, sessionId: params.study.session_id } : undefined,
 });
 
 const userPrompt = (params: RunParams) => params.mode === "summarize"
@@ -80,15 +84,19 @@ function browserHooks(guard: BrowserGuard): Hooks {
  *  Con `browser`, añade el Chrome del usuario (Claude in Chrome) detrás del guardián. */
 export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin): Options {
   const summarize = params.mode === "summarize";
-  const browser = params.browser === true && !summarize;
-  const skills = !summarize && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
+  // En estudio nadie mira: sin Chrome, sin plugin de skills y sin Read, aunque el run los pida.
+  const study = params.mode === "study";
+  const browser = params.browser === true && !summarize && !study;
+  const skills = !summarize && !study && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
   const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined, skills ? skillReadHooks(skills) : undefined);
   return {
     model: params.model,
-    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, folders: summarize ? undefined : params.folders, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined }),
-    tools: summarize ? [] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : [])],
+    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, folders: summarize || study ? undefined : params.folders, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined }),
+    tools: summarize ? [] : study ? ["WebSearch", "WebFetch", "Agent"] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : [])],
     allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : []),
-      ...(params.trading && !summarize ? TRADING_TOOL_NAMES.map((t) => `mcp__frontbot__${t}`) : [])],
+      // En estudio solo se lee el mercado: ni account_state ni trade_propose.
+      ...(params.trading && !summarize ? (study ? MARKET_TOOL_NAMES : TRADING_TOOL_NAMES).map((t) => `mcp__frontbot__${t}`) : []),
+      ...(study ? ["Agent"] : [])],
     ...(browser ? { extraArgs: { chrome: null } } : {}),
     ...(hooks ? { hooks } : {}),
     ...(skills ? {
@@ -116,7 +124,8 @@ export class RealRunner implements Runner {
     const plugin = params.skills?.length ? prepareSkillPlugin(params.skills) : undefined;
     const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [
       ...buildTools(this.call, { ...toolContext(params), skillPlugin: plugin }),
-      ...(params.trading && params.mode !== "summarize" ? buildTradingTools(this.call, { agentId: params.agent?.id, trading: params.trading }) : []),
+      ...(params.trading && params.mode === "study" ? buildMarketTools(realMarket, "mainnet") : []),
+      ...(params.trading && params.mode !== "summarize" && params.mode !== "study" ? buildTradingTools(this.call, { agentId: params.agent?.id, trading: params.trading }) : []),
     ] });
     const today = localToday();
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
