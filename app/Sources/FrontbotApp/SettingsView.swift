@@ -49,6 +49,10 @@ struct SettingsView: View {
                 note("El modelo y el uso de tu Chrome se configuran en cada agente, desde su página en la barra lateral.")
             }
 
+            section("Laboratorio") {
+                LabDatasetsSettings(model: model)
+            }
+
             section("Redes") {
                 note("Se abren en tu navegador, donde ya tienes la sesión iniciada.")
                 HStack(spacing: 8) {

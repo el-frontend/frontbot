@@ -172,6 +172,7 @@ private struct SkillDetail: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(14).panel(radius: 10)
+                    SkillHistory(model: model, skill: skill)
                     if let error = model.errorMessage { Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger) }
                 }
                 .padding(22)
@@ -182,6 +183,43 @@ private struct SkillDetail: View {
         } message: {
             Text("Se borra su carpeta y se quita de todos los agentes.")
         }
+    }
+}
+
+/// Versiones anteriores del skill; volver a una guarda antes la actual como una versión más.
+private struct SkillHistory: View {
+    let model: AppModel
+    let skill: Skill
+    @State private var target: SkillVersion?
+
+    var body: some View {
+        let past = model.lab.skillVersions(skillId: skill.id).sorted { $0.number > $1.number }
+        if !past.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel("Historial")
+                Text("v\(skill.version) · actual").font(Theme.mono(11)).foregroundStyle(Theme.textSecondary)
+                ForEach(past) { v in
+                    HStack(spacing: 8) {
+                        Text(label(v)).font(Theme.mono(11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                        Spacer()
+                        Button("Volver a esta versión") { target = v }.buttonStyle(OutlineButtonStyle())
+                    }
+                }
+            }
+            .padding(14).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 10)
+            .confirmationDialog("¿Volver a la v\(target?.number ?? 0)?", isPresented: Binding(get: { target != nil }, set: { if !$0 { target = nil } }),
+                                presenting: target) { v in
+                Button("Volver a la v\(v.number)", role: .destructive) { model.lab.revertSkill(skill.id, to: v.number) }
+            } message: { _ in
+                Text("La versión actual queda guardada en el historial.")
+            }
+        }
+    }
+
+    private func label(_ v: SkillVersion) -> String {
+        let date = v.createdAt.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "es")))
+        let origin = model.lab.proposalAgentName(v.proposalId).map { "desde propuesta de \($0)" } ?? "edición tuya"
+        return "v\(v.number) · \(date) · \(origin)"
     }
 }
 

@@ -62,7 +62,7 @@ final class AppModel {
     var preparationMessage: String?
 
     private let db: AppDatabase
-    private let paths: AppPaths
+    let paths: AppPaths
     private let workspace: Workspace
     private let credentials = CredentialStore()
     private let client: AgentClient
