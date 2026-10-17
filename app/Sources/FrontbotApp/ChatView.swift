@@ -4,7 +4,6 @@ import FrontbotCore
 struct ChatView: View {
     @Bindable var model: AppModel
     @State private var draft = ""
-    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,7 +59,6 @@ struct ChatView: View {
             composer.padding(.horizontal, 24).padding(.bottom, 22)
         }
         .background(Theme.background)
-        .onAppear { focused = true }
     }
 
     private var emptyState: some View {
@@ -94,7 +92,7 @@ struct ChatView: View {
                 .frame(maxWidth: 520, alignment: .trailing)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .agent:
-            Text(message.text).textSelection(.enabled).lineSpacing(4).foregroundStyle(Color(hex: 0xDCDCE0))
+            MarkdownView(text: message.text)
         case .tool:
             HStack(spacing: 8) {
                 Text("✓").foregroundStyle(Theme.approved)
@@ -108,11 +106,11 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField(model.selectedBrand.map { "Pídele algo para \($0.name)…" } ?? "Pídele algo a \(model.selectedAgent?.name ?? "Frontbot")…",
-                      text: $draft, axis: .vertical)
-                .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(1...6)
-                .focused($focused)
-                .onSubmit(submit)
+            // Return envía; ⌘/⇧/⌥ + Return saltan de línea.
+            ComposerTextView(text: $draft,
+                             placeholder: model.selectedBrand.map { "Pídele algo para \($0.name)…" } ?? "Pídele algo a \(model.selectedAgent?.name ?? "Frontbot")…",
+                             focusToken: AnyHashable(model.currentConversationId),
+                             onSubmit: submit)
             HStack(spacing: 8) {
                 agentMenu
                 Menu {
@@ -172,7 +170,6 @@ struct ChatView: View {
                         .frame(width: 32, height: 32)
                         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
                         .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isRunning ? 0.4 : 1)
-                        .keyboardShortcut(.return, modifiers: .command)
                         .help(model.isRunning ? "El agente está respondiendo en otro chat: espera a que termine." : "Enviar")
                         .accessibilityLabel("Enviar")
                 }
@@ -217,7 +214,7 @@ struct ChatView: View {
     }
 
     private func submit() {
-        guard !model.isRunning else { return }
+        guard !model.isRunning, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         model.send(prompt: draft)
         draft = ""
     }
