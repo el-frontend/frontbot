@@ -110,12 +110,12 @@ public struct SkillLibrary: Sendable {
 
     /// Skill escrito por el usuario: activo desde el principio.
     public func createUserSkill(name: String, description: String, body: String, files: [String: String] = [:]) throws -> Skill {
-        try write(name: name, description: description, body: body, files: files, source: .user, status: .active, createdBy: nil)
+        try createSkill(name: name, description: description, body: body, files: files, source: .user, status: .active, createdBy: nil)
     }
 
     /// Skill propuesto por un agente: borrador asignado a ese agente, hasta que el usuario lo active.
     public func createDraft(agentId: String, name: String, description: String, body: String, files: [String: String]) throws -> Skill {
-        let skill = try write(name: name, description: description, body: body, files: files, source: .agent, status: .draft, createdBy: agentId)
+        let skill = try createSkill(name: name, description: description, body: body, files: files, source: .agent, status: .draft, createdBy: agentId)
         try assign(skillId: skill.id, to: agentId)
         return skill
     }
@@ -144,8 +144,10 @@ public struct SkillLibrary: Sendable {
         guard var skill = try skill(id: id) else { throw ValidationError("No existe el skill.") }
         let manifest = try SkillManifest.parse(text)
         guard manifest.name == skill.name else { throw ValidationError("El name del frontmatter debe seguir siendo \(skill.name).") }
+        try SkillVersions(library: self).snapshot(skill, proposalId: nil)
         try text.write(to: directory(for: skill).appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
         skill.description = manifest.description
+        skill.version += 1
         skill.updatedAt = .dbNow()
         try db.writer.write { try skill.update($0) }
         return skill
@@ -186,8 +188,8 @@ public struct SkillLibrary: Sendable {
 
     // MARK: Internos
 
-    private func write(name: String, description: String, body: String, files: [String: String],
-                       source: SkillSource, status: SkillStatus, createdBy: String?) throws -> Skill {
+    func createSkill(name: String, description: String, body: String, files: [String: String],
+                     source: SkillSource, status: SkillStatus, createdBy: String?) throws -> Skill {
         let text = SkillManifest.render(name: name, description: description, body: body)
         _ = try SkillManifest.parse(text) // valida nombre y descripción
         try Self.validateFiles(files)
@@ -209,7 +211,7 @@ public struct SkillLibrary: Sendable {
         return skill
     }
 
-    private func writeFiles(_ files: [String: String], in dir: URL) throws {
+    func writeFiles(_ files: [String: String], in dir: URL) throws {
         for (path, text) in files {
             let url = dir.appendingPathComponent(path)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
