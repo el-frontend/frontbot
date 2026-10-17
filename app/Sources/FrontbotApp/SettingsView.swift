@@ -61,8 +61,8 @@ struct SettingsView: View {
                 HStack(spacing: 8) {
                     StatusDot(color: model.hotKeyRegistered ? Theme.approved : Theme.draft, size: 7)
                     Text(model.hotKeyRegistered
-                         ? "⌥ Espacio abre Frontbot en el notch."
-                         : "⌥ Espacio está ocupado por otra app. Abre el panel haciendo clic en el notch.")
+                         ? "⌥⌘ Espacio abre Frontbot en el notch."
+                         : "⌥⌘ Espacio está ocupado por otra app. Abre el panel haciendo clic en el notch.")
                         .font(.system(size: 13))
                 }
             }
