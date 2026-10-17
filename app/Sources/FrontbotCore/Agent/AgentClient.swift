@@ -75,8 +75,15 @@ public actor AgentClient {
     private var activeRuns: Set<String> = []
     /// Runs de tareas programadas: nadie puede aprobar nada en ellos.
     private var unattendedRuns: Set<String> = []
-    /// Runs de sesiones de estudio: runId → sessionId. Un fallo o un `agent.done` cierran la sesión una sola vez.
-    private var studyRuns: [String: String] = [:]
+    /// Runs de sesiones de estudio. Un fallo o un `agent.done` cierran la sesión una sola vez.
+    private struct StudyRun {
+        var sessionId: String
+        /// Se cobra entero si el run acaba sin que el sidecar cuente lo gastado (caída, cancelación forzada).
+        var budgetTokens: Int
+        /// "Detener" del usuario: su final cuenta como `cut`, no como fallo.
+        var cancelledByUser = false
+    }
+    private var studyRuns: [String: StudyRun] = [:]
     private var launches: [Date] = []
     private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
     private var subscribers: [UUID: AsyncStream<AgentUpdate>.Continuation] = [:]
@@ -147,7 +154,7 @@ public actor AgentClient {
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
-        if let study { studyRuns[run.id] = study.session.id }
+        if let study { studyRuns[run.id] = StudyRun(sessionId: study.session.id, budgetTokens: study.budgetTokens) }
         do {
             var params: [String: JSONValue] = ["run_id": .string(run.id), "prompt": .string(prompt), "model": .string(model ?? config.model)]
             if let brand {
@@ -200,8 +207,8 @@ public actor AgentClient {
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
             return run
         } catch {
-            // No dejar el run en "running" si no llegó a enviarse.
-            fail(runId: run.id, summary: error.localizedDescription)
+            // No dejar el run en "running" si no llegó a enviarse (nada se gastó).
+            fail(runId: run.id, summary: error.localizedDescription, labTokens: 0)
             throw error
         }
     }
@@ -240,32 +247,54 @@ public actor AgentClient {
         }
     }
 
+    /// "Detener" del usuario en una sesión de estudio: la sesión sigue `running` hasta que el run termina y entonces
+    /// queda `cut` (sin contar como fallo) con los tokens que gastó.
+    public func cancelStudy(runId: String) async {
+        studyRuns[runId]?.cancelledByUser = true
+        await cancel(runId: runId)
+    }
+
     private func forceCancelIfStillActive(runId: String) {
         guard activeRuns.contains(runId) else { return }
         fail(runId: runId, summary: "Cancelado")
         stop()
     }
 
-    private func fail(runId: String, summary: String) {
+    /// `labTokens`: lo gastado si se sabe; sin él, una sesión de estudio cobra su presupuesto entero.
+    private func fail(runId: String, summary: String, labTokens: Int? = nil) {
         activeRuns.remove(runId)
         unattendedRuns.remove(runId)
-        finishStudy(runId: runId, status: .failed, params: nil)
+        finishStudy(runId: runId, status: .failed, params: labTokens.map { ["lab_tokens": .number(Double($0))] })
         if let run = try? db.finishRun(id: runId, status: .failed, summary: summary, inputTokens: 0, outputTokens: 0, costUsd: 0) {
             broadcast(.finished(run))
         }
     }
 
     /// Cierra la sesión de estudio del run (si lo es) con lo que dejó `lab_end_session` y los tokens del medidor.
+    /// - Si el agente ya cerró con `lab_end_session`, su outcome manda: `done`, aunque luego lo cortaran o fallara.
+    /// - Si lo detuvo el usuario: `cut` sin fallo. Un corte por reloj es `cut` pero cuenta como fallo (§7).
+    /// - Sin `lab_tokens` del sidecar (caída, cancelación forzada) se cobra el presupuesto entero.
     private func finishStudy(runId: String, status: LabSessionStatus, params: JSONValue?) {
-        guard let sessionId = studyRuns.removeValue(forKey: runId) else { return }
-        let saved = try? db.labSession(id: sessionId)
-        let outcome: LabOutcome? = status == .failed ? nil : (saved?.outcome ?? (status == .done ? .continue : nil))
+        guard let study = studyRuns.removeValue(forKey: runId) else { return }
+        let saved = try? db.labSession(id: study.sessionId)
+        let tokens = params?["lab_tokens"]?.intValue ?? study.budgetTokens
         let models = (params?["models"]?.arrayValue ?? []).compactMap { m -> LabModelUsage? in
             guard let name = m["model"]?.stringValue, let tokens = m["tokens"]?.intValue else { return nil }
             return LabModelUsage(model: name, tokens: tokens)
         }
-        _ = try? db.finishLabSession(id: sessionId, status: status, outcome: outcome, summary: saved?.summary, conclusion: nil,
-                                     tokens: params?["lab_tokens"]?.intValue ?? 0, models: models, now: .dbNow())
+        var status = status, outcome: LabOutcome?, cutReason: LabCutReason?
+        if let recorded = saved?.outcome {
+            (status, outcome) = (.done, recorded)
+        } else if study.cancelledByUser && status != .done {
+            (status, cutReason) = (.cut, .user)
+        } else if status == .cut {
+            cutReason = params?["cut_reason"]?.stringValue == LabCutReason.clock.rawValue ? .clock : .tokens
+            outcome = cutReason == .tokens ? .continue : nil
+        } else if status == .done {
+            outcome = .continue
+        }
+        _ = try? db.finishLabSession(id: study.sessionId, status: status, outcome: outcome, summary: saved?.summary, conclusion: nil,
+                                     tokens: tokens, models: models, cutReason: cutReason, now: .dbNow())
     }
 
     public func stop() {
@@ -410,7 +439,7 @@ public actor AgentClient {
             // Sin aprobación, pero solo dentro de una sesión de estudio que esta app lanzó. El sidecar no manda run_id
             // en estas herramientas: se valida por session_id (debe ser de un run de estudio activo) y, dentro del
             // manejador, que la sesión esté `running`, sea del tema y el tema del agente.
-            guard let sessionId = params["session_id"]?.stringValue, studyRuns.values.contains(sessionId) else {
+            guard let sessionId = params["session_id"]?.stringValue, studyRuns.values.contains(where: { $0.sessionId == sessionId }) else {
                 reply(id, .failure(ValidationError(LabToolHandler.notInStudy)))
                 return
             }
