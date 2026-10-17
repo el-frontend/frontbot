@@ -21,6 +21,16 @@ final class MascotSceneTests: XCTestCase {
         do { _ = try await MascotScene.load(from: URL(fileURLWithPath: "/nope/frontbot.usdz")); XCTFail("debía fallar") } catch {}
     }
 
+    func testCorruptModelFailsTwice() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("corrupt-\(UUID().uuidString).usdz")
+        try Data((0..<256).map { UInt8($0 % 251) }).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        // La segunda vez falla desde la caché de fallos.
+        for _ in 0..<2 {
+            do { _ = try await MascotScene.load(from: url); XCTFail("debía fallar") } catch {}
+        }
+    }
+
     /// Cada estado en su momento más extremo: la mascota se ve y no se sale del encuadre.
     func testEveryStateStaysInFrame() async throws {
         try FileManager.default.createDirectory(at: Self.snapshots, withIntermediateDirectories: true)
