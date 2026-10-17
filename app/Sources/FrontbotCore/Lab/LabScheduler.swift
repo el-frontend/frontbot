@@ -37,7 +37,9 @@ public enum LabScheduler {
         return value < minimumBudget ? nil : value
     }
 
-    public static func apply(finished status: LabSessionStatus, outcome: LabOutcome?, to topic: inout LabTopic, now: Date) {
+    /// `cutReason`: un corte por reloj cuenta como fallo; por tokens o por el usuario, solo espera.
+    public static func apply(finished status: LabSessionStatus, outcome: LabOutcome?, cutReason: LabCutReason? = nil,
+                             to topic: inout LabTopic, now: Date) {
         switch status {
         case .done:
             switch outcome {
@@ -48,9 +50,9 @@ public enum LabScheduler {
                 topic.consecutiveFailures = 0
                 topic.nextSessionAfter = now.addingTimeInterval(continueDelay)
             }
-        case .cut:
+        case .cut where cutReason != .clock:
             topic.nextSessionAfter = now.addingTimeInterval(continueDelay)
-        case .failed:
+        case .cut, .failed:
             topic.consecutiveFailures += 1
             topic.nextSessionAfter = now.addingTimeInterval(failureDelays[min(topic.consecutiveFailures - 1, failureDelays.count - 1)])
             if topic.consecutiveFailures >= maxConsecutiveFailures {

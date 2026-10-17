@@ -82,6 +82,37 @@ final class LabStoreTests: XCTestCase {
         XCTAssertNil(try db.runningLabSession())
     }
 
+    func testFailRunningSessionsChargesBudgetAndDelays() throws {
+        let t = try open()
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let s = try db.startLabSession(topicId: t.id, budgetTokens: 150_000, now: start)
+        XCTAssertEqual(s.budgetTokens, 150_000)
+        let now = start.addingTimeInterval(60)
+        XCTAssertEqual(try db.failRunningLabSessions(now: now), 1)
+        let saved = try XCTUnwrap(try db.labSession(id: s.id))
+        XCTAssertEqual(saved.status, .cut)
+        XCTAssertEqual(saved.tokens, 150_000)
+        let topic = try XCTUnwrap(try db.topic(id: t.id))
+        XCTAssertEqual(topic.nextSessionAfter, now.addingTimeInterval(1200))
+        XCTAssertEqual(topic.tokensUsed, 150_000)
+        XCTAssertEqual(topic.sessions, 1)
+        XCTAssertEqual(try db.labTokensUsed(agentId: agent.id, from: start, to: now), 150_000)
+    }
+
+    func testFinishClockCutBacksOffAndChargingBudgetFails() throws {
+        let t = try open()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let s = try db.startLabSession(topicId: t.id, budgetTokens: 90_000, now: now)
+        let topic = try db.finishLabSession(id: s.id, status: .cut, outcome: nil, summary: nil, conclusion: nil,
+                                            tokens: 10, models: [], cutReason: .clock, now: now)
+        XCTAssertEqual(topic.consecutiveFailures, 1)
+        let s2 = try db.startLabSession(topicId: t.id, budgetTokens: 90_000, now: now)
+        let after = try db.failLabSessionChargingBudget(id: s2.id, now: now)
+        XCTAssertEqual(after.consecutiveFailures, 2)
+        XCTAssertEqual(try db.labSession(id: s2.id)?.tokens, 90_000)
+        XCTAssertEqual(try db.labSession(id: s2.id)?.status, .failed)
+    }
+
     func testFinishSessionRecordsFieldsAndTopicTotals() throws {
         let t = try open()
         let s = try db.startLabSession(topicId: t.id, now: .dbNow())

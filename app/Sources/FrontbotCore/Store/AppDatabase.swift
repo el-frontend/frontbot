@@ -312,6 +312,14 @@ public final class AppDatabase: Sendable {
                 t.column("allowOpus", .boolean).notNull()
             }
         }
+        m.registerMigration("v10-lab") { db in
+            try db.alter(table: "labSession") { t in
+                t.add(column: "budgetTokens", .integer).notNull().defaults(to: 0)
+            }
+            try db.alter(table: "skillProposal") { t in
+                t.add(column: "skillId", .text)
+            }
+        }
         return m
     }
 
