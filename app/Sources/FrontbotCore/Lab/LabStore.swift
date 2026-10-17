@@ -51,9 +51,9 @@ extension AppDatabase {
     public func setTopicStatus(id: String, _ status: LabTopicStatus, reason: String?, now: Date) throws -> LabTopic {
         try writer.write { db in
             guard var topic = try LabTopic.fetchOne(db, key: id) else { throw ValidationError("No existe tema con id \(id).") }
+            // Un tema pausado ya cuenta como abierto; solo pasar de cerrado a abierto puede superar el límite.
+            if !topic.status.isOpen && status.isOpen { try Self.requireRoom(agentId: topic.agentId, db: db) }
             if status == .studying {
-                // Un tema pausado ya cuenta como abierto; solo reabrir uno cerrado puede pasar el límite.
-                if !topic.status.isOpen { try Self.requireRoom(agentId: topic.agentId, db: db) }
                 topic.consecutiveFailures = 0
                 topic.pausedReason = nil
                 topic.nextSessionAfter = now

@@ -44,6 +44,16 @@ final class LabStoreTests: XCTestCase {
         XCTAssertEqual(try db.topics(agentId: agent.id).last?.id, a.id, "los cerrados van al final")
     }
 
+    func testPausingAClosedTopicAboveTheLimitFails() throws {
+        let a = try open("uno"); _ = try open("dos"); _ = try open("tres")
+        _ = try db.setTopicStatus(id: a.id, .abandoned, reason: nil, now: .dbNow())
+        _ = try open("cuatro")
+        XCTAssertThrowsError(try db.setTopicStatus(id: a.id, .paused, reason: "x", now: .dbNow())) {
+            XCTAssertEqual(($0 as? ValidationError)?.message, self.limitMessage)
+        }
+        XCTAssertEqual(try db.topic(id: a.id)?.status, .abandoned)
+    }
+
     func testQuestionLengthValidated() throws {
         XCTAssertThrowsError(try open(String(repeating: "a", count: 301)))
         XCTAssertNoThrow(try open(String(repeating: "a", count: 300)))
