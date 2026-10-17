@@ -20,6 +20,16 @@ describe("buildSystemPrompt", () => {
     expect(p).toContain("# Tono\nCercano");
   });
 
+  it("study mode drops trading, notify, drafts, files and browser sections", () => {
+    const trading = { network: "mainnet" as const, mandate: { mode: "approve", max_risk_pct: 1, max_leverage: 3, coins: ["BTC"], max_trades_per_day: 2 } };
+    const full = buildSystemPrompt({ today: "2026-10-13", trading, browser: true, folders: ["/tmp/x"], scheduledTask: "t" });
+    for (const s of ["trade_propose", "notify_user", "skills_create_draft", "files_list", "Navegador", "posts_create_draft"]) expect(full).toContain(s);
+    const p = buildSystemPrompt({ today: "2026-10-13", trading, browser: true, folders: ["/tmp/x"], scheduledTask: "t", study: true });
+    for (const s of ["trade_propose", "account_state", "notify_user", "skills_create_draft", "files_", "Navegador", "posts_create_draft", "memory_forget"]) expect(p).not.toContain(s);
+    expect(p).toContain("Nunca publicas");
+    expect(p).toContain("2026-10-13");
+  });
+
   it("asks to define a guide when the brand has none", () => {
     const p = buildSystemPrompt({ today: "2026-10-13", brand: { id: "b1", name: "Café Sol", guide: null } });
     expect(p).toContain("aún no tiene guía");
