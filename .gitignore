@@ -6,3 +6,6 @@ agent/dist/
 *.log
 .superpowers/
 build/
+
+scripts/mascot/node_modules/
+scripts/mascot/out/
