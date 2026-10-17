@@ -40,7 +40,7 @@ public struct ScriptSandbox: Sendable {
 
     /// `/usr/bin/python3` es un intermediario de xcrun que escribe una caché fuera de la sandbox:
     /// se resuelve el binario real una vez, fuera de ella.
-    static let pythonPath: String = {
+    public static let pythonPath: String = {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         p.arguments = ["-f", "python3"]

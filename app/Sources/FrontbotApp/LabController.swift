@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import FrontbotCore
+import GRDB
 
 /// Pestaña de la página de un agente (la UI del laboratorio la construye sobre esto).
 enum AgentTab { case general, lab }
@@ -215,6 +216,34 @@ final class LabController {
 
     func reject(_ proposal: SkillProposal, comment: String?) {
         change { try versions.reject(proposalId: proposal.id, comment: comment) }
+    }
+
+    /// Archivos de la propuesta frente a los actuales, para el diff.
+    func proposalFiles(_ proposal: SkillProposal) -> [(path: String, old: String?, new: String)] {
+        versions.proposalFiles(proposal)
+    }
+
+    func topic(id: String?) -> LabTopic? {
+        guard let id else { return nil }
+        return try? db.topic(id: id)
+    }
+
+    // MARK: Historial de skills
+
+    func skillVersions(skillId: String) -> [SkillVersion] {
+        _ = version
+        return versions.versions(skillId: skillId)
+    }
+
+    /// Nombre del agente cuya propuesta originó una versión, si la hubo.
+    func proposalAgentName(_ proposalId: String?) -> String? {
+        guard let proposalId, let p = try? db.writer.read({ try SkillProposal.fetchOne($0, key: proposalId) }) else { return nil }
+        return model?.agent(id: p.agentId)?.name
+    }
+
+    func revertSkill(_ skillId: String, to number: Int) {
+        change { _ = try versions.revert(skillId: skillId, to: number) }
+        model?.reloadSkills()
     }
 
     // MARK: Datasets
