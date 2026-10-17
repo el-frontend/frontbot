@@ -104,6 +104,7 @@ final class AppModel {
         Task { [weak self] in
             await self?.client.setTradeKeys(KeychainTradeKeys())
             await self?.client.setScriptApprover { [weak self] request in await self?.askScriptApproval(request) ?? false }
+            await self?.client.setFileWriteApprover { [weak self] request in await self?.askFileWriteApproval(request) ?? false }
         }
     }
 
@@ -687,7 +688,7 @@ final class AppModel {
     private var scriptContinuation: CheckedContinuation<Bool, Never>?
 
     func askScriptApproval(_ request: ScriptRequest) async -> Bool {
-        guard scriptContinuation == nil else { return false }
+        guard scriptContinuation == nil, pendingFileWrite == nil else { return false }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 scriptContinuation = continuation
@@ -703,6 +704,52 @@ final class AppModel {
         scriptContinuation?.resume(returning: allowed)
         scriptContinuation = nil
         pendingScript = nil
+    }
+
+    // MARK: Archivos
+
+    /// Cambia cuando cambian las carpetas de algún agente (las vistas lo leen para refrescarse).
+    private var foldersVersion = 0
+
+    func folders(agentId: String) -> [String] {
+        _ = foldersVersion
+        return (try? db.folders(agentId: agentId)) ?? []
+    }
+
+    func addFolder(_ url: URL, agentId: String) {
+        perform {
+            let path = try AgentFiles.validatedFolder(url.path, protected: [paths.root])
+            try db.addFolder(agentId: agentId, path: path)
+        }
+        foldersVersion += 1
+    }
+
+    func removeFolder(_ path: String, agentId: String) {
+        perform { try db.removeFolder(agentId: agentId, path: path) }
+        foldersVersion += 1
+    }
+
+    /// Escritura de archivo esperando al usuario (hoja modal); una a la vez y nunca a la vez que un script.
+    var pendingFileWrite: FileWriteRequest?
+    private var fileWriteContinuation: CheckedContinuation<Bool, Never>?
+
+    func askFileWriteApproval(_ request: FileWriteRequest) async -> Bool {
+        guard fileWriteContinuation == nil, pendingScript == nil else { return false }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                fileWriteContinuation = continuation
+                pendingFileWrite = request
+                NSApp.activate()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.answerFileWrite(false) } // venció el plazo de aprobación
+        }
+    }
+
+    func answerFileWrite(_ allowed: Bool) {
+        fileWriteContinuation?.resume(returning: allowed)
+        fileWriteContinuation = nil
+        pendingFileWrite = nil
     }
 
     // MARK: Agentes

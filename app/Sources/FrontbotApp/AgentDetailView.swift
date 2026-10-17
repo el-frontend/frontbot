@@ -25,6 +25,7 @@ struct AgentDetailView: View {
                     instructions
                     settings
                     if agent.trading { TradingSettings(model: model, agent: agent).id(agent.id) }
+                    AgentFoldersSection(model: model, agent: agent)
                     skillsSection
                     tasksSection
                     memory

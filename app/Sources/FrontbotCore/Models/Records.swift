@@ -146,6 +146,13 @@ public struct StoredMessage: Codable, FetchableRecord, MutablePersistableRecord,
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
 
+/// Carpeta del usuario en la que un agente puede leer y (con aprobación) escribir.
+public struct AgentFolder: Codable, FetchableRecord, PersistableRecord, Equatable, Sendable {
+    public var agentId: String
+    public var path: String
+    public var createdAt: Date
+}
+
 /// Nota de la memoria de un agente.
 public struct AgentMemory: Codable, FetchableRecord, MutablePersistableRecord, Identifiable, Equatable, Sendable {
     public var id: Int64?

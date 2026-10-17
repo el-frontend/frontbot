@@ -39,6 +39,9 @@ struct RootView: View {
         .sheet(item: Binding(get: { model.pendingScript.map(IdentifiedScript.init) }, set: { if $0 == nil { model.answerScript(false) } })) { item in
             ScriptApprovalSheet(model: model, request: item.request)
         }
+        .sheet(item: Binding(get: { model.pendingFileWrite.map(IdentifiedFileWrite.init) }, set: { if $0 == nil { model.answerFileWrite(false) } })) { item in
+            FileWriteApprovalSheet(model: model, request: item.request)
+        }
         .alert("Frontbot", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
         } message: {
@@ -50,4 +53,9 @@ struct RootView: View {
 private struct IdentifiedScript: Identifiable {
     let request: ScriptRequest
     var id: String { request.agentName + request.skillName + request.command }
+}
+
+private struct IdentifiedFileWrite: Identifiable {
+    let request: FileWriteRequest
+    var id: String { request.agentName + request.path + String(request.content.hashValue) }
 }

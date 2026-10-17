@@ -56,3 +56,30 @@ describe("tools per agent", () => {
     expect(allowedToolsFor({ agentId: "a", isDefault: true })).toContain("mcp__frontbot__agents_create_draft");
   });
 });
+
+describe("file tools", () => {
+  const names = (ctx: Parameters<typeof allowedToolsFor>[0]) => allowedToolsFor(ctx).map((t) => t.replace("mcp__frontbot__", ""));
+
+  it("only exist when the agent has authorized folders", () => {
+    expect(names({ isDefault: false, agentId: "a" }).filter((n) => n.startsWith("files_"))).toEqual([]);
+    expect(names({ isDefault: false, agentId: "a", files: true }).filter((n) => n.startsWith("files_")).sort())
+      .toEqual(["files_folders", "files_list", "files_read", "files_write"]);
+  });
+
+  it("scheduled runs can read but never write (nobody can approve)", () => {
+    const scheduled = names({ isDefault: false, agentId: "a", files: true, scheduled: true });
+    expect(scheduled).toContain("files_read");
+    expect(scheduled).not.toContain("files_write");
+  });
+
+  it("summaries never touch files", () => {
+    expect(names({ isDefault: false, agentId: "a", files: true, memoryOnly: true }).some((n) => n.startsWith("files_"))).toBe(false);
+  });
+
+  it("files_write carries the run id set by the sidecar, not the model", async () => {
+    const calls: [string, unknown][] = [];
+    const tools = buildTools(async (m, p) => { calls.push([m, p]); return { written: "/x" }; }, { isDefault: false, agentId: "a", files: true, runId: "r1" });
+    await tools.find((t) => t.name === "files_write")!.handler({ path: "/x", content: "hola", run_id: "otro" } as never, {});
+    expect(calls).toEqual([["tool.files_write", { path: "/x", content: "hola", run_id: "r1", agent_id: "a" }]]);
+  });
+});

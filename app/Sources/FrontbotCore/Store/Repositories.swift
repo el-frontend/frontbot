@@ -309,6 +309,23 @@ extension AppDatabase {
         try writer.read { try Agent.fetchOne($0, key: id) }
     }
 
+    /// Carpetas autorizadas del agente (rutas reales), por orden de alta.
+    public func folders(agentId: String) throws -> [String] {
+        try writer.read { try AgentFolder.filter(Column("agentId") == agentId).order(Column.rowID).fetchAll($0).map(\.path) }
+    }
+
+    /// `path` ya validada con `AgentFiles.validatedFolder`. Añadirla dos veces no la duplica.
+    public func addFolder(agentId: String, path: String) throws {
+        try writer.write { db in
+            guard try Agent.fetchOne(db, key: agentId) != nil else { throw notFound("agente", agentId) }
+            try AgentFolder(agentId: agentId, path: path, createdAt: .dbNow()).insert(db, onConflict: .ignore)
+        }
+    }
+
+    public func removeFolder(agentId: String, path: String) throws {
+        _ = try writer.write { try AgentFolder.filter(Column("agentId") == agentId && Column("path") == path).deleteAll($0) }
+    }
+
     /// Borra el agente con sus conversaciones (cascade). Frontbot no se borra.
     public func deleteAgent(id: String) throws {
         try writer.write { db in
