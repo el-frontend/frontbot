@@ -12,6 +12,9 @@ final class LabController {
     static let studyModel = "claude-sonnet-5-5"
     /// Red de seguridad: una sesión que no termina en este plazo se cancela (cuenta como fallo).
     static let safetyDeadline: Duration = .seconds(25 * 60)
+    /// Tras cancelar, si la sesión sigue `running` pasado este plazo (más que la gracia de AgentClient), se cierra
+    /// aquí cobrando el presupuesto: el laboratorio nunca queda bloqueado.
+    static let cancelFallback: Duration = .seconds(20)
 
     private let db: AppDatabase
     private let paths: AppPaths
@@ -27,6 +30,10 @@ final class LabController {
     @ObservationIgnored private var launching = false
     @ObservationIgnored private var runningRunId: String?
     @ObservationIgnored private var watchdogTask: Task<Void, Never>?
+    /// Runs de estudio que el usuario detuvo: sus updates siguen siendo del laboratorio hasta que terminan.
+    @ObservationIgnored private var stoppedRuns: Set<String> = []
+    /// "Detener" antes de que el run tuviera id: se cancela en cuanto lo tenga.
+    @ObservationIgnored private var stopPending: String?
 
     init(db: AppDatabase, paths: AppPaths, client: AgentClient, workspaceId: String, model: AppModel) {
         self.db = db
@@ -57,7 +64,7 @@ final class LabController {
         }
         guard let pick = LabScheduler.next(candidates: candidates, sessionRunning: false, agentsInChat: model.agentsInChat, now: now),
               let budget = LabScheduler.budget(settings: pick.settings, usedToday: pick.usedToday),
-              let session = try? db.startLabSession(topicId: pick.topic.id, now: now) else { return }
+              let session = try? db.startLabSession(topicId: pick.topic.id, budgetTokens: budget, now: now) else { return }
         launching = true
         runningSession = (session, pick.topic, pick.agent)
         runningRunId = nil
@@ -68,13 +75,22 @@ final class LabController {
             do {
                 let run = try await client.run(prompt: pick.topic.question, agent: pick.agent, brand: nil, model: Self.studyModel, study: study)
                 try? db.attachAgentRun(labSessionId: session.id, agentRunId: run.id)
+                if stopPending == session.id {
+                    stopPending = nil
+                    stoppedRuns.insert(run.id)
+                    await client.cancelStudy(runId: run.id)
+                    return
+                }
                 guard runningSession?.session.id == session.id else { return } // ya terminó y se procesó
                 runningRunId = run.id
                 // Si el run terminó antes de devolver su id, su `.finished` pudo perderse: la sesión ya no está `running`.
                 if (try? db.labSession(id: session.id))?.status != .running { finishStudy(); return }
                 watchdog(runId: run.id, sessionId: session.id)
             } catch {
-                closeFailed(session)
+                // No llegó a lanzarse (nada gastado). Si el usuario ya lo había detenido, no cuenta como fallo.
+                let stopped = stopPending == session.id
+                if stopped { stopPending = nil }
+                closeFailed(session, status: stopped ? .cut : .failed)
             }
         }
     }
@@ -83,13 +99,28 @@ final class LabController {
         watchdogTask = Task { [weak self] in
             try? await Task.sleep(for: Self.safetyDeadline)
             guard !Task.isCancelled, let self, self.runningSession?.session.id == sessionId else { return }
+            // Si ya se cerró en la base (un `.finished` perdido), solo queda soltar el estado local.
+            guard (try? self.db.labSession(id: sessionId))?.status == .running else { self.finishStudy(); return }
             await self.client.cancel(runId: runId) // colgada: AgentClient la cierra como fallida
+            self.closeIfStuck(sessionId: sessionId, status: .failed, cutReason: nil)
         }
     }
 
-    private func closeFailed(_ session: LabSession) {
-        _ = try? db.finishLabSession(id: session.id, status: .failed, outcome: nil, summary: nil, conclusion: nil,
-                                     tokens: 0, models: [], now: Date())
+    /// Pasado `cancelFallback`, una sesión que sigue `running` se cierra cobrando su presupuesto.
+    private func closeIfStuck(sessionId: String, status: LabSessionStatus, cutReason: LabCutReason?) {
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.cancelFallback)
+            guard let self else { return }
+            if (try? self.db.labSession(id: sessionId))?.status == .running {
+                _ = try? self.db.closeLabSessionChargingBudget(id: sessionId, status: status, cutReason: cutReason, now: Date())
+            }
+            if self.runningSession?.session.id == sessionId { self.finishStudy() } else { self.version += 1 }
+        }
+    }
+
+    private func closeFailed(_ session: LabSession, status: LabSessionStatus = .failed) {
+        _ = try? db.finishLabSession(id: session.id, status: status, outcome: nil, summary: nil, conclusion: nil,
+                                     tokens: 0, models: [], cutReason: status == .cut ? .user : nil, now: Date())
         if runningSession?.session.id == session.id { runningSession = nil; runningRunId = nil }
         version += 1
     }
@@ -102,6 +133,10 @@ final class LabController {
         case .event(let runId, _, _), .notify(let runId, _, _):
             return isStudyRun(runId)
         case .finished(let run):
+            if stoppedRuns.remove(run.id) != nil {
+                version += 1 // la sesión detenida ya quedó cerrada en la base
+                return true
+            }
             guard isStudyRun(run.id) else { return false }
             finishStudy()
             return true
@@ -111,6 +146,7 @@ final class LabController {
     }
 
     private func isStudyRun(_ runId: String) -> Bool {
+        if stoppedRuns.contains(runId) { return true }
         guard let current = runningSession else { return false }
         if let known = runningRunId { return known == runId }
         return (try? db.labSession(id: current.session.id))?.agentRunId == runId
@@ -188,18 +224,24 @@ final class LabController {
     func resume(_ topic: LabTopic) { change { _ = try db.setTopicStatus(id: topic.id, .studying, reason: nil, now: Date()) } }
     func abandon(_ topic: LabTopic) { change { _ = try db.setTopicStatus(id: topic.id, .abandoned, reason: nil, now: Date()) } }
 
-    /// Cancelar es decisión del usuario: la sesión queda `cut` (no cuenta como fallo) antes de parar el run.
+    /// Cancelar es decisión del usuario: cuando el run termina, AgentClient cierra la sesión como `cut` (no cuenta como
+    /// fallo) con los tokens que gastó. Hasta entonces sigue `running` en la base y el reloj no lanza otra.
     func cancelRunning() {
         guard let current = runningSession else { return }
-        _ = try? db.finishLabSession(id: current.session.id, status: .cut, outcome: nil, summary: nil, conclusion: nil,
-                                     tokens: 0, models: [], now: Date())
-        let runId = runningRunId ?? (try? db.labSession(id: current.session.id))?.agentRunId
+        let sessionId = current.session.id
+        let runId = runningRunId ?? (try? db.labSession(id: sessionId))?.agentRunId
         watchdogTask?.cancel()
         watchdogTask = nil
-        runningSession = nil // una `.finished` perdida no puede bloquear el laboratorio
+        runningSession = nil // la UI se libera ya; el hueco de sesión, cuando la base la cierre
         runningRunId = nil
         version += 1
-        if let runId { Task { await client.cancel(runId: runId) } }
+        if let runId {
+            stoppedRuns.insert(runId)
+            Task { await client.cancelStudy(runId: runId) }
+        } else {
+            stopPending = sessionId
+        }
+        closeIfStuck(sessionId: sessionId, status: .cut, cutReason: .user)
     }
 
     // MARK: Propuestas
@@ -209,9 +251,15 @@ final class LabController {
         return versions.pendingProposals(agentId: agentId)
     }
 
-    func approve(_ proposal: SkillProposal) {
-        change { _ = try versions.approve(proposalId: proposal.id) }
+    /// Devuelve `true` si la propuesta quedó obsoleta (el skill cambió): ya solo se puede rechazar.
+    @discardableResult
+    func approve(_ proposal: SkillProposal) -> Bool {
+        var stale = false
+        change {
+            do { _ = try versions.approve(proposalId: proposal.id) } catch let e as SkillVersions.StaleProposal { stale = true; throw e }
+        }
         model?.reloadSkills()
+        return stale
     }
 
     func reject(_ proposal: SkillProposal, comment: String?) {
