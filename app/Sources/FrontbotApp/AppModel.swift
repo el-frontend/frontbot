@@ -53,6 +53,8 @@ final class AppModel {
     var calendarNetwork: Network?
     var calendarBrandId: String?
     var notchExpanded = false
+    /// Estado de la mascota (las vistas lo leen con la hora actual).
+    var mascot = MascotMood()
     var lastAgentReply: String?
     var hotKeyRegistered = true
     /// Reabre la ventana principal si el usuario la cerró (lo fija la vista con `openWindow`).
@@ -839,12 +841,14 @@ final class AppModel {
             activeRun = ActiveRun(conversationId: conversationId, agentId: agent.id, brandId: selectedBrandId)
         }
         isRunning = true
+        mascot.runStarted(at: Date())
         Task {
             do {
                 let id = try await client.run(prompt: text, agent: agent, brand: selectedBrand, history: history, model: agent.model).id
                 if let run = earlyFinished.removeValue(forKey: id) { finish(run) } else { currentRunId = id }
             } catch {
                 isRunning = false
+                mascot.runFinished(ok: false, at: Date())
                 record(.error, error.localizedDescription, in: activeRun?.conversationId)
                 activeRun = nil
             }
@@ -957,6 +961,7 @@ final class AppModel {
 
     private func finish(_ run: AgentRun) {
         isRunning = false
+        mascot.runFinished(ok: run.status == .done, at: Date())
         currentRunId = nil
         if run.status == .failed { record(.error, run.resultSummary ?? "Error", in: activeRun?.conversationId) }
         activeRun = nil
@@ -974,6 +979,7 @@ final class AppModel {
             switch update {
             case .event(let runId, let type, let text) where runId == currentRunId:
                 if type == "text" {
+                    mascot.agentSpoke(at: Date())
                     record(.agent, text, in: activeRun?.conversationId)
                     lastAgentReply = text
                 }
