@@ -141,6 +141,11 @@ extension AppDatabase {
         }
     }
 
+    /// Sesiones del tema, de la más reciente a la más antigua.
+    public func labSessions(topicId: String) throws -> [LabSession] {
+        try writer.read { try LabSession.filter(Column("topicId") == topicId).order(Column("startedAt").desc).fetchAll($0) }
+    }
+
     public func labSession(id: String) throws -> LabSession? {
         try writer.read { try LabSession.fetchOne($0, key: id) }
     }

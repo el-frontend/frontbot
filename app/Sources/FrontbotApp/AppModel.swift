@@ -70,6 +70,10 @@ final class AppModel {
     /// Conversación, agente y marca del run del chat: puedes abrir otros chats mientras responde.
     private struct ActiveRun { let conversationId: String; let agentId: String; let brandId: String? }
     private var activeRun: ActiveRun?
+    /// Agentes que están respondiendo en el chat: el laboratorio no les lanza sesiones.
+    var agentsInChat: Set<String> { activeRun.map { [$0.agentId] } ?? [] }
+    @ObservationIgnored private(set) var lab: LabController!
+    var agentTab: [String: AgentTab] = [:]
     var runningConversationId: String? { activeRun?.conversationId }
     /// El agente está respondiendo en la conversación que tienes abierta.
     var isRunningHere: Bool { isRunning && activeRun != nil && activeRun?.conversationId == currentConversationId }
@@ -83,10 +87,12 @@ final class AppModel {
         try db.failRunningRuns() // runs que quedaron "running" de una sesión anterior
         try db.flagInterruptedSends() // órdenes que quedaron a medio enviar
         try db.failRunningTaskRuns() // ejecuciones programadas que quedaron a medias
+        _ = try db.failRunningLabSessions() // sesiones de estudio que quedaron a medias
         workspace = try db.ensureDefaultWorkspace()
         let key = try? credentials.get("\(workspace.id).\(CredentialStore.anthropicKey)")
         apiKeyPresent = CredentialStore.normalizedApiKey(key) != nil
         client = AgentClient(config: Self.makeConfig(apiKey: key), db: db, files: BrandFiles(paths: paths), workspaceId: workspace.id)
+        lab = LabController(db: db, paths: paths, client: client, workspaceId: workspace.id, model: self)
         let frontbot = try db.ensureDefaultAgent(workspaceId: workspace.id)
         try Self.migrateChatPreferences(db: db, frontbot: frontbot)
         agents = try db.agents(workspaceId: workspace.id)
@@ -465,6 +471,7 @@ final class AppModel {
     }
 
     func tickScheduler() {
+        lab.tick()
         guard let due = try? db.dueTasks() else { return }
         let now = Date()
         for task in due where !isTaskRunning(task) {
@@ -553,16 +560,23 @@ final class AppModel {
         if orphanUpdates[runId, default: []].count < 200 { orphanUpdates[runId, default: []].append(update) }
     }
 
-    func deliverNotification(title: String, body: String, conversationId: String?) {
+    func deliverNotification(title: String, body: String, conversationId: String?, agentLab: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         if let conversationId { content.userInfo = ["conversationId": conversationId] }
+        if let agentLab { content.userInfo = ["agentLab": agentLab] }
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
             center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }
+    }
+
+    /// Al tocar el aviso de una propuesta: la página del agente, en la pestaña Laboratorio.
+    func openAgentLab(id: String) {
+        agentTab[id] = .lab
+        showMainWindow(section: .agent(id))
     }
 
     /// Al tocar un aviso: abrir su conversación.
@@ -975,6 +989,7 @@ final class AppModel {
     private func listen() async {
         for await update in await client.updates() {
             if handleScheduled(update) { continue }
+            if lab.handle(update) { continue }
             bufferIfUnknown(update)
             switch update {
             case .event(let runId, let type, let text) where runId == currentRunId:
@@ -1021,8 +1036,12 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate, @unc
     weak var model: AppModel?
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let id = response.notification.request.content.userInfo["conversationId"] as? String else { return }
-        await MainActor.run { model?.openConversation(id: id) }
+        let info = response.notification.request.content.userInfo
+        if let agentId = info["agentLab"] as? String {
+            await MainActor.run { model?.openAgentLab(id: agentId) }
+        } else if let id = info["conversationId"] as? String {
+            await MainActor.run { model?.openConversation(id: id) }
+        }
     }
 
     /// Con la app en primer plano también se muestra el aviso.
