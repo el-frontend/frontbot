@@ -65,6 +65,12 @@ final class AppModel {
     private let credentials = CredentialStore()
     private let client: AgentClient
     private var currentRunId: String?
+    /// Conversación, agente y marca del run del chat: puedes abrir otros chats mientras responde.
+    private struct ActiveRun { let conversationId: String; let agentId: String; let brandId: String? }
+    private var activeRun: ActiveRun?
+    var runningConversationId: String? { activeRun?.conversationId }
+    /// El agente está respondiendo en la conversación que tienes abierta.
+    var isRunningHere: Bool { isRunning && activeRun != nil && activeRun?.conversationId == currentConversationId }
     /// Runs que terminaron antes de que `run()` devolviera su id (no deben perderse).
     private var earlyFinished: [String: AgentRun] = [:]
     private var keyAccount: String { "\(workspace.id).\(CredentialStore.anthropicKey)" }
@@ -160,7 +166,7 @@ final class AppModel {
     /// Borra la marca, sus posts, imágenes y guía. Las tareas y conversaciones se quedan, sin marca.
     @discardableResult
     func deleteBrand(_ brand: Brand) -> Bool {
-        if isRunning && selectedBrandId == brand.id {
+        if isRunning && activeRun?.brandId == brand.id {
             errorMessage = "El agente está trabajando con \(brand.name): espera a que termine para borrarla."
             return false
         }
@@ -736,7 +742,7 @@ final class AppModel {
 
     /// Borra el agente y sus conversaciones (o descarta un borrador).
     func deleteAgent(_ id: String) {
-        guard !(isRunning && selectedAgentId == id) else { return }
+        guard !(isRunning && activeRun?.agentId == id) else { return }
         guard perform({ try db.deleteAgent(id: id) }) else { return }
         for network in TradeNetwork.allCases { try? tradeKeys.remove(agentId: id, network: network) }
         if selectedAgentId == id { selectedAgentId = agents.first { $0.isDefault }?.id ?? "" ; messages = []; currentConversationId = nil }
@@ -782,6 +788,9 @@ final class AppModel {
             }) else { return }
         }
         record(.user, text)
+        if let conversationId = currentConversationId {
+            activeRun = ActiveRun(conversationId: conversationId, agentId: agent.id, brandId: selectedBrandId)
+        }
         isRunning = true
         Task {
             do {
@@ -789,7 +798,8 @@ final class AppModel {
                 if let run = earlyFinished.removeValue(forKey: id) { finish(run) } else { currentRunId = id }
             } catch {
                 isRunning = false
-                record(.error, error.localizedDescription)
+                record(.error, error.localizedDescription, in: activeRun?.conversationId)
+                activeRun = nil
             }
         }
     }
@@ -806,7 +816,7 @@ final class AppModel {
 
     /// Al dejar una conversación, un run corto (Haiku) guarda en la memoria del agente lo aprendido.
     private func summarizeLeavingConversation() {
-        guard let id = currentConversationId,
+        guard let id = currentConversationId, id != runningConversationId,
               let agent = agent(id: conversations.first { $0.id == id }?.agentId ?? selectedAgentId),
               (try? db.conversationNeedsSummary(id: id)) == true else { return }
         let history = chatHistory()
@@ -822,7 +832,6 @@ final class AppModel {
 
     /// Empieza una conversación nueva con el agente (por defecto, el del chat actual).
     func newConversation(agentId: String? = nil) {
-        guard !isRunning else { return }
         summarizeLeavingConversation()
         if let agentId { selectedAgentId = agentId }
         messages = []
@@ -832,7 +841,6 @@ final class AppModel {
     }
 
     func openConversation(_ conversation: Conversation) {
-        guard !isRunning else { return }
         section = .chat
         guard conversation.id != currentConversationId else { return }
         summarizeLeavingConversation()
@@ -846,7 +854,7 @@ final class AppModel {
     }
 
     func deleteConversation(_ conversation: Conversation) {
-        guard !(isRunning && conversation.id == currentConversationId) else { return }
+        guard !(isRunning && conversation.id == runningConversationId) else { return }
         perform { try db.deleteConversation(id: conversation.id) }
         if conversation.id == currentConversationId { messages = []; currentConversationId = nil; lastAgentReply = nil }
         reloadConversations()
@@ -857,9 +865,12 @@ final class AppModel {
     }
 
     /// Añade un mensaje al chat y lo guarda en la conversación abierta.
-    private func record(_ role: ChatRole, _ text: String) {
-        messages.append(ChatMessage(role: role, text: text))
-        guard let id = currentConversationId else { return }
+    private func record(_ role: ChatRole, _ text: String) { record(role, text, in: currentConversationId) }
+
+    /// Guarda un mensaje en su conversación y lo muestra solo si es la que estás viendo.
+    private func record(_ role: ChatRole, _ text: String, in conversationId: String?) {
+        if conversationId == currentConversationId { messages.append(ChatMessage(role: role, text: text)) }
+        guard let id = conversationId else { return }
         do { try db.appendMessage(conversationId: id, role: role, text: text) } catch { errorMessage = error.localizedDescription }
         reloadConversations()
     }
@@ -900,7 +911,8 @@ final class AppModel {
     private func finish(_ run: AgentRun) {
         isRunning = false
         currentRunId = nil
-        if run.status == .failed { record(.error, run.resultSummary ?? "Error") }
+        if run.status == .failed { record(.error, run.resultSummary ?? "Error", in: activeRun?.conversationId) }
+        activeRun = nil
         brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
         reloadAgents()
         reloadSkills()
@@ -915,11 +927,11 @@ final class AppModel {
             switch update {
             case .event(let runId, let type, let text) where runId == currentRunId:
                 if type == "text" {
-                    record(.agent, text)
+                    record(.agent, text, in: activeRun?.conversationId)
                     lastAgentReply = text
                 }
                 if type == "tool_call" {
-                    record(.tool, "→ \(text)")
+                    record(.tool, "→ \(text)", in: activeRun?.conversationId)
                     reloadContent()
                 }
             case .finished(let run) where run.id == currentRunId:
