@@ -37,7 +37,7 @@ const userPrompt = (params: RunParams) => params.mode === "study" && params.stud
 export type RunEvent = { run_id: string; type: "text" | "tool_call" | "status"; text: string };
 export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number; error?: string;
   /** Solo en estudio: cortada por límite, tokens contados con la métrica del laboratorio y desglose por modelo. */
-  cut?: boolean; lab_tokens?: number; models?: { model: string; tokens: number }[] };
+  cut?: boolean; cut_reason?: "tokens" | "clock"; lab_tokens?: number; models?: { model: string; tokens: number }[] };
 
 export interface Runner {
   run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone>;
@@ -108,7 +108,7 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   return {
     // El hilo principal del estudio siempre corre en Sonnet (§8); los subagentes eligen el suyo.
     model: study ? STUDY_MODEL : params.model,
-    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, folders: summarize || study ? undefined : params.folders, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined }),
+    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, folders: summarize || study ? undefined : params.folders, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined, study }),
     tools: summarize ? [] : study ? ["WebSearch", "WebFetch", "Agent"] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : [])],
     allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : []),
       // En estudio solo se lee el mercado: ni account_state ni trade_propose.
@@ -137,7 +137,7 @@ export class RealRunner implements Runner {
 
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (signal.aborted) return cancelled(params.run_id);
-    if (params.mode === "study" && (!params.study || !params.agent)) return { ...cancelled(params.run_id), error: "Sesión de estudio sin tema o sin agente" };
+    if (params.mode === "study" && (!params.study || !params.agent)) return { ...cancelled(params.run_id), error: "Sesión de estudio sin tema o sin agente", lab_tokens: 0, models: [] };
     const abortController = new AbortController();
     signal.addEventListener("abort", () => abortController.abort(), { once: true });
     const plugin = params.skills?.length && params.mode !== "study" ? prepareSkillPlugin(params.skills) : undefined;
@@ -149,17 +149,20 @@ export class RealRunner implements Runner {
     const today = localToday();
     const isStudy = params.mode === "study";
     const meter = isStudy ? new TokenMeter(params.study?.budget_tokens ?? 0) : undefined;
-    // Corte por límite (tokens o reloj): no es una cancelación del usuario.
-    let cut = false;
-    const cutDone = (): RunDone => ({ run_id: params.run_id, ok: true, summary: "Sesión cortada por límite", input_tokens: meter?.inputTokens ?? 0, output_tokens: meter?.outputTokens ?? 0, cost_usd: 0, cut: true, lab_tokens: meter?.total ?? 0, models: meter?.byModel() ?? [] });
-    const clock = isStudy ? setTimeout(() => { cut = true; abortController.abort(); }, STUDY_WALL_CLOCK_MS) : undefined;
+    // Corte por límite (tokens o reloj): no es una cancelación del usuario. El de reloj cuenta como fallo en la app.
+    let cut: "tokens" | "clock" | undefined;
+    // En estudio, todo final (también cancelado o con error) lleva lo gastado: la app lo descuenta del límite diario.
+    const spent = () => meter ? { input_tokens: meter.inputTokens, output_tokens: meter.outputTokens, lab_tokens: meter.total, models: meter.byModel() } : {};
+    const ended = (done: RunDone): RunDone => ({ ...done, ...spent() });
+    const cutDone = (): RunDone => ended({ run_id: params.run_id, ok: true, summary: "Sesión cortada por límite", input_tokens: 0, output_tokens: 0, cost_usd: 0, cut: true, cut_reason: cut });
+    const clock = isStudy ? setTimeout(() => { cut = "clock"; abortController.abort(); }, STUDY_WALL_CLOCK_MS) : undefined;
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
       const stream = this.queryFn({ prompt: userPrompt(params), options: buildQueryOptions(params, server, abortController, today, plugin, meter) });
       for await (const msg of stream) {
         if (meter) {
           meter.consume(msg as never);
-          if (meter.exhausted) { cut = true; abortController.abort(); return cutDone(); }
+          if (meter.exhausted) { cut = "tokens"; abortController.abort(); return cutDone(); }
         }
         if (msg.type === "assistant") {
           // El texto de los subagentes viaja en el flujo (forwardSubagentText) pero no se muestra como del agente.
@@ -179,11 +182,11 @@ export class RealRunner implements Runner {
         }
       }
       if (cut) return cutDone();
-      return signal.aborted ? cancelled(params.run_id) : { ...cancelled(params.run_id), error: "El agente terminó sin resultado" };
+      return ended(signal.aborted ? cancelled(params.run_id) : { ...cancelled(params.run_id), error: "El agente terminó sin resultado" });
     } catch (err) {
       if (cut) return cutDone();
-      if (signal.aborted) return cancelled(params.run_id);
-      return { ...cancelled(params.run_id), error: (err as Error).message };
+      if (signal.aborted) return ended(cancelled(params.run_id));
+      return ended({ ...cancelled(params.run_id), error: (err as Error).message });
     } finally {
       clearTimeout(clock);
       plugin?.cleanup();
@@ -206,6 +209,18 @@ export class FakeRunner implements Runner {
     }
     if (params.mode === "study") {
       const ids = { agent_id: params.agent?.id, topic_id: params.study?.topic_id, session_id: params.study?.session_id };
+      const models = (tokens: number) => [{ model: "claude-sonnet-5-5", tokens }];
+      if (params.prompt.includes("lento")) {
+        // Espera a que la cancelen (el usuario o el watchdog) y cuenta lo gastado.
+        await new Promise<void>((resolve) => signal.aborted ? resolve() : signal.addEventListener("abort", () => resolve(), { once: true }));
+        return { ...cancelled(params.run_id), lab_tokens: 777, models: models(777) };
+      }
+      if (params.prompt.includes("colgado")) await new Promise(() => {}); // nunca termina e ignora cancel
+      if (params.prompt.includes("cortar")) {
+        if (params.prompt.includes("tras cerrar")) await this.call("tool.lab_end_session", { ...ids, outcome: "pause", summary: "Cerrada antes del corte" });
+        return { run_id: params.run_id, ok: true, summary: "Sesión cortada por límite", input_tokens: 0, output_tokens: 0, cost_usd: 0, cut: true,
+          cut_reason: params.prompt.includes("reloj") ? "clock" : "tokens", lab_tokens: 5000, models: models(5000) };
+      }
       await this.call("tool.lab_note", { ...ids, kind: "note", text: "nota de prueba" });
       emit({ run_id: params.run_id, type: "tool_call", text: "lab_note" });
       await this.call("tool.lab_end_session", { ...ids, outcome: params.prompt.includes("pausar") ? "pause" : "continue", summary: "Sesión de prueba" });
@@ -220,6 +235,13 @@ export class FakeRunner implements Runner {
     if (params.mode === "summarize") {
       await this.call("tool.memory_remember", { agent_id: params.agent?.id, text: `Resumen de prueba: ${params.history?.length ?? 0} turnos` });
       return { run_id: params.run_id, ok: true, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+    }
+    if (params.prompt.startsWith("lab_run:")) {
+      // Para los tests de la app: un chat intenta lab_run con la sesión de estudio indicada (debe rechazarse).
+      const text = await this.call("tool.lab_run", { agent_id: params.agent?.id, session_id: params.prompt.slice("lab_run:".length), topic_id: "x", script: "a.py" })
+        .then(() => "Ejecutado", (err: Error) => `No ejecutado: ${err.message}`);
+      emit({ run_id: params.run_id, type: "text", text });
+      return { run_id: params.run_id, ok: true, summary: text, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
     }
     if (params.prompt === "memoria") emit({ run_id: params.run_id, type: "text", text: `Memoria: ${params.agent?.memory?.map((m) => m.text).join(" | ") ?? "sin"}` });
     if (params.prompt === "colgado") await new Promise(() => {}); // nunca termina e ignora cancel
