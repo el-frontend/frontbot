@@ -99,11 +99,11 @@ extension AppDatabase {
     }
 
     // MARK: Sesiones
-    public func startLabSession(topicId: String, now: Date) throws -> LabSession {
+    public func startLabSession(topicId: String, budgetTokens: Int = 0, now: Date) throws -> LabSession {
         try writer.write { db in
             guard try LabTopic.fetchOne(db, key: topicId) != nil else { throw ValidationError("No existe tema con id \(topicId).") }
             let session = LabSession(id: UUID().uuidString, topicId: topicId, agentRunId: nil, status: .running, tokens: 0,
-                                     models: [], outcome: nil, summary: nil, startedAt: now, finishedAt: nil)
+                                     models: [], outcome: nil, summary: nil, startedAt: now, finishedAt: nil, budgetTokens: budgetTokens)
             try session.insert(db)
             return session
         }
@@ -155,36 +155,59 @@ extension AppDatabase {
     /// si el usuario lo pausó o abandonó durante la sesión, eso manda.
     @discardableResult
     public func finishLabSession(id: String, status: LabSessionStatus, outcome: LabOutcome?, summary: String?, conclusion: String?,
-                                 tokens: Int, models: [LabModelUsage], now: Date) throws -> LabTopic {
+                                 tokens: Int, models: [LabModelUsage], cutReason: LabCutReason? = nil, now: Date) throws -> LabTopic {
         try writer.write { db in
-            guard var session = try LabSession.fetchOne(db, key: id) else { throw ValidationError("No existe sesión con id \(id).") }
-            guard var topic = try LabTopic.fetchOne(db, key: session.topicId) else { throw ValidationError("No existe tema con id \(session.topicId).") }
-            guard session.status == .running else { return topic }
-            session.status = status
-            session.outcome = outcome
-            session.summary = summary
-            session.tokens = tokens
-            session.models = models
-            session.finishedAt = now
-            try session.update(db)
-            topic.sessions += 1
-            topic.tokensUsed += tokens
-            if let conclusion { topic.conclusion = conclusion }
-            topic.updatedAt = now
-            if topic.status == .studying {
-                LabScheduler.apply(finished: status, outcome: outcome, to: &topic, now: now)
-            }
-            try topic.update(db)
-            return topic
+            guard let session = try LabSession.fetchOne(db, key: id) else { throw ValidationError("No existe sesión con id \(id).") }
+            return try Self.finish(session, status: status, outcome: outcome, summary: summary, conclusion: conclusion,
+                                   tokens: tokens, models: models, cutReason: cutReason, now: now, db: db)
         }
     }
 
-    /// Al arrancar la app: las sesiones que quedaron `running` pasan a `cut`, que no cuenta como fallo.
-    public func failRunningLabSessions() throws -> Int {
+    private static func finish(_ session: LabSession, status: LabSessionStatus, outcome: LabOutcome?, summary: String?, conclusion: String?,
+                               tokens: Int, models: [LabModelUsage], cutReason: LabCutReason?, now: Date, db: Database) throws -> LabTopic {
+        var session = session
+        guard var topic = try LabTopic.fetchOne(db, key: session.topicId) else { throw ValidationError("No existe tema con id \(session.topicId).") }
+        guard session.status == .running else { return topic }
+        session.status = status
+        session.outcome = outcome
+        session.summary = summary
+        session.tokens = tokens
+        session.models = models
+        session.finishedAt = now
+        try session.update(db)
+        topic.sessions += 1
+        topic.tokensUsed += tokens
+        if let conclusion { topic.conclusion = conclusion }
+        topic.updatedAt = now
+        if topic.status == .studying {
+            LabScheduler.apply(finished: status, outcome: outcome, cutReason: cutReason, to: &topic, now: now)
+        }
+        try topic.update(db)
+        return topic
+    }
+
+    /// Cierra como fallida una sesión cuyo final nunca llegó, cobrando su presupuesto entero (lo gastado es desconocido).
+    @discardableResult
+    public func failLabSessionChargingBudget(id: String, now: Date) throws -> LabTopic {
         try writer.write { db in
-            try db.execute(sql: "UPDATE labSession SET status = ?, finishedAt = ? WHERE status = ?",
-                           arguments: [LabSessionStatus.cut.rawValue, Date.dbNow(), LabSessionStatus.running.rawValue])
-            return db.changesCount
+            guard let session = try LabSession.fetchOne(db, key: id) else { throw ValidationError("No existe sesión con id \(id).") }
+            return try Self.finish(session, status: .failed, outcome: nil, summary: session.summary, conclusion: nil,
+                                   tokens: max(session.tokens, session.budgetTokens), models: session.models, cutReason: nil, now: now, db: db)
+        }
+    }
+
+    /// Al arrancar la app: las sesiones que quedaron `running` (la app se cerró o murió) pasan a `cut`, que no cuenta
+    /// como fallo. Lo gastado se desconoce: se cobra el presupuesto entero y el tema espera 20 min como tras un corte.
+    public func failRunningLabSessions(now: Date? = nil) throws -> Int {
+        let now = now ?? .dbNow()
+        return try writer.write { db in
+            let running = try LabSession.filter(Column("status") == LabSessionStatus.running.rawValue).fetchAll(db)
+            for session in running {
+                _ = try Self.finish(session, status: .cut, outcome: nil, summary: session.summary, conclusion: nil,
+                                    tokens: session.tokens == 0 ? session.budgetTokens : session.tokens, models: session.models,
+                                    cutReason: nil, now: now, db: db)
+            }
+            return running.count
         }
     }
 

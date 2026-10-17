@@ -94,4 +94,25 @@ final class LabSchedulerTests: XCTestCase {
         XCTAssertEqual(t.nextSessionAfter, now.addingTimeInterval(1200))
         XCTAssertEqual(t.status, .studying)
     }
+
+    func testClockCutCountsAsFailure() {
+        var t = topic("t")
+        LabScheduler.apply(finished: .cut, outcome: nil, cutReason: .clock, to: &t, now: now)
+        XCTAssertEqual(t.consecutiveFailures, 1)
+        XCTAssertEqual(t.nextSessionAfter, now.addingTimeInterval(1200))
+        LabScheduler.apply(finished: .cut, outcome: nil, cutReason: .clock, to: &t, now: now)
+        XCTAssertEqual(t.nextSessionAfter, now.addingTimeInterval(3600))
+        LabScheduler.apply(finished: .cut, outcome: nil, cutReason: .clock, to: &t, now: now)
+        XCTAssertEqual(t.status, .paused)
+    }
+
+    func testTokenAndUserCutsDoNotCountAsFailure() {
+        for reason in [LabCutReason.tokens, .user] {
+            var t = topic("t")
+            LabScheduler.apply(finished: .cut, outcome: .continue, cutReason: reason, to: &t, now: now)
+            XCTAssertEqual(t.consecutiveFailures, 0)
+            XCTAssertEqual(t.nextSessionAfter, now.addingTimeInterval(1200))
+            XCTAssertEqual(t.status, .studying)
+        }
+    }
 }
