@@ -10,7 +10,7 @@ private func frontbotHotKeyHandler(_: EventHandlerCallRef?, _: EventRef?, _: Uns
     return noErr
 }
 
-/// Atajo global ⌥Espacio vía `RegisterEventHotKey` (no requiere permisos de Accesibilidad).
+/// Atajo global ⌥⌘Espacio vía `RegisterEventHotKey` (no requiere permisos de Accesibilidad).
 /// Adaptado de coucou `HotKeyCenter` (MIT, © 2026 Louis Raillé).
 @MainActor
 final class HotKey {
@@ -27,8 +27,8 @@ final class HotKey {
         if let ref { UnregisterEventHotKey(ref) }
         ref = nil
         let id = EventHotKeyID(signature: OSType(0x46524254), id: 1) // "FRBT"
-        // Exclusivo: sin esta opción el registro "funciona" aunque otra app ya tenga ⌥Espacio y nunca nos llega.
-        let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), id, GetApplicationEventTarget(),
+        // Exclusivo: sin esta opción el registro "funciona" aunque otra app ya tenga ⌥⌘Espacio y nunca nos llega.
+        let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey | cmdKey), id, GetApplicationEventTarget(),
                                          OptionBits(kEventHotKeyExclusive), &ref)
         registered = status == noErr
     }

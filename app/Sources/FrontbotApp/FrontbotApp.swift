@@ -19,7 +19,7 @@ struct FrontbotApp: App {
             if let model {
                 RootView(model: model)
                     .task {
-                        // El panel del notch y ⌥Espacio se crean una sola vez, con la primera ventana.
+                        // El panel del notch y ⌥⌘Espacio se crean una sola vez, con la primera ventana.
                         guard notch == nil else { return }
                         let controller = NotchController(model: model)
                         controller.show()

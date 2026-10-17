@@ -16,7 +16,7 @@ struct BrandsView: View {
                 FrontbotLogo(size: 20)
                 Text("Frontbot").font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Text("⌥ Space").font(Theme.mono()).foregroundStyle(Theme.muted)
+                Text("⌥⌘ Space").font(Theme.mono()).foregroundStyle(Theme.muted)
             }
             .padding(.horizontal, 6)
 
