@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { allowedToolsFor, buildTools, STUDY_TOOL_NAMES } from "../src/tools.js";
 import { buildMarketTools, type Market, type Network } from "../src/trading.js";
-import { buildQueryOptions, toolContext, type RunParams } from "../src/runner.js";
+import { buildQueryOptions, toolContext, RealRunner, type RunParams } from "../src/runner.js";
 
 const study = { topic_id: "t1", session_id: "s1", question: "q", why: "w", budget_tokens: 100000, allow_opus: false, notebook: [] };
 const agent = { id: "a1", name: "Ana", instructions: "x", is_default: false };
@@ -64,6 +64,28 @@ describe("study mode tools", () => {
     expect(calls[0]).toEqual(["tool.lab_note", { kind: "note", text: "hola", agent_id: "a1", topic_id: "t1", session_id: "s1" }]);
     await tools.find((t) => t.name === "lab_read_notebook")!.handler({ topic_id: "t9" }, {});
     expect(calls[1][1].topic_id).toBe("t9");
+    await tools.find((t) => t.name === "lab_read_notebook")!.handler({}, {});
+    expect(calls[2][1].topic_id).toBe("t1");
+    await tools.find((t) => t.name === "lab_resume_topic")!.handler({ topic_id: "t5" }, {});
+    expect(calls[3][1]).toEqual({ topic_id: "t5", agent_id: "a1" });
+    await tools.find((t) => t.name === "lab_open_topic")!.handler({ question: "q", why: "w" }, {});
+    expect(calls[4][1]).toEqual({ question: "q", why: "w", agent_id: "a1" });
+    await tools.find((t) => t.name === "lab_propose_skill")!.handler({ kind: "new", skill_name: "x", description: "d", body: "b", evidence_summary: "e" }, {});
+    expect(calls[5][1]).toMatchObject({ skill_name: "x", topic_id: "t1", session_id: "s1" });
+  });
+
+  it("study mode without study or agent fails closed", async () => {
+    for (const p of [params({ study: undefined }), params({ agent: undefined })]) {
+      const list = allowedToolsFor(toolContext(p));
+      const opts = buildQueryOptions(p, server, new AbortController(), "2026-10-17").allowedTools ?? [];
+      for (const l of [list, opts]) for (const name of FORBIDDEN) expect(l).not.toContain(pre(name));
+      expect(opts.some((t) => t.includes("lab_run"))).toBe(true);
+    }
+    const r = await new RealRunner(async () => ({})).run(params({ study: undefined }), () => {}, new AbortController().signal);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/estudio/);
+    const r2 = await new RealRunner(async () => ({})).run(params({ agent: undefined }), () => {}, new AbortController().signal);
+    expect(r2.ok).toBe(false);
   });
 
   it("chat mode gets lab_open_topic but not lab_run", () => {

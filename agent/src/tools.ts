@@ -1,6 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { LAB_TOOL_SPECS, LAB_ANYWHERE } from "./lab.js";
+import { LAB_TOOL_SPECS, LAB_ANYWHERE, LAB_CURRENT_TOPIC } from "./lab.js";
 import { unaliasSkillPaths, type SkillPlugin } from "./skills.js";
 
 export type AppCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -93,10 +93,14 @@ export function buildTools(call: AppCall, ctx: ToolContext = { isDefault: true }
     tool(spec.name, spec.description, spec.shape, async (args: Record<string, unknown>) => {
       try {
         const params: Record<string, unknown> = ctx.agentId ? { ...args, agent_id: ctx.agentId } : { ...args };
-        if (ctx.study && spec.name.startsWith("lab_")) {
-          // El tema y la sesión los pone el sidecar. Solo leer un cuaderno ajeno admite otro tema.
-          params.topic_id = spec.name === "lab_read_notebook" && typeof args.topic_id === "string" ? args.topic_id : ctx.study.topicId;
-          params.session_id = ctx.study.sessionId;
+        if (ctx.study) {
+          // El tema y la sesión los pone el sidecar, nunca el modelo.
+          if ((LAB_CURRENT_TOPIC as readonly string[]).includes(spec.name)) {
+            params.topic_id = ctx.study.topicId;
+            params.session_id = ctx.study.sessionId;
+          } else if (spec.name === "lab_read_notebook" && typeof args.topic_id !== "string") {
+            params.topic_id = ctx.study.topicId;
+          }
         }
         if (spec.name === "notify_user" || spec.name === "files_write") params.run_id = ctx.runId; // el run lo identifica el sidecar, no el modelo
         if (spec.name === "skills_run_script" && ctx.skillPlugin && Array.isArray(params.args)) {

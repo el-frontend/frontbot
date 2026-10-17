@@ -20,7 +20,8 @@ const MARKET_TOOL_NAMES = ["market_price", "market_candles", "market_funding", "
 export const toolContext = (params: RunParams): ToolContext => ({
   agentId: params.agent?.id, isDefault: params.agent?.is_default ?? true, memoryOnly: params.mode === "summarize",
   runId: params.run_id, scheduled: params.mode === "scheduled", files: (params.folders?.length ?? 0) > 0,
-  study: params.mode === "study" && params.study ? { topicId: params.study.topic_id, sessionId: params.study.session_id } : undefined,
+  // Cerrado por defecto: en estudio la lista de estudio rige aunque falte el tema (RealRunner lo rechaza antes).
+  study: params.mode === "study" ? { topicId: params.study?.topic_id ?? "", sessionId: params.study?.session_id ?? "" } : undefined,
 });
 
 const userPrompt = (params: RunParams) => params.mode === "summarize"
@@ -119,9 +120,10 @@ export class RealRunner implements Runner {
 
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (signal.aborted) return cancelled(params.run_id);
+    if (params.mode === "study" && (!params.study || !params.agent)) return { ...cancelled(params.run_id), error: "Sesión de estudio sin tema o sin agente" };
     const abortController = new AbortController();
     signal.addEventListener("abort", () => abortController.abort());
-    const plugin = params.skills?.length ? prepareSkillPlugin(params.skills) : undefined;
+    const plugin = params.skills?.length && params.mode !== "study" ? prepareSkillPlugin(params.skills) : undefined;
     const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [
       ...buildTools(this.call, { ...toolContext(params), skillPlugin: plugin }),
       ...(params.trading && params.mode === "study" ? buildMarketTools(realMarket, "mainnet") : []),
