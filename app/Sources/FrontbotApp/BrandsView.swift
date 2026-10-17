@@ -215,7 +215,7 @@ struct BrandsView: View {
 
     /// La conversación en la que el agente está respondiendo no se puede borrar.
     private func canDelete(_ conversation: Conversation) -> Bool {
-        !(model.isRunning && model.currentConversationId == conversation.id)
+        !(model.isRunning && model.runningConversationId == conversation.id)
     }
 
     /// "ahora", "12m", "3h", "2d", "5sem".

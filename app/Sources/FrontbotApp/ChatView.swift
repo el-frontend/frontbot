@@ -32,7 +32,7 @@ struct ChatView: View {
                         ForEach(model.pendingProposals.filter { $0.agentId == model.selectedAgentId }) { p in
                             ProposalCard(model: model, proposal: p)
                         }
-                        if model.isRunning {
+                        if model.isRunningHere {
                             HStack(spacing: 8) { ProgressView().controlSize(.small); Text("pensando…").font(Theme.mono(12)).foregroundStyle(Theme.muted) }
                         }
                     }
@@ -43,6 +43,9 @@ struct ChatView: View {
                 .onChange(of: model.messages.count) { _, _ in
                     if let last = model.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
+                // Al abrir un chat (aunque tenga los mismos mensajes que el anterior) se va al final.
+                .onChange(of: model.currentConversationId) { _, _ in scrollToEnd(proxy) }
+                .onAppear { scrollToEnd(proxy) }
             }
 
             composer.padding(.horizontal, 24).padding(.bottom, 22)
@@ -145,7 +148,7 @@ struct ChatView: View {
                 }
 
                 Spacer()
-                if model.isRunning {
+                if model.isRunningHere {
                     Button { model.cancel() } label: { Image(systemName: "stop.fill").font(.system(size: 12)) }
                         .buttonStyle(.plain).foregroundStyle(Theme.text)
                         .frame(width: 32, height: 32).panel(radius: 8, fill: Theme.raised)
@@ -155,8 +158,9 @@ struct ChatView: View {
                         .buttonStyle(.plain).foregroundStyle(Theme.onAccent)
                         .frame(width: 32, height: 32)
                         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
-                        .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
+                        .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isRunning ? 0.4 : 1)
                         .keyboardShortcut(.return, modifiers: .command)
+                        .help(model.isRunning ? "El agente está respondiendo en otro chat: espera a que termine." : "Enviar")
                         .accessibilityLabel("Enviar")
                 }
             }
@@ -191,6 +195,12 @@ struct ChatView: View {
         .fixedSize()
         .disabled(model.isRunning)
         .help("Agente")
+    }
+
+    private func scrollToEnd(_ proxy: ScrollViewProxy) {
+        guard let last = model.messages.last else { return }
+        // Tras el layout del nuevo contenido; si no, el scroll se queda corto.
+        DispatchQueue.main.async { proxy.scrollTo(last.id, anchor: .bottom) }
     }
 
     private func submit() {
