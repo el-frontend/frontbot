@@ -8,6 +8,15 @@ public struct ScriptSandbox: Sendable {
         public let stderr: String
         public let exitCode: Int32
         public let timedOut: Bool
+        /// Si la sandbox paró el script por un límite propio (p. ej. el espacio del laboratorio), el motivo.
+        public var killedReason: String? = nil
+    }
+
+    /// Vigilancia mientras corre el script: cada `interval` s se llama a `check`; si devuelve un motivo, se mata el grupo.
+    public struct Watch: Sendable {
+        public var interval: TimeInterval
+        public var check: @Sendable () -> String?
+        public init(interval: TimeInterval, check: @escaping @Sendable () -> String?) { self.interval = interval; self.check = check }
     }
 
     public static let outputLimit = 20_000
@@ -97,7 +106,8 @@ public struct ScriptSandbox: Sendable {
 
     /// Variante general: `script` es relativo a `workDir` o una ruta absoluta que cae dentro de `readDirs`/`writeDirs`.
     /// `interpreter` sustituye al que correspondería por la extensión.
-    public func run(script: String, args: [String], in workDir: URL, readDirs: [URL], writeDirs: [URL], interpreter: String? = nil) throws -> Result {
+    public func run(script: String, args: [String], in workDir: URL, readDirs: [URL], writeDirs: [URL], interpreter: String? = nil,
+                    watch: Watch? = nil) throws -> Result {
         let url: URL, byExtension: String
         if script.hasPrefix("/") {
             let real = URL(fileURLWithPath: Self.realPath(URL(fileURLWithPath: script)))
@@ -108,7 +118,7 @@ public struct ScriptSandbox: Sendable {
         } else {
             (url, byExtension) = try Self.resolve(script: script, in: workDir, nodePath: nodePath)
         }
-        return try execute(scriptURL: url, interpreter: interpreter ?? byExtension, args: args, workDir: workDir, readDirs: readDirs, writeDirs: writeDirs)
+        return try execute(scriptURL: url, interpreter: interpreter ?? byExtension, args: args, workDir: workDir, readDirs: readDirs, writeDirs: writeDirs, watch: watch)
     }
 
     static func interpreter(forExtension ext: String, script: String, nodePath: String?) throws -> String {
@@ -122,7 +132,8 @@ public struct ScriptSandbox: Sendable {
         }
     }
 
-    private func execute(scriptURL url: URL, interpreter: String, args: [String], workDir skillDir: URL, readDirs: [URL], writeDirs: [URL]) throws -> Result {
+    private func execute(scriptURL url: URL, interpreter: String, args: [String], workDir skillDir: URL, readDirs: [URL], writeDirs: [URL],
+                         watch: Watch? = nil) throws -> Result {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("frontbot-script-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -153,8 +164,21 @@ public struct ScriptSandbox: Sendable {
 
         try p.run()
         let group = p.processIdentifier
-        let timedOut = finished.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
+        let deadline = DispatchTime.now() + timeout
+        var killedReason: String?
+        var timedOut = false
+        if let watch {
+            // Espera por tramos para poder vigilar entre uno y otro.
+            while true {
+                let step = min(deadline, .now() + watch.interval)
+                if finished.wait(timeout: step) == .success { break }
+                if DispatchTime.now() >= deadline { timedOut = true; break }
+                if let reason = watch.check() { killedReason = reason; break }
+            }
+        } else {
+            timedOut = finished.wait(timeout: deadline) == .timedOut
+        }
+        if timedOut || killedReason != nil {
             killpg(group, SIGTERM)
             if finished.wait(timeout: .now() + 1) == .timedOut { killpg(group, SIGKILL); _ = finished.wait(timeout: .now() + 2) }
         }
@@ -162,8 +186,9 @@ public struct ScriptSandbox: Sendable {
         Thread.sleep(forTimeInterval: 0.05)
         out.fileHandleForReading.readabilityHandler = nil
         err.fileHandleForReading.readabilityHandler = nil
-        return Result(stdout: Self.truncated(outBuffer.data), stderr: Self.truncated(errBuffer.data),
-                      exitCode: p.isRunning ? -1 : p.terminationStatus, timedOut: timedOut)
+        let stderr = Self.truncated(errBuffer.data)
+        return Result(stdout: Self.truncated(outBuffer.data), stderr: killedReason.map { stderr.isEmpty ? $0 : stderr + "\n" + $0 } ?? stderr,
+                      exitCode: p.isRunning ? -1 : p.terminationStatus, timedOut: timedOut, killedReason: killedReason)
     }
 
     /// Acumula la salida con un tope (lo que pase de 4× el límite se descarta).

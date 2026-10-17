@@ -117,4 +117,27 @@ final class LabSandboxTests: XCTestCase {
         }
         XCTAssertEqual(try run("a.py").exitCode, 0)
     }
+
+    func testKillsAScriptThatGrowsTheLabOverTheCap() throws {
+        try workspace().write("llena.py", content: """
+        import time
+        with open("grande.bin", "wb") as f:
+            while True:
+                f.write(b"x" * 10000); f.flush(); time.sleep(0.01)
+        """)
+        let small = LabSandbox(paths: paths, db: db, timeout: 30, maxAgentBytes: 50_000, sizePollInterval: 0.1)
+        let started = Date()
+        let result = try small.run(agentId: agent.id, topicId: "t1", script: "llena.py", args: [])
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+        XCTAssertFalse(result.timedOut)
+        XCTAssertNotNil(result.killedReason)
+        XCTAssertTrue(result.stderr.contains("límite"), result.stderr)
+    }
+
+    func testPollingDoesNotStopAScriptUnderTheCap() throws {
+        try workspace().write("ok.py", content: "open('poco.txt', 'w').write('x' * 100)\nprint('ok')")
+        let result = try LabSandbox(paths: paths, db: db, maxAgentBytes: 1_000_000, sizePollInterval: 0.05).run(agentId: agent.id, topicId: "t1", script: "ok.py", args: [])
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertNil(result.killedReason)
+    }
 }
