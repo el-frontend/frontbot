@@ -19,6 +19,11 @@ struct NotchView: View {
     /// Colapsado: indicadores a los lados del notch; clic para abrir.
     private var collapsed: some View {
         HStack {
+            // Quieta en reposo (logo); viva mientras el agente trabaja o reacciona.
+            TimelineView(.periodic(from: .now, by: 0.5)) { context in
+                let state = model.mascot.state(at: context.date, listening: false)
+                if state == .idle { FrontbotLogo(size: 18) } else { MascotView(state: state, size: 22) }
+            }
             if let n = model.today?.tasks.count, n > 0 { Label("\(n)", systemImage: "checklist").font(.caption2) }
             Spacer()
             if let n = model.today?.draftsToReview, n > 0 { Label("\(n)", systemImage: "doc.badge.ellipsis").font(.caption2) }
@@ -44,7 +49,9 @@ struct NotchView: View {
 
             if let reply = model.lastAgentReply {
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "rectangle.roundedtop").foregroundStyle(Theme.accent)
+                    TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                        MascotView(state: model.mascot.state(at: context.date, listening: true), size: 56)
+                    }
                     ScrollView { Text(reply).font(.system(size: 13)).lineSpacing(3).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
                         .frame(maxHeight: 110)
                 }
