@@ -73,6 +73,8 @@ public actor AgentClient {
     private var nextId = 1
     private var generation = 0
     private var activeRuns: Set<String> = []
+    /// Runs de tareas programadas: nadie puede aprobar nada en ellos.
+    private var unattendedRuns: Set<String> = []
     private var launches: [Date] = []
     private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
     private var subscribers: [UUID: AsyncStream<AgentUpdate>.Continuation] = [:]
@@ -83,6 +85,10 @@ public actor AgentClient {
     static let scriptApprovalTimeout: Duration = .seconds(120)
 
     public func setScriptApprover(_ approver: @escaping @Sendable (ScriptRequest) async -> Bool) { scriptApprover = approver }
+
+    /// Igual que los scripts: cada escritura de archivo la aprueba el usuario (sin respuesta = denegada).
+    private var fileWriteApprover: (@Sendable (FileWriteRequest) async -> Bool)?
+    public func setFileWriteApprover(_ approver: @escaping @Sendable (FileWriteRequest) async -> Bool) { fileWriteApprover = approver }
 
     /// Claves de las API wallets de Hyperliquid (la app las lee del llavero).
     private var tradeKeys: (any TradeKeyStore)?
@@ -138,6 +144,7 @@ public actor AgentClient {
             if !history.isEmpty { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
             if summarize { params["mode"] = "summarize" }
             if let task {
+                unattendedRuns.insert(run.id)
                 params["mode"] = "scheduled"
                 params["task"] = ["name": .string(task.name)]
             }
@@ -146,6 +153,8 @@ public actor AgentClient {
                 params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
                                    "is_default": .bool(agent.isDefault), "memory": MemoryPrompt.json(memory)]
                 if agent.browser { params["browser"] = .bool(true) }
+                let folders = try db.folders(agentId: agent.id)
+                if !folders.isEmpty { params["folders"] = .array(folders.map(JSONValue.string)) }
                 if agent.trading {
                     let m = try db.mandate(agentId: agent.id)
                     var trading: [String: JSONValue] = ["network": .string(m.network.rawValue), "mandate": [
@@ -211,6 +220,7 @@ public actor AgentClient {
 
     private func fail(runId: String, summary: String) {
         activeRuns.remove(runId)
+        unattendedRuns.remove(runId)
         if let run = try? db.finishRun(id: runId, status: .failed, summary: summary, inputTokens: 0, outputTokens: 0, costUsd: 0) {
             broadcast(.finished(run))
         }
@@ -354,6 +364,24 @@ public actor AgentClient {
                     self.reply(id, .failure(error))
                 }
             }
+        case .request(let id, "tool.files_write", let params):
+            guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId), !unattendedRuns.contains(runId) else {
+                reply(id, .failure(ValidationError("files_write solo funciona en un chat, con el usuario delante para aprobarlo.")))
+                return
+            }
+            let tool = FileWriteTool(db: db, paths: files.paths)
+            let approver = fileWriteApprover
+            Task {
+                do {
+                    let result = try await tool.run(params: params) { request in
+                        guard let approver else { return false }
+                        return await Self.withTimeout(Self.scriptApprovalTimeout, default: false) { await approver(request) }
+                    }
+                    self.reply(id, .success(result))
+                } catch {
+                    self.reply(id, .failure(error))
+                }
+            }
         case .request(let id, let method, let params):
             do {
                 let result = try tools.handle(method: method, params: params)
@@ -368,6 +396,7 @@ public actor AgentClient {
         case .notification("agent.done", let params):
             guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId) else { return }
             activeRuns.remove(runId)
+            unattendedRuns.remove(runId)
             let ok = params["ok"]?.boolValue ?? false
             let summary = ok ? params["summary"]?.stringValue : (params["error"]?.stringValue ?? "Error desconocido")
             if let run = try? db.finishRun(id: runId, status: ok ? .done : .failed, summary: summary,

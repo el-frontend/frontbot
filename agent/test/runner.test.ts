@@ -59,3 +59,20 @@ describe("buildQueryOptions", () => {
     expect(opts.allowedTools).toContain("mcp__frontbot__memory_remember");
   });
 });
+
+describe("folders", () => {
+  const server = createSdkMcpServer({ name: "frontbot", version: "0" });
+  const base = { run_id: "r", prompt: "hola", model: "m", agent: { id: "a", name: "Redactor", instructions: "x", is_default: false } };
+
+  it("authorized folders enable the file tools and are listed in the prompt", () => {
+    const opts = buildQueryOptions({ ...base, folders: ["/Users/u/marcas"] }, server, new AbortController(), "2026-10-16");
+    expect(opts.allowedTools).toContain("mcp__frontbot__files_write");
+    expect(String(opts.systemPrompt)).toContain("/Users/u/marcas");
+    expect(opts.tools).not.toContain("Write"); // nunca las herramientas de archivos del SDK
+  });
+
+  it("without folders there are no file tools", () => {
+    const opts = buildQueryOptions(base, server, new AbortController(), "2026-10-16");
+    expect(opts.allowedTools?.some((t) => t.includes("files_"))).toBe(false);
+  });
+});

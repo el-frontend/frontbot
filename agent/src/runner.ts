@@ -9,12 +9,14 @@ export type Brand = { id: string; name: string; guide: string | null };
 export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
 /** mode "summarize": run en segundo plano que solo actualiza la memoria del agente.
  *  mode "scheduled": tarea programada, sin nadie mirando; puede avisar con notify_user. */
-export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled"; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string } };
+export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled"; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
+  /** Carpetas del usuario autorizadas para este agente (rutas reales). */
+  folders?: string[] };
 
 /** Sin agente (clientes viejos o tests), el run es de Frontbot. */
 export const toolContext = (params: RunParams): ToolContext => ({
   agentId: params.agent?.id, isDefault: params.agent?.is_default ?? true, memoryOnly: params.mode === "summarize",
-  runId: params.run_id, scheduled: params.mode === "scheduled",
+  runId: params.run_id, scheduled: params.mode === "scheduled", files: (params.folders?.length ?? 0) > 0,
 });
 
 const userPrompt = (params: RunParams) => params.mode === "summarize"
@@ -83,7 +85,7 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined, skills ? skillReadHooks(skills) : undefined);
   return {
     model: params.model,
-    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined }),
+    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, folders: summarize ? undefined : params.folders, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined }),
     tools: summarize ? [] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : [])],
     allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : []),
       ...(params.trading && !summarize ? TRADING_TOOL_NAMES.map((t) => `mcp__frontbot__${t}`) : [])],
@@ -149,6 +151,13 @@ export class FakeRunner implements Runner {
 
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (params.prompt === "crash") process.exit(1);
+    if (params.prompt.includes("escribir") && params.folders?.length) {
+      // Para los tests de la app: escribe un archivo en la primera carpeta (o cuenta por qué no pudo).
+      const text = await this.call("tool.files_write", { agent_id: params.agent?.id, run_id: params.run_id, path: `${params.folders[0]}/fake.txt`, content: "hola" })
+        .then(() => "Escrito", (err: Error) => `No escrito: ${err.message}`);
+      emit({ run_id: params.run_id, type: "text", text });
+      return { run_id: params.run_id, ok: true, summary: text, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+    }
     if (params.mode === "scheduled") {
       if (params.prompt.includes("avisar")) await this.call("tool.notify_user", { agent_id: params.agent?.id, run_id: params.run_id, title: "Aviso de prueba", message: params.prompt });
       emit({ run_id: params.run_id, type: "text", text: `Tarea hecha: ${params.task?.name ?? ""}` });

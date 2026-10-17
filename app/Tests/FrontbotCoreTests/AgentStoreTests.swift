@@ -62,6 +62,20 @@ final class AgentStoreTests: XCTestCase {
         }
     }
 
+    func testFoldersPerAgent() throws {
+        let a = try db.createAgent(workspaceId: ws.id, draft: AgentDraft(name: "A", instructions: "x"), status: .active)
+        try db.addFolder(agentId: a.id, path: "/Users/x/marcas")
+        try db.addFolder(agentId: a.id, path: "/Users/x/marcas")
+        try db.addFolder(agentId: a.id, path: "/Users/x/fotos")
+        XCTAssertEqual(try db.folders(agentId: a.id), ["/Users/x/marcas", "/Users/x/fotos"])
+        XCTAssertEqual(try db.folders(agentId: try db.ensureDefaultAgent(workspaceId: ws.id).id), [])
+        try db.removeFolder(agentId: a.id, path: "/Users/x/marcas")
+        XCTAssertEqual(try db.folders(agentId: a.id), ["/Users/x/fotos"])
+        try db.deleteAgent(id: a.id)
+        XCTAssertEqual(try db.folders(agentId: a.id), [])
+        XCTAssertThrowsError(try db.addFolder(agentId: "nope", path: "/x"))
+    }
+
     func testCryptoTraderTemplate() throws {
         let template = try XCTUnwrap(AgentTemplate.all.first { $0.id == "crypto-trader" })
         let agent = try db.createAgent(workspaceId: ws.id, draft: template.draft, status: .active)

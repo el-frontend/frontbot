@@ -39,6 +39,15 @@ export const SCHEDULED_TOOL_SPECS = [
   { name: "notify_user", description: "Envía un aviso de macOS al usuario. Úsalo SOLO si encontraste algo que merece su atención (una oportunidad, un riesgo, un resultado importante). Si no hay nada relevante, no lo uses. title: corto; message: 1–2 frases.", shape: { title: z.string(), message: z.string() } },
 ] as const;
 
+/** Solo si el usuario autorizó carpetas para el agente. La app limita las rutas a esas carpetas. */
+const absPath = z.string().describe("Ruta absoluta (o con ~) dentro de una carpeta autorizada");
+export const FILE_TOOL_SPECS = [
+  { name: "files_folders", description: "Lista las carpetas del usuario en las que puedes leer y escribir archivos.", shape: {} },
+  { name: "files_list", description: "Lista el contenido de una carpeta (nombre, tipo, tamaño). Máx. 500 entradas.", shape: { path: absPath } },
+  { name: "files_read", description: "Lee un archivo de texto (máx. 512 KB; si es más largo, llega truncado). No lee binarios.", shape: { path: absPath } },
+  { name: "files_write", description: "Crea o reemplaza un archivo de texto con content completo (máx. 1 MB). El usuario aprueba cada escritura viendo el contenido; si la deniega, no insistas. Para editar, lee el archivo y escribe la versión completa.", shape: { path: absPath, content: z.string() } },
+] as const;
+
 /** Solo para el agente por defecto (Frontbot). */
 export const DEFAULT_AGENT_TOOL_SPECS = [
   { name: "agents_create_draft", description: "Propone un agente especializado nuevo. Queda en borrador: el usuario lo revisa y lo activa. model: claude-sonnet-5-5, claude-opus-5-5 o claude-haiku-4-5-20251001.", shape: { name: z.string(), description: z.string(), instructions: z.string(), model: z.string().optional(), browser: z.boolean().optional(), icon: z.string().optional().describe("Nombre de un SF Symbol") } },
@@ -47,13 +56,15 @@ export const DEFAULT_AGENT_TOOL_SPECS = [
 export const ALLOWED_TOOLS = ["WebSearch", "WebFetch", ...TOOL_SPECS.map((t) => `mcp__frontbot__${t.name}`)];
 
 /** Contexto del run: lo pone el sidecar, nunca el modelo. */
-export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean };
+export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean };
 
 const specsFor = (ctx: ToolContext) => {
   if (ctx.memoryOnly) return [...MEMORY_TOOL_SPECS];
   // En una tarea programada nadie puede aprobar un script: esa herramienta no existe ahí.
   const base = ctx.scheduled ? TOOL_SPECS.filter((t) => t.name !== "skills_run_script") : [...TOOL_SPECS];
-  return [...base, ...MEMORY_TOOL_SPECS, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : [])];
+  // Tampoco hay nadie para aprobar una escritura: en una tarea programada solo se lee.
+  const files = !ctx.files ? [] : ctx.scheduled ? FILE_TOOL_SPECS.filter((t) => t.name !== "files_write") : [...FILE_TOOL_SPECS];
+  return [...base, ...files, ...MEMORY_TOOL_SPECS, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : [])];
 };
 
 export const allowedToolsFor = (ctx: ToolContext) => [...(ctx.memoryOnly ? [] : ["WebSearch", "WebFetch"]), ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];
@@ -63,7 +74,7 @@ export function buildTools(call: AppCall, ctx: ToolContext = { isDefault: true }
     tool(spec.name, spec.description, spec.shape, async (args: Record<string, unknown>) => {
       try {
         const params: Record<string, unknown> = ctx.agentId ? { ...args, agent_id: ctx.agentId } : { ...args };
-        if (spec.name === "notify_user") params.run_id = ctx.runId; // el run lo identifica el sidecar, no el modelo
+        if (spec.name === "notify_user" || spec.name === "files_write") params.run_id = ctx.runId; // el run lo identifica el sidecar, no el modelo
         const result = await call(`tool.${spec.name}`, params);
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       } catch (err) {

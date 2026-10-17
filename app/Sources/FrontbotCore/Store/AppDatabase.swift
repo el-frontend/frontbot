@@ -225,6 +225,14 @@ public final class AppDatabase: Sendable {
                 t.column("finishedAt", .datetime)
             }
         }
+        m.registerMigration("v8-agent-folders") { db in
+            try db.create(table: "agentFolder") { t in
+                t.column("agentId", .text).notNull().references("agent", onDelete: .cascade)
+                t.column("path", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.primaryKey(["agentId", "path"])
+            }
+        }
         return m
     }
 

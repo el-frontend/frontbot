@@ -143,12 +143,28 @@ public struct ToolHandler: Sendable {
                                    browser: params["browser"]?.boolValue ?? false)
             let agent = try db.createAgent(workspaceId: workspaceId, draft: draft, status: .draft)
             return ["agent_id": .string(agent.id), "status": "draft"]
+        case "tool.files_folders":
+            return ["folders": .array(try db.folders(agentId: try string(params, "agent_id")).map(JSONValue.string))]
+        case "tool.files_list":
+            let listing = try agentFiles(params).list(try string(params, "path"))
+            return ["path": .string(listing.path), "truncated": .bool(listing.truncated), "entries": .array(listing.entries.map { e in
+                var entry: [String: JSONValue] = ["name": .string(e.name), "type": .string(e.kind.rawValue)]
+                if let size = e.size { entry["size"] = .number(Double(size)) }
+                return .object(entry)
+            })]
+        case "tool.files_read":
+            let contents = try agentFiles(params).read(try string(params, "path"))
+            return ["path": .string(contents.path), "content": .string(contents.text), "truncated": .bool(contents.truncated)]
         default:
             throw ValidationError("Herramienta desconocida: \(method).")
         }
     }
 
     // MARK: Helpers
+
+    private func agentFiles(_ params: JSONValue) throws -> AgentFiles {
+        try AgentFiles.forAgent(try string(params, "agent_id"), db: db, paths: files.paths)
+    }
 
     static func isoString(_ date: Date) -> String {
         date.formatted(.iso8601)
