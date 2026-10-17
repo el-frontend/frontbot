@@ -3,6 +3,7 @@ import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { allowedToolsFor, buildTools, STUDY_TOOL_NAMES } from "../src/tools.js";
 import { buildMarketTools, type Market, type Network } from "../src/trading.js";
 import { buildQueryOptions, toolContext, RealRunner, type RunParams } from "../src/runner.js";
+import { TokenMeter } from "../src/study.js";
 
 const study = { topic_id: "t1", session_id: "s1", question: "q", why: "w", budget_tokens: 100000, allow_opus: false, notebook: [] };
 const agent = { id: "a1", name: "Ana", instructions: "x", is_default: false };
@@ -28,12 +29,12 @@ describe("study mode tools", () => {
 
   it("study mode never exposes money or publishing tools", () => {
     const hostile = params({ browser: true, trading, folders: ["/tmp/x"], skills: [{ name: "s", description: "d", body: "b", files: {} } as never] });
-    const lists = [allowedToolsFor(toolContext(hostile)), buildQueryOptions(hostile, server, new AbortController(), "2026-10-17").allowedTools ?? []];
+    const lists = [allowedToolsFor(toolContext(hostile)), buildQueryOptions(hostile, server, new AbortController(), "2026-10-17", undefined, new TokenMeter(1000)).allowedTools ?? []];
     for (const list of lists) {
       for (const name of FORBIDDEN) expect(list).not.toContain(pre(name));
       expect(list.some((t) => /chrome|Read|Bash|Write|Edit|Skill/.test(t))).toBe(false);
     }
-    const opts = buildQueryOptions(hostile, server, new AbortController(), "2026-10-17");
+    const opts = buildQueryOptions(hostile, server, new AbortController(), "2026-10-17", undefined, new TokenMeter(1000));
     expect(opts.tools).toEqual(["WebSearch", "WebFetch", "Agent"]);
     expect(opts.allowedTools).toContain("Agent");
     expect(opts.allowedTools).toContain(pre("market_price"));
@@ -77,7 +78,7 @@ describe("study mode tools", () => {
   it("study mode without study or agent fails closed", async () => {
     for (const p of [params({ study: undefined }), params({ agent: undefined })]) {
       const list = allowedToolsFor(toolContext(p));
-      const opts = buildQueryOptions(p, server, new AbortController(), "2026-10-17").allowedTools ?? [];
+      const opts = buildQueryOptions(p, server, new AbortController(), "2026-10-17", undefined, new TokenMeter(1000)).allowedTools ?? [];
       for (const l of [list, opts]) for (const name of FORBIDDEN) expect(l).not.toContain(pre(name));
       expect(opts.some((t) => t.includes("lab_run"))).toBe(true);
     }

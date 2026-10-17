@@ -90,7 +90,7 @@ function browserHooks(guard: BrowserGuard): Hooks {
 
 /** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude.
  *  Con `browser`, añade el Chrome del usuario (Claude in Chrome) detrás del guardián. */
-export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin, meter?: TokenMeter): Options {
+export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin, meter: TokenMeter | undefined = undefined): Options {
   const summarize = params.mode === "summarize";
   // En estudio nadie mira: sin Chrome, sin plugin de skills y sin Read, aunque el run los pida.
   const study = params.mode === "study";
@@ -98,7 +98,8 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   const skills = !summarize && !study && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
   const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined, skills ? skillReadHooks(skills) : undefined);
   let warned = false;
-  const studyMeter = study ? meter ?? new TokenMeter(params.study?.budget_tokens ?? 0) : undefined;
+  if (study && !meter) throw new Error("El modo study necesita un TokenMeter");
+  const studyMeter = study ? meter : undefined;
   const studyHooks: Hooks | undefined = studyMeter ? { PostToolUse: [{ hooks: [async (input) => {
     if (input.hook_event_name !== "PostToolUse" || warned || !studyMeter.warned) return {};
     warned = true;
@@ -138,7 +139,7 @@ export class RealRunner implements Runner {
     if (signal.aborted) return cancelled(params.run_id);
     if (params.mode === "study" && (!params.study || !params.agent)) return { ...cancelled(params.run_id), error: "Sesión de estudio sin tema o sin agente" };
     const abortController = new AbortController();
-    signal.addEventListener("abort", () => abortController.abort());
+    signal.addEventListener("abort", () => abortController.abort(), { once: true });
     const plugin = params.skills?.length && params.mode !== "study" ? prepareSkillPlugin(params.skills) : undefined;
     const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [
       ...buildTools(this.call, { ...toolContext(params), skillPlugin: plugin }),
@@ -168,6 +169,8 @@ export class RealRunner implements Runner {
             if (block.type === "tool_use") emit({ run_id: params.run_id, type: "tool_call", text: block.name.replace("mcp__frontbot__", "").replace("mcp__claude-in-chrome__", "chrome · ") });
           }
         } else if (msg.type === "result") {
+          meter?.reconcile(msg.modelUsage);
+          if (cut) return cutDone();
           const usage = msg.usage as { input_tokens?: number; output_tokens?: number };
           const base = { run_id: params.run_id, input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0, cost_usd: msg.total_cost_usd ?? 0 };
           const lab = meter ? { lab_tokens: meter.total, models: meter.byModel() } : {};
