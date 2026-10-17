@@ -40,6 +40,7 @@ public enum PublicHost {
     private static func isLocalV4(_ b: [UInt8]) -> Bool {
         b[0] == 127 || b[0] == 10 || b[0] == 0 || (b[0] == 172 && (16...31).contains(b[1]))
             || (b[0] == 192 && b[1] == 168) || (b[0] == 169 && b[1] == 254)
+            || (b[0] == 100 && (64...127).contains(b[1])) || (b[0] == 198 && (18...19).contains(b[1]))
     }
 
     /// Direcciones a las que resuelve el host (getaddrinfo).
@@ -135,6 +136,7 @@ public struct URLSessionDatasetDownloader: DatasetDownloader {
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+            if failure != nil { completionHandler(.cancel); return }
             let name = dataTask.originalRequest?.url?.lastPathComponent ?? "El archivo"
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 failure = ValidationError("La descarga de \(name) no respondió 200.")
