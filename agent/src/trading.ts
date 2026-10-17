@@ -31,16 +31,12 @@ const ok = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.
 const fail = (message: string) => ({ isError: true, content: [{ type: "text" as const, text: message }] });
 const coin = z.string().describe("Símbolo en Hyperliquid, p. ej. BTC o ETH");
 
-export function buildTradingTools(call: AppCall, ctx: { agentId?: string; trading: RunTrading }, market: Market = realMarket) {
-  const n = ctx.trading.network;
-  const guarded = <A>(fn: (args: A) => Promise<unknown>) => async (args: A) => {
-    try { return ok(await fn(args)); } catch (err) { return fail((err as Error).message); }
-  };
-  const needAddress = () => {
-    if (!ctx.trading.address) throw new Error("El usuario aún no conecta su cuenta de Hyperliquid: pídele que conecte su API wallet en la página del agente.");
-    return ctx.trading.address;
-  };
+const guarded = <A>(fn: (args: A) => Promise<unknown>) => async (args: A) => {
+  try { return ok(await fn(args)); } catch (err) { return fail((err as Error).message); }
+};
 
+/** Solo lectura del mercado: no necesita cuenta ni mandato. */
+export function buildMarketTools(market: Market, n: Network) {
   return [
     tool("market_price", "Precio medio actual de una moneda en Hyperliquid.", { coin },
       guarded(async ({ coin: c }: { coin: string }) => ({ coin: c.toUpperCase(), price: await market.marketPrice(n, c), network: n }))),
@@ -51,6 +47,18 @@ export function buildTradingTools(call: AppCall, ctx: { agentId?: string; tradin
       guarded(async ({ coin: c }: { coin: string }) => market.funding(n, c))),
     tool("market_book", "Libro de órdenes (10 niveles por lado).", { coin },
       guarded(async ({ coin: c }: { coin: string }) => market.book(n, c))),
+  ];
+}
+
+export function buildTradingTools(call: AppCall, ctx: { agentId?: string; trading: RunTrading }, market: Market = realMarket) {
+  const n = ctx.trading.network;
+  const needAddress = () => {
+    if (!ctx.trading.address) throw new Error("El usuario aún no conecta su cuenta de Hyperliquid: pídele que conecte su API wallet en la página del agente.");
+    return ctx.trading.address;
+  };
+
+  return [
+    ...buildMarketTools(market, n),
     tool("account_state", "Valor de la cuenta, margen disponible y posiciones abiertas del usuario.", {},
       guarded(async () => market.accountState(n, needAddress()))),
     tool("trade_propose",
