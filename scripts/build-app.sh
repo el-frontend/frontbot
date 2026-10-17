@@ -21,6 +21,9 @@ cp -R "$ROOT/agent/dist" "$ROOT/agent/package.json" "$ROOT/agent/package-lock.js
 (cd "$APP/Contents/Resources/agent" && npm prune --omit=dev --no-audit --no-fund >/dev/null)
 # Recursos que SwiftPM genera junto al binario (p. ej. el bundle de GRDB).
 for b in "$(dirname "$BIN")"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
+# Mascota (modelo 3D y logo) e icono de la app.
+cp -R "$ROOT/app/Sources/FrontbotApp/Resources/Mascot" "$APP/Contents/Resources/"
+cp "$ROOT/app/Sources/FrontbotApp/Resources/AppIcon.icns" "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -32,9 +35,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>app.frontbot.Frontbot</string>
   <key>CFBundleExecutable</key><string>Frontbot</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>0.4.0</string>
   <key>CFBundleVersion</key><string>4</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>
