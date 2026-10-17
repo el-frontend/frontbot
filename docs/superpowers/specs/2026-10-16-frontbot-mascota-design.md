@@ -20,10 +20,10 @@ El GLB tiene una sola malla rígida: 162.035 vértices, sin esqueleto, sin blend
 `convert.mjs <glb>` se ejecuta a mano cuando cambia el modelo, nunca durante la compilación. Usa `@gltf-transform` y sus dependencias, instaladas en `scripts/mascot/` (no en el sidecar).
 
 1. Quita la cuantización y aplica `KHR_texture_transform` a las UV.
-2. Pasa las texturas de WebP a PNG, de 1024 px como máximo.
+2. Pasa las texturas de WebP a 1024 px como máximo: color y metal/rugosidad en JPEG, relieve en PNG.
 3. Simplifica la malla a unos 30.000 vértices, conservando las costuras de UV.
 4. Centra el modelo en el origen y lo escala para que su caja mida 1. La cara mira a +Z.
-5. Exporta a USDZ con `realitytool`. Si eso no sirve desde glTF, escribe USDA con material `UsdPreviewSurface` (color base, metalness y roughness), lo convierte con `usdcat` y empaqueta el `.usdz`.
+5. Escribe USDA con material `UsdPreviewSurface` (color base, metal/rugosidad y relieve), lo convierte a `.usdc` con `usdcat` y lo empaqueta en `.usdz` con un empaquetador propio (`usdz.mjs`), porque ni `realitytool` ni `usdcat` generan USDZ desde glTF.
 6. Genera `preview.png` (un render del resultado) para revisarlo a ojo.
 
 **Salida:** `app/Sources/FrontbotApp/Resources/Mascot/frontbot.usdz`, que va en el repo. El GLB no se versiona.
@@ -79,7 +79,7 @@ Cada animación cíclica empieza y acaba en la misma pose, para que no haya salt
 
 **Animación.** Aplica `MascotMotion` en cada fotograma solo mientras la vista es visible y el estado lo pide. En `idle` con "Reducir movimiento" o con `animated: false`, renderiza un fotograma y se detiene.
 
-**Escena.** Luz fija suave y fondo transparente. Las luces cian del modelo se simulan modulando la emisión del material con el brillo de la pose; si el material importado no lo permite, el brillo no cambia y el resto funciona igual.
+**Escena.** Luz fija suave y fondo transparente. El brillo de la pose regula una luz puntual cian delante del modelo (el material no tiene máscara de emisión: modular su emisión teñiría todo el cuerpo). La escena usa una luz ambiental basada en imagen generada en código; sin ella el blanco se ve gris.
 
 ## Dónde aparece
 
