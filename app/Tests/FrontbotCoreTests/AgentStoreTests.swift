@@ -84,6 +84,8 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertTrue(agent.browser)
         XCTAssertTrue(agent.trading)
         XCTAssertTrue(agent.instructions.contains("stop loss"))
+        XCTAssertTrue(agent.instructions.contains("lab_propose_skill"))
+        XCTAssertFalse(agent.instructions.contains("guárdala como skill"))
     }
 }
 

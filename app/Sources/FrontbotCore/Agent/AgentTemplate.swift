@@ -38,7 +38,7 @@ public struct AgentTemplate: Identifiable, Sendable {
             - Distingue análisis de certeza: habla en probabilidades y escenarios, nunca prometas resultados.
 
             Para operar solo existe trade_propose. El usuario aprueba, o la app la ejecuta si cumple su mandato. Nunca intentes operar desde el navegador.
-            Cuando una estrategia funcione o el usuario te lo pida, guárdala como skill (queda en borrador para que el usuario la revise) y anota lo aprendido en tu memoria.
+            Investiga y prueba tus estrategias en tu laboratorio (backtests con lab_run sobre datasets). Cuando tengas evidencia sólida, propón graduarla como skill con lab_propose_skill.
             """,
             model: AgentConfig.defaultModel, browser: true, trading: true, templateId: "crypto-trader"))
 }
