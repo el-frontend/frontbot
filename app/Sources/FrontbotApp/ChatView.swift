@@ -33,7 +33,16 @@ struct ChatView: View {
                             ProposalCard(model: model, proposal: p)
                         }
                         if model.isRunningHere {
-                            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("pensando…").font(Theme.mono(12)).foregroundStyle(Theme.muted) }
+                            HStack(spacing: 8) {
+                                if model.selectedAgent?.isDefault == true {
+                                    TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                                        MascotView(state: model.mascot.state(at: context.date, listening: false), size: 28)
+                                    }
+                                } else {
+                                    ProgressView().controlSize(.small)
+                                }
+                                Text("pensando…").font(Theme.mono(12)).foregroundStyle(Theme.muted)
+                            }
                         }
                     }
                     .frame(maxWidth: 760, alignment: .leading)
@@ -62,12 +71,16 @@ struct ChatView: View {
                 Text(agent.description.isEmpty ? "Un agente especializado de Frontbot." : agent.description)
                     .foregroundStyle(Theme.muted).lineSpacing(3)
             } else {
+                TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                    MascotView(state: model.mascot.state(at: context.date, listening: !draft.isEmpty), size: 140)
+                }
+                .padding(.bottom, 4)
                 Text("¿Qué hacemos hoy?").font(.system(size: 22, weight: .semibold))
                 Text("Pídele posts para una marca, que investigue un tema, que te recuerde algo o que busque oportunidades de negocio.")
                     .foregroundStyle(Theme.muted).lineSpacing(3)
             }
         }
-        .padding(.top, 80)
+        .padding(.top, 40)
     }
 
     @ViewBuilder
