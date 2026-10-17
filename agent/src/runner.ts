@@ -3,6 +3,7 @@ import { buildTools, allowedToolsFor, type AppCall, type ToolContext } from "./t
 import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
 import { buildTradingTools, buildMarketTools, realMarket, TRADING_TOOL_NAMES, type RunTrading } from "./trading.js";
 import type { RunStudy } from "./lab.js";
+import { TokenMeter, buildStudyPrompt, studyAgents, STUDY_WARNING } from "./study.js";
 import { prepareSkillPlugin, readGuard, type RunSkill, type SkillPlugin } from "./skills.js";
 import { buildSystemPrompt, buildUserPrompt, buildSummaryPrompt, type MemoryNote, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 
@@ -14,6 +15,8 @@ export type RunParams = { run_id: string; prompt: string; model: string; agent?:
   /** Carpetas del usuario autorizadas para este agente (rutas reales). */
   folders?: string[] };
 
+const STUDY_MODEL = "claude-sonnet-5-5";
+const STUDY_WALL_CLOCK_MS = 20 * 60 * 1000;
 const MARKET_TOOL_NAMES = ["market_price", "market_candles", "market_funding", "market_book"];
 
 /** Sin agente (clientes viejos o tests), el run es de Frontbot. */
@@ -24,13 +27,17 @@ export const toolContext = (params: RunParams): ToolContext => ({
   study: params.mode === "study" ? { topicId: params.study?.topic_id ?? "", sessionId: params.study?.session_id ?? "" } : undefined,
 });
 
-const userPrompt = (params: RunParams) => params.mode === "summarize"
+const userPrompt = (params: RunParams) => params.mode === "study" && params.study
+  ? buildStudyPrompt(params.study, params.agent ?? { name: "Frontbot" })
+  : params.mode === "summarize"
   ? buildSummaryPrompt(params.history ?? [], params.agent?.name ?? "Frontbot")
   : params.mode === "scheduled"
     ? `Ejecución de la tarea programada «${params.task?.name ?? "tarea"}». Instrucción:\n${params.prompt}`
     : buildUserPrompt(params.history ?? [], params.prompt, params.agent?.name);
 export type RunEvent = { run_id: string; type: "text" | "tool_call" | "status"; text: string };
-export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number; error?: string };
+export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number; error?: string;
+  /** Solo en estudio: cortada por límite, tokens contados con la métrica del laboratorio y desglose por modelo. */
+  cut?: boolean; lab_tokens?: number; models?: { model: string; tokens: number }[] };
 
 export interface Runner {
   run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone>;
@@ -83,15 +90,23 @@ function browserHooks(guard: BrowserGuard): Hooks {
 
 /** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude.
  *  Con `browser`, añade el Chrome del usuario (Claude in Chrome) detrás del guardián. */
-export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin): Options {
+export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin, meter?: TokenMeter): Options {
   const summarize = params.mode === "summarize";
   // En estudio nadie mira: sin Chrome, sin plugin de skills y sin Read, aunque el run los pida.
   const study = params.mode === "study";
   const browser = params.browser === true && !summarize && !study;
   const skills = !summarize && !study && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
   const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined, skills ? skillReadHooks(skills) : undefined);
+  let warned = false;
+  const studyMeter = study ? meter ?? new TokenMeter(params.study?.budget_tokens ?? 0) : undefined;
+  const studyHooks: Hooks | undefined = studyMeter ? { PostToolUse: [{ hooks: [async (input) => {
+    if (input.hook_event_name !== "PostToolUse" || warned || !studyMeter.warned) return {};
+    warned = true;
+    return { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: STUDY_WARNING } };
+  }] }] } : undefined;
   return {
-    model: params.model,
+    // El hilo principal del estudio siempre corre en Sonnet (§8); los subagentes eligen el suyo.
+    model: study ? STUDY_MODEL : params.model,
     systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, folders: summarize || study ? undefined : params.folders, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined }),
     tools: summarize ? [] : study ? ["WebSearch", "WebFetch", "Agent"] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : [])],
     allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : []),
@@ -99,7 +114,8 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
       ...(params.trading && !summarize ? (study ? MARKET_TOOL_NAMES : TRADING_TOOL_NAMES).map((t) => `mcp__frontbot__${t}`) : []),
       ...(study ? ["Agent"] : [])],
     ...(browser ? { extraArgs: { chrome: null } } : {}),
-    ...(hooks ? { hooks } : {}),
+    ...(hooks || studyHooks ? { hooks: mergeHooks(hooks, studyHooks) } : {}),
+    ...(study ? { agents: studyAgents(params.study?.allow_opus === true), forwardSubagentText: true } : {}),
     ...(skills ? {
       plugins: [{ type: "local" as const, path: skills.path }], skills: skills.skillNames,
       // Un skill de terceros no puede ejecutar comandos incrustados (`!cmd`): solo la sandbox con aprobación.
@@ -110,13 +126,13 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
     settingSources: [],
     permissionMode: "dontAsk",
     persistSession: false,
-    maxTurns: summarize ? 6 : 30,
+    maxTurns: summarize ? 6 : study ? 60 : 30,
     abortController,
   };
 }
 
 export class RealRunner implements Runner {
-  constructor(private call: AppCall) {}
+  constructor(private call: AppCall, private queryFn: typeof query = query) {}
 
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (signal.aborted) return cancelled(params.run_id);
@@ -130,11 +146,23 @@ export class RealRunner implements Runner {
       ...(params.trading && params.mode !== "summarize" && params.mode !== "study" ? buildTradingTools(this.call, { agentId: params.agent?.id, trading: params.trading }) : []),
     ] });
     const today = localToday();
+    const isStudy = params.mode === "study";
+    const meter = isStudy ? new TokenMeter(params.study?.budget_tokens ?? 0) : undefined;
+    // Corte por límite (tokens o reloj): no es una cancelación del usuario.
+    let cut = false;
+    const cutDone = (): RunDone => ({ run_id: params.run_id, ok: true, summary: "Sesión cortada por límite", input_tokens: meter?.inputTokens ?? 0, output_tokens: meter?.outputTokens ?? 0, cost_usd: 0, cut: true, lab_tokens: meter?.total ?? 0, models: meter?.byModel() ?? [] });
+    const clock = isStudy ? setTimeout(() => { cut = true; abortController.abort(); }, STUDY_WALL_CLOCK_MS) : undefined;
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
-      const stream = query({ prompt: userPrompt(params), options: buildQueryOptions(params, server, abortController, today, plugin) });
+      const stream = this.queryFn({ prompt: userPrompt(params), options: buildQueryOptions(params, server, abortController, today, plugin, meter) });
       for await (const msg of stream) {
+        if (meter) {
+          meter.consume(msg as never);
+          if (meter.exhausted) { cut = true; abortController.abort(); return cutDone(); }
+        }
         if (msg.type === "assistant") {
+          // El texto de los subagentes viaja en el flujo (forwardSubagentText) pero no se muestra como del agente.
+          if (msg.parent_tool_use_id) continue;
           for (const block of msg.message.content) {
             if (block.type === "text") emit({ run_id: params.run_id, type: "text", text: block.text });
             if (block.type === "tool_use") emit({ run_id: params.run_id, type: "tool_call", text: block.name.replace("mcp__frontbot__", "").replace("mcp__claude-in-chrome__", "chrome · ") });
@@ -142,15 +170,19 @@ export class RealRunner implements Runner {
         } else if (msg.type === "result") {
           const usage = msg.usage as { input_tokens?: number; output_tokens?: number };
           const base = { run_id: params.run_id, input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0, cost_usd: msg.total_cost_usd ?? 0 };
-          if (msg.subtype === "success" && !msg.is_error) return { ...base, ok: true, summary: msg.result };
-          return { ...base, ok: false, summary: "", error: msg.subtype === "success" ? msg.result : msg.subtype };
+          const lab = meter ? { lab_tokens: meter.total, models: meter.byModel() } : {};
+          if (msg.subtype === "success" && !msg.is_error) return { ...base, ...lab, ok: true, summary: msg.result };
+          return { ...base, ...lab, ok: false, summary: "", error: msg.subtype === "success" ? msg.result : msg.subtype };
         }
       }
+      if (cut) return cutDone();
       return signal.aborted ? cancelled(params.run_id) : { ...cancelled(params.run_id), error: "El agente terminó sin resultado" };
     } catch (err) {
+      if (cut) return cutDone();
       if (signal.aborted) return cancelled(params.run_id);
       return { ...cancelled(params.run_id), error: (err as Error).message };
     } finally {
+      clearTimeout(clock);
       plugin?.cleanup();
     }
   }
@@ -168,6 +200,14 @@ export class FakeRunner implements Runner {
         .then(() => "Escrito", (err: Error) => `No escrito: ${err.message}`);
       emit({ run_id: params.run_id, type: "text", text });
       return { run_id: params.run_id, ok: true, summary: text, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+    }
+    if (params.mode === "study") {
+      const ids = { agent_id: params.agent?.id, topic_id: params.study?.topic_id, session_id: params.study?.session_id };
+      await this.call("tool.lab_note", { ...ids, kind: "note", text: "nota de prueba" });
+      emit({ run_id: params.run_id, type: "tool_call", text: "lab_note" });
+      await this.call("tool.lab_end_session", { ...ids, outcome: params.prompt.includes("pausar") ? "pause" : "continue", summary: "Sesión de prueba" });
+      emit({ run_id: params.run_id, type: "tool_call", text: "lab_end_session" });
+      return { run_id: params.run_id, ok: true, summary: "Sesión de prueba", input_tokens: 0, output_tokens: 0, cost_usd: 0, lab_tokens: 1234, models: [{ model: "claude-haiku-4-5-20251001", tokens: 1234 }] };
     }
     if (params.mode === "scheduled") {
       if (params.prompt.includes("avisar")) await this.call("tool.notify_user", { agent_id: params.agent?.id, run_id: params.run_id, title: "Aviso de prueba", message: params.prompt });
