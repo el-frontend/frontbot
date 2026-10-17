@@ -9,30 +9,44 @@ export const countTokens = (u: Usage): number =>
   Math.floor((u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0) + 0.1 * (u.cache_read_input_tokens ?? 0));
 
 export class TokenMeter {
-  private models = new Map<string, number>();
-  private sum = { input: 0, output: 0 };
+  // Un mensaje del asistente llega en varios frames con el mismo message.id (uno por bloque, stop_reason null,
+  // uso parcial): se guarda el último uso por id, sin duplicar. Los subagentes cuentan igual.
+  private byId = new Map<string, { model: string; usage: Usage }>();
+  private reconciled: Map<string, number> | undefined;
+  private anon = 0;
   constructor(private budget: number) {}
 
-  add(model: string, usage: Usage) {
-    this.models.set(model, (this.models.get(model) ?? 0) + countTokens(usage));
-    this.sum.input += usage.input_tokens ?? 0;
-    this.sum.output += usage.output_tokens ?? 0;
+  add(model: string, usage: Usage, id?: string) {
+    const key = id ?? `anon-${this.anon++}`;
+    const prev = this.byId.get(key)?.usage;
+    const max = (k: keyof Usage) => Math.max(prev?.[k] ?? 0, usage[k] ?? 0);
+    this.byId.set(key, { model, usage: { input_tokens: max("input_tokens"), output_tokens: max("output_tokens"), cache_creation_input_tokens: max("cache_creation_input_tokens"), cache_read_input_tokens: max("cache_read_input_tokens") } });
   }
 
-  /** Solo cuenta mensajes `assistant` completos (stop_reason no nulo): los parciales no traen el uso final.
-   *  Incluye los de subagentes (parent_tool_use_id no nulo). */
-  consume(msg: { type?: string; message?: { model?: string; stop_reason?: string | null; usage?: Usage } }) {
+  consume(msg: { type?: string; message?: { id?: string; model?: string; usage?: Usage } }) {
     if (msg.type !== "assistant" || !msg.message?.usage) return;
-    if (msg.message.stop_reason === null || msg.message.stop_reason === undefined) return;
-    this.add(msg.message.model ?? "desconocido", msg.message.usage);
+    this.add(msg.message.model ?? "desconocido", msg.message.usage, msg.message.id);
   }
 
-  get total(): number { let t = 0; for (const v of this.models.values()) t += v; return t; }
+  /** El mensaje `result` trae el uso total por modelo (con subagentes): sustituye la cuenta parcial. */
+  reconcile(modelUsage: Record<string, { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number }> | undefined) {
+    if (!modelUsage || Object.keys(modelUsage).length === 0) return;
+    this.reconciled = new Map(Object.entries(modelUsage).map(([m, u]) => [m, countTokens({ input_tokens: u.inputTokens, output_tokens: u.outputTokens, cache_creation_input_tokens: u.cacheCreationInputTokens, cache_read_input_tokens: u.cacheReadInputTokens })]));
+  }
+
+  get total(): number { let t = 0; for (const v of this.perModel().values()) t += v; return t; }
   get warned(): boolean { return this.total >= this.budget * 0.85; }
   get exhausted(): boolean { return this.total >= this.budget; }
-  get inputTokens(): number { return this.sum.input; }
-  get outputTokens(): number { return this.sum.output; }
-  byModel(): { model: string; tokens: number }[] { return [...this.models].map(([model, tokens]) => ({ model, tokens })); }
+  get inputTokens(): number { let t = 0; for (const e of this.byId.values()) t += e.usage.input_tokens ?? 0; return t; }
+  get outputTokens(): number { let t = 0; for (const e of this.byId.values()) t += e.usage.output_tokens ?? 0; return t; }
+  byModel(): { model: string; tokens: number }[] { return [...this.perModel()].map(([model, tokens]) => ({ model, tokens })); }
+
+  private perModel(): Map<string, number> {
+    if (this.reconciled) return this.reconciled;
+    const out = new Map<string, number>();
+    for (const e of this.byId.values()) out.set(e.model, (out.get(e.model) ?? 0) + countTokens(e.usage));
+    return out;
+  }
 }
 
 export const STUDY_WARNING = "Te queda poco presupuesto de tokens en esta sesión: anota lo que tengas y llama a lab_end_session.";
