@@ -83,8 +83,35 @@ final class SkillVersionsTests: XCTestCase {
         let p = try propose(.update)
         let edited = try library.saveManifest(id: s.id, text: SkillManifest.render(name: "mi-skill", description: "Editado", body: "Del usuario"))
         XCTAssertEqual(edited.version, 2)
-        XCTAssertThrowsError(try versions.approve(proposalId: p.id)) { XCTAssertEqual(($0 as? ValidationError)?.message, self.changed) }
+        XCTAssertThrowsError(try versions.approve(proposalId: p.id)) {
+            XCTAssertTrue($0 is SkillVersions.StaleProposal)
+            XCTAssertEqual($0.localizedDescription, self.changed)
+        }
         XCTAssertEqual(try db.writer.read { try SkillProposal.fetchOne($0, key: p.id) }?.status, .pending)
+    }
+
+    func testDeleteAndRecreateWithSameNameBlocksStaleProposal() throws {
+        let s = try existing()
+        let p = try propose(.update)
+        XCTAssertEqual(p.skillId, s.id)
+        try library.delete(id: s.id)
+        let again = try existing() // mismo nombre, versión 1 otra vez, asignado al agente
+        XCTAssertNotEqual(again.id, s.id)
+        XCTAssertEqual(again.version, p.baseVersion)
+        XCTAssertThrowsError(try versions.approve(proposalId: p.id)) { XCTAssertTrue($0 is SkillVersions.StaleProposal) }
+        XCTAssertTrue(try library.manifestText(of: again).contains("Viejo texto"))
+    }
+
+    func testRevertKeepsLiveFolderIfSnapshotIsUnreadable() throws {
+        let s = try existing()
+        let p = try propose(.update, files: ["b.md": "B2"])
+        _ = try versions.approve(proposalId: p.id)
+        // Un snapshot que no se puede leer entero no se copia: el skill vivo no debe quedar borrado.
+        let unreadable = paths.skillVersionsDir("mi-skill").appendingPathComponent("1/b.md")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: unreadable.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: unreadable.path) }
+        XCTAssertThrowsError(try versions.revert(skillId: s.id, to: 1))
+        XCTAssertEqual(try String(contentsOf: paths.skillDir("mi-skill").appendingPathComponent("b.md"), encoding: .utf8), "B2")
     }
 
     func testApproveFailsIfSkillUnassignedOrDeleted() throws {

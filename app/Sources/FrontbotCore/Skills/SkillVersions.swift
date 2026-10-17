@@ -9,16 +9,39 @@ public struct SkillVersions: Sendable {
 
     public init(library: SkillLibrary) { self.library = library }
 
+    /// El skill cambió (otra versión, o borrado y creado de nuevo con el mismo nombre) desde que se propuso.
+    public struct StaleProposal: LocalizedError, Equatable, Sendable {
+        public let message = "El skill cambió desde que se propuso: recházala para que el agente vuelva a proponer."
+        public init() {}
+        public var errorDescription: String? { message }
+    }
+
+    /// Copia `source` a un temporal junto a `dest` y lo cambia por `dest` de una vez: si la copia falla, `dest` queda intacto.
+    private static func replaceDirectory(_ dest: URL, withCopyOf source: URL) throws {
+        let fm = FileManager.default
+        let parent = dest.deletingLastPathComponent()
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+        let tmp = parent.appendingPathComponent(".tmp-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try fm.copyItem(at: source, to: tmp)
+            if fm.fileExists(atPath: dest.path) {
+                _ = try fm.replaceItemAt(dest, withItemAt: tmp)
+            } else {
+                try fm.moveItem(at: tmp, to: dest)
+            }
+        } catch {
+            try? fm.removeItem(at: tmp)
+            throw error
+        }
+    }
+
     // MARK: Versiones
 
     /// Copia la carpeta del skill a `.versions/<name>/<version>/` y registra la fila.
     @discardableResult
     public func snapshot(_ skill: Skill, proposalId: String?) throws -> SkillVersion {
-        let fm = FileManager.default
         let dest = paths.skillVersionsDir(skill.name).appendingPathComponent(String(skill.version), isDirectory: true)
-        try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? fm.removeItem(at: dest)
-        try fm.copyItem(at: library.directory(for: skill), to: dest)
+        try Self.replaceDirectory(dest, withCopyOf: library.directory(for: skill))
         let row = SkillVersion(id: UUID().uuidString, skillId: skill.id, number: skill.version, proposalId: proposalId,
                                snapshotPath: dest.path, createdAt: .dbNow())
         try db.writer.write { db in
@@ -39,10 +62,8 @@ public struct SkillVersions: Sendable {
             throw ValidationError("No existe la versión \(number) de \(skill.name).")
         }
         try snapshot(skill, proposalId: nil)
-        let fm = FileManager.default
         let dir = library.directory(for: skill)
-        try? fm.removeItem(at: dir)
-        try fm.copyItem(at: URL(fileURLWithPath: target.snapshotPath), to: dir)
+        try Self.replaceDirectory(dir, withCopyOf: URL(fileURLWithPath: target.snapshotPath))
         let manifest = try SkillManifest.parse(try library.manifestText(of: skill))
         skill.description = manifest.description
         skill.hasScripts = SkillLibrary.containsScripts(dir)
@@ -68,7 +89,7 @@ public struct SkillVersions: Sendable {
         let manifest = try SkillManifest.parse(text) // valida nombre y descripción
         try SkillLibrary.validateFiles(files)
         let existing = try library.skill(named: manifest.name)
-        var baseVersion: Int?
+        var baseVersion: Int?, skillId: String?
         switch kind {
         case .new:
             guard existing == nil else { throw ValidationError("Ya existe un skill llamado \(manifest.name).") }
@@ -78,10 +99,11 @@ public struct SkillVersions: Sendable {
                 throw ValidationError("\(manifest.name) no está asignado a este agente.")
             }
             baseVersion = skill.version
+            skillId = skill.id
         }
         let proposal = SkillProposal(id: UUID().uuidString, agentId: agentId, topicId: topicId, kind: kind, skillName: manifest.name,
                                      description: manifest.description, body: body, files: files,
-                                     evidenceSummary: evidenceSummary, baseVersion: baseVersion, status: .pending,
+                                     evidenceSummary: evidenceSummary, baseVersion: baseVersion, skillId: skillId, status: .pending,
                                      comment: nil, createdAt: .dbNow(), decidedAt: nil)
         try db.writer.write { try proposal.insert($0) }
         if let topicId { try db.setTopicStatus(id: topicId, .resolved, reason: nil, now: .dbNow()) }
@@ -110,8 +132,8 @@ public struct SkillVersions: Sendable {
         case .update:
             guard var current = try library.skill(named: p.skillName),
                   try library.agentIds(using: current.id).contains(p.agentId),
-                  current.version == p.baseVersion else {
-                throw ValidationError("El skill cambió desde que se propuso: recházala para que el agente vuelva a proponer.")
+                  current.version == p.baseVersion, p.skillId == nil || current.id == p.skillId else {
+                throw StaleProposal()
             }
             try snapshot(current, proposalId: p.id)
             let dir = library.directory(for: current)
