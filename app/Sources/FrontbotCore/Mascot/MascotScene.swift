@@ -83,3 +83,10 @@ public final class MascotScene {
         return resource
     }
 }
+
+/// Dónde están los archivos de la mascota: dentro del .app (Contents/Resources/Mascot) o, en desarrollo, en las fuentes.
+public enum MascotResources {
+    public static func locate(_ name: String, candidates: [URL]) -> URL? {
+        candidates.map { $0.appendingPathComponent(name) }.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+}

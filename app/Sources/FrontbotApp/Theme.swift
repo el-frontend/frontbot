@@ -145,12 +145,29 @@ struct AgentAvatar: View {
     ]
 
     var body: some View {
-        let tone = agent.isDefault ? Self.tones[0] : Self.tones[abs(agent.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }) % Self.tones.count]
-        Image(systemName: agent.icon)
-            .font(.system(size: size * 0.52, weight: .semibold))
-            .foregroundStyle(Color(hex: tone.1))
-            .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: size * 0.28).fill(Color(hex: tone.0)))
-            .opacity(agent.status == .draft ? 0.55 : 1)
+        if agent.isDefault {
+            FrontbotLogo(size: size).opacity(agent.status == .draft ? 0.55 : 1)
+        } else {
+            let tone = Self.tones[abs(agent.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }) % Self.tones.count]
+            Image(systemName: agent.icon)
+                .font(.system(size: size * 0.52, weight: .semibold))
+                .foregroundStyle(Color(hex: tone.1))
+                .frame(width: size, height: size)
+                .background(RoundedRectangle(cornerRadius: size * 0.28).fill(Color(hex: tone.0)))
+                .opacity(agent.status == .draft ? 0.55 : 1)
+        }
+    }
+}
+
+/// Logo de Frontbot (la mascota en 2D). Sin el archivo, el símbolo de siempre.
+struct FrontbotLogo: View {
+    var size: CGFloat = 18
+
+    var body: some View {
+        if let logo = MascotAssets.logo {
+            Image(nsImage: logo).resizable().interpolation(.high).scaledToFit().frame(width: size, height: size)
+        } else {
+            Image(systemName: "rectangle.roundedtop").font(.system(size: size * 0.8)).foregroundStyle(Theme.accent).frame(width: size, height: size)
+        }
     }
 }

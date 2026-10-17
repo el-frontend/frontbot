@@ -13,7 +13,7 @@ struct BrandsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 8) {
-                Image(systemName: "rectangle.roundedtop").foregroundStyle(Theme.accent)
+                FrontbotLogo(size: 20)
                 Text("Frontbot").font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Text("⌥ Space").font(Theme.mono()).foregroundStyle(Theme.muted)
