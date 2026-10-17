@@ -5,48 +5,165 @@ public protocol DatasetDownloader: Sendable {
     func download(_ url: URL, to file: URL, maxBytes: Int) async throws
 }
 
-/// Implementación real: sesión efímera sin cookies ni credenciales, solo https, HTTP 200 y tope de bytes.
+/// Decide si un host apunta a la máquina o a la red local (no son datos públicos).
+public enum PublicHost {
+    public static func localError(_ host: String) -> ValidationError {
+        ValidationError("Solo se descargan datos públicos: \(host) es una dirección local.")
+    }
+
+    /// Comprobación sin DNS: nombres locales y direcciones IP literales.
+    public static func isLocalLiteral(_ rawHost: String) -> Bool {
+        let host = rawHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        if host.isEmpty || host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local") { return true }
+        return isLocalAddress(host)
+    }
+
+    /// `true` si `text` es una IP literal loopback/privada/link-local/no especificada.
+    public static func isLocalAddress(_ text: String) -> Bool {
+        var v4 = in_addr()
+        if inet_pton(AF_INET, text, &v4) == 1 {
+            let b = withUnsafeBytes(of: v4) { Array($0) }
+            return isLocalV4(b)
+        }
+        var v6 = in6_addr()
+        if inet_pton(AF_INET6, text, &v6) == 1 {
+            let b = withUnsafeBytes(of: v6) { Array($0) }
+            if b.dropLast().allSatisfy({ $0 == 0 }) && (b[15] == 0 || b[15] == 1) { return true }  // :: y ::1
+            if b[0] & 0xFE == 0xFC { return true }                                                // fc00::/7
+            if b[0] == 0xFE && b[1] & 0xC0 == 0x80 { return true }                                // fe80::/10
+            if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xFF && b[11] == 0xFF { return isLocalV4(Array(b[12..<16])) }
+            return false
+        }
+        return false
+    }
+
+    private static func isLocalV4(_ b: [UInt8]) -> Bool {
+        b[0] == 127 || b[0] == 10 || b[0] == 0 || (b[0] == 172 && (16...31).contains(b[1]))
+            || (b[0] == 192 && b[1] == 168) || (b[0] == 169 && b[1] == 254)
+    }
+
+    /// Direcciones a las que resuelve el host (getaddrinfo).
+    public static func systemResolve(_ host: String) -> [String] {
+        var hints = addrinfo()
+        hints.ai_socktype = SOCK_STREAM
+        var res: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &res) == 0, let first = res else { return [] }
+        defer { freeaddrinfo(res) }
+        var out: [String] = []
+        var cur: UnsafeMutablePointer<addrinfo>? = first
+        while let ai = cur {
+            var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(ai.pointee.ai_addr, ai.pointee.ai_addrlen, &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 {
+                out.append(String(cString: buf))
+            }
+            cur = ai.pointee.ai_next
+        }
+        return out
+    }
+}
+
+/// Implementación real: sesión efímera sin cookies ni credenciales, solo https público, HTTP 200 y tope de bytes.
 public struct URLSessionDatasetDownloader: DatasetDownloader {
-    public init() {}
+    let protocolClasses: [AnyClass]
+    let resolver: @Sendable (String) -> [String]
+
+    public init() { self.init(protocolClasses: [], resolver: PublicHost.systemResolve) }
+
+    /// Para tests: protocolos de red simulados y resolución de DNS inyectable.
+    init(protocolClasses: [AnyClass], resolver: @escaping @Sendable (String) -> [String]) {
+        self.protocolClasses = protocolClasses
+        self.resolver = resolver
+    }
 
     public func download(_ url: URL, to file: URL, maxBytes: Int) async throws {
-        guard url.scheme?.lowercased() == "https" else { throw ValidationError("Solo se admiten URLs https.") }
+        try Self.check(url, resolver: resolver)
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.httpCookieStorage = nil
         config.urlCredentialStorage = nil
-        let session = URLSession(configuration: config, delegate: HTTPSOnlyDelegate(), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        let (bytes, response) = try await session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw ValidationError("La descarga de \(url.absoluteString) no respondió 200.")
-        }
-        if http.expectedContentLength > Int64(maxBytes) {
-            throw ValidationError("\(url.lastPathComponent) supera el límite de tamaño del dataset.")
-        }
+        if !protocolClasses.isEmpty { config.protocolClasses = protocolClasses }
         FileManager.default.createFile(atPath: file.path, contents: nil)
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }
-        var total = 0
-        var buffer = Data()
-        for try await byte in bytes {
-            buffer.append(byte)
-            total += 1
-            if total > maxBytes { throw ValidationError("\(url.lastPathComponent) supera el límite de tamaño del dataset.") }
-            if buffer.count >= 65_536 {
-                try handle.write(contentsOf: buffer)
-                buffer.removeAll(keepingCapacity: true)
+        let task = DownloadDelegate(handle: handle, maxBytes: maxBytes, resolver: resolver)
+        let session = URLSession(configuration: config, delegate: task, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                task.continuation = cont
+                session.dataTask(with: request).resume()
             }
-        }
-        if !buffer.isEmpty { try handle.write(contentsOf: buffer) }
+        } onCancel: { session.invalidateAndCancel() }
     }
 
-    private final class HTTPSOnlyDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static func check(_ url: URL, resolver: (String) -> [String]) throws {
+        guard url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty else {
+            throw ValidationError("Solo se admiten URLs https.")
+        }
+        if PublicHost.isLocalLiteral(host) { throw PublicHost.localError(host) }
+        if resolver(host).contains(where: PublicHost.isLocalAddress) { throw PublicHost.localError(host) }
+    }
+
+    private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        let handle: FileHandle
+        let maxBytes: Int
+        let resolver: @Sendable (String) -> [String]
+        var continuation: CheckedContinuation<Void, Error>?
+        private var failure: Error?
+        private var total = 0
+
+        init(handle: FileHandle, maxBytes: Int, resolver: @escaping @Sendable (String) -> [String]) {
+            self.handle = handle
+            self.maxBytes = maxBytes
+            self.resolver = resolver
+        }
+
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                         newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-            completionHandler(request.url?.scheme?.lowercased() == "https" ? request : nil)
+            guard let target = request.url else { completionHandler(nil); return }
+            do {
+                try URLSessionDatasetDownloader.check(target, resolver: resolver)
+                completionHandler(request)
+            } catch {
+                failure = error
+                completionHandler(nil)
+                task.cancel()
+            }
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+            let name = dataTask.originalRequest?.url?.lastPathComponent ?? "El archivo"
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                failure = ValidationError("La descarga de \(name) no respondió 200.")
+                completionHandler(.cancel)
+                return
+            }
+            if http.expectedContentLength > Int64(maxBytes) {
+                failure = ValidationError("\(name) supera el límite de tamaño del dataset.")
+                completionHandler(.cancel)
+                return
+            }
+            completionHandler(.allow)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            total += data.count
+            if total > maxBytes {
+                failure = ValidationError("\(dataTask.originalRequest?.url?.lastPathComponent ?? "El archivo") supera el límite de tamaño del dataset.")
+                dataTask.cancel()
+                return
+            }
+            do { try handle.write(contentsOf: data) } catch { failure = error; dataTask.cancel() }
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            if let failure { continuation?.resume(throwing: failure) }
+            else if let error { continuation?.resume(throwing: error) }
+            else { continuation?.resume() }
+            continuation = nil
         }
     }
 }
@@ -100,6 +217,7 @@ public struct Datasets: Sendable {
             guard let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host?.isEmpty == false else {
                 throw ValidationError("Solo se admiten URLs https (\(raw)).")
             }
+            if let host = url.host, PublicHost.isLocalLiteral(host) { throw PublicHost.localError(host) }
             parsed.append(url)
         }
         let fm = FileManager.default
