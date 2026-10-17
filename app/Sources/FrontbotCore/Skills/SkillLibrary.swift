@@ -204,7 +204,7 @@ public struct SkillLibrary: Sendable {
                         hasScripts: Bool, createdBy: String?) throws -> Skill {
         let now = Date.dbNow()
         let skill = Skill(id: UUID().uuidString, name: name, description: description, source: source, status: status,
-                          hasScripts: hasScripts, createdByAgentId: createdBy, createdAt: now, updatedAt: now)
+                          hasScripts: hasScripts, createdByAgentId: createdBy, version: 1, createdAt: now, updatedAt: now)
         try db.writer.write { try skill.insert($0) }
         return skill
     }

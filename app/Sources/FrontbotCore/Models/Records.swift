@@ -172,6 +172,7 @@ public struct Skill: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     public var status: SkillStatus
     public var hasScripts: Bool
     public var createdByAgentId: String?
+    public var version: Int
     public var createdAt: Date
     public var updatedAt: Date
 }
