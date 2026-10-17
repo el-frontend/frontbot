@@ -58,6 +58,14 @@ struct NotchView: View {
                 .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x0E0E10)))
             }
 
+            if let running = model.lab.runningSession {
+                let line = "\(running.agent.name) estudiando: \(running.topic.question)"
+                HStack(spacing: 6) {
+                    Image(systemName: "flask")
+                    Text(line.count > 60 ? String(line.prefix(60)) + "…" : line).lineLimit(1)
+                }
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
+            }
             if let next = model.nextScheduled, let at = next.task.nextRunAt {
                 Button { model.showMainWindow(section: .schedules); controller.collapse() } label: {
                     HStack(spacing: 6) {
