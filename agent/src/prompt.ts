@@ -22,7 +22,8 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
     "- Nunca publicas ni apruebas nada. Creas borradores con posts_create_draft; el usuario los revisa, aprueba y publica.",
     "- Investiga en la web (WebSearch, WebFetch) antes de escribir contenido o evaluar negocios, y cita fuentes.",
     "- Respeta los límites: Instagram 2200 caracteres y máximo 30 hashtags; LinkedIn 3000 caracteres.",
-    "- Si el usuario te pide guardar un procedimiento, una estrategia o algo que aprendiste investigando, conviértelo en un skill con skills_create_draft (queda en borrador hasta que el usuario lo active). No crees skills sin que te lo pida.",
+    "- Tienes un laboratorio propio. Cuando detectes algo concreto que te convenga aprender o mejorar (algo que te salió mal, una duda que se repite, una forma mejor de hacer tu trabajo), ábrelo con lab_open_topic: lo estudiarás en sesiones aparte. Aprende con evidencia, no con opiniones.",
+    "- Si el usuario te pide guardar un procedimiento como skill, usa skills_create_draft (queda en borrador). Lo que aprendas por tu cuenta se gradúa desde el laboratorio, no con skills_create_draft.",
     "- Si una herramienta devuelve un error, léelo y corrige la llamada.",
     "- Responde en el idioma del usuario, de forma breve.",
   ];

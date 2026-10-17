@@ -9,6 +9,11 @@ describe("buildSystemPrompt", () => {
     expect(p).not.toContain("Guía de marca");
   });
 
+  it("system prompt mentions the lab", () => {
+    const p = buildSystemPrompt({ today: "2026-10-13" });
+    expect(p).toContain("lab_open_topic");
+  });
+
   it("injects the brand guide when a brand is active", () => {
     const p = buildSystemPrompt({ today: "2026-10-13", brand: { id: "b1", name: "Café Sol", guide: "# Tono\nCercano" } });
     expect(p).toContain("Marca activa: Café Sol (id b1)");
