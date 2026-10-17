@@ -233,6 +233,85 @@ public final class AppDatabase: Sendable {
                 t.primaryKey(["agentId", "path"])
             }
         }
+        m.registerMigration("v9-lab") { db in
+            try db.alter(table: "skill") { t in
+                t.add(column: "version", .integer).notNull().defaults(to: 1)
+            }
+            try db.create(table: "labTopic") { t in
+                t.primaryKey("id", .text)
+                t.column("agentId", .text).notNull().references("agent", onDelete: .cascade)
+                t.column("question", .text).notNull()
+                t.column("why", .text).notNull()
+                t.column("origin", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("conclusion", .text)
+                t.column("sessions", .integer).notNull().defaults(to: 0)
+                t.column("tokensUsed", .integer).notNull().defaults(to: 0)
+                t.column("nextSessionAfter", .datetime)
+                t.column("consecutiveFailures", .integer).notNull().defaults(to: 0)
+                t.column("pausedReason", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(index: "labTopic_agentId", on: "labTopic", columns: ["agentId"])
+            try db.create(table: "labSession") { t in
+                t.primaryKey("id", .text)
+                t.column("topicId", .text).notNull().references("labTopic", onDelete: .cascade)
+                t.column("agentRunId", .text)
+                t.column("status", .text).notNull()
+                t.column("tokens", .integer).notNull().defaults(to: 0)
+                t.column("models", .text).notNull()
+                t.column("outcome", .text)
+                t.column("summary", .text)
+                t.column("startedAt", .datetime).notNull()
+                t.column("finishedAt", .datetime)
+            }
+            try db.create(index: "labSession_topicId", on: "labSession", columns: ["topicId"])
+            try db.create(table: "labEntry") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("topicId", .text).notNull().references("labTopic", onDelete: .cascade)
+                t.column("sessionId", .text)
+                t.column("kind", .text).notNull()
+                t.column("text", .text).notNull()
+                t.column("evidence", .text)
+                t.column("sources", .text).notNull()
+                t.column("model", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(index: "labEntry_topicId", on: "labEntry", columns: ["topicId"])
+            try db.create(table: "skillProposal") { t in
+                t.primaryKey("id", .text)
+                t.column("agentId", .text).notNull()
+                t.column("topicId", .text)
+                t.column("kind", .text).notNull()
+                t.column("skillName", .text).notNull()
+                t.column("description", .text).notNull()
+                t.column("body", .text).notNull()
+                t.column("files", .text).notNull()
+                t.column("evidenceSummary", .text).notNull()
+                t.column("baseVersion", .integer)
+                t.column("status", .text).notNull()
+                t.column("comment", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("decidedAt", .datetime)
+            }
+            try db.create(table: "skillVersion") { t in
+                t.primaryKey("id", .text)
+                t.column("skillId", .text).notNull().references("skill", onDelete: .cascade)
+                t.column("number", .integer).notNull()
+                t.column("proposalId", .text)
+                t.column("snapshotPath", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(table: "agentLabSettings") { t in
+                t.primaryKey("agentId", .text).references("agent", onDelete: .cascade)
+                t.column("sessionTokenCap", .integer).notNull()
+                t.column("dailyTokenCap", .integer).notNull()
+                t.column("maxOpenTopics", .integer).notNull()
+                t.column("enabled", .boolean).notNull()
+                t.column("allowOpus", .boolean).notNull()
+            }
+        }
         return m
     }
 
