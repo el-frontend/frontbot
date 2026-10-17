@@ -25,6 +25,7 @@ final class LabController {
     /// Entre `startLabSession` y que el run tenga id: el reloj no lanza otra sesión.
     @ObservationIgnored private var launching = false
     @ObservationIgnored private var runningRunId: String?
+    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
 
     init(db: AppDatabase, paths: AppPaths, client: AgentClient, workspaceId: String, model: AppModel) {
         self.db = db
@@ -66,7 +67,10 @@ final class LabController {
             do {
                 let run = try await client.run(prompt: pick.topic.question, agent: pick.agent, brand: nil, model: Self.studyModel, study: study)
                 try? db.attachAgentRun(labSessionId: session.id, agentRunId: run.id)
-                if runningSession?.session.id == session.id { runningRunId = run.id }
+                guard runningSession?.session.id == session.id else { return } // ya terminó y se procesó
+                runningRunId = run.id
+                // Si el run terminó antes de devolver su id, su `.finished` pudo perderse: la sesión ya no está `running`.
+                if (try? db.labSession(id: session.id))?.status != .running { finishStudy(); return }
                 watchdog(runId: run.id, sessionId: session.id)
             } catch {
                 closeFailed(session)
@@ -75,9 +79,9 @@ final class LabController {
     }
 
     private func watchdog(runId: String, sessionId: String) {
-        Task { [weak self] in
+        watchdogTask = Task { [weak self] in
             try? await Task.sleep(for: Self.safetyDeadline)
-            guard let self, self.runningSession?.session.id == sessionId else { return }
+            guard !Task.isCancelled, let self, self.runningSession?.session.id == sessionId else { return }
             await self.client.cancel(runId: runId) // colgada: AgentClient la cierra como fallida
         }
     }
@@ -113,6 +117,8 @@ final class LabController {
 
     private func finishStudy() {
         guard let current = runningSession else { return }
+        watchdogTask?.cancel()
+        watchdogTask = nil
         runningSession = nil
         runningRunId = nil
         version += 1
@@ -181,10 +187,13 @@ final class LabController {
         guard let current = runningSession else { return }
         _ = try? db.finishLabSession(id: current.session.id, status: .cut, outcome: nil, summary: nil, conclusion: nil,
                                      tokens: 0, models: [], now: Date())
+        let runId = runningRunId ?? (try? db.labSession(id: current.session.id))?.agentRunId
+        watchdogTask?.cancel()
+        watchdogTask = nil
+        runningSession = nil // una `.finished` perdida no puede bloquear el laboratorio
+        runningRunId = nil
         version += 1
-        if let runId = runningRunId ?? (try? db.labSession(id: current.session.id))?.agentRunId {
-            Task { await client.cancel(runId: runId) }
-        }
+        if let runId { Task { await client.cancel(runId: runId) } }
     }
 
     // MARK: Propuestas
