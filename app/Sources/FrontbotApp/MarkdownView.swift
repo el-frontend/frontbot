@@ -73,7 +73,12 @@ private struct Inline: View {
                 result[run.range].foregroundColor = Theme.accent
                 result[run.range].backgroundColor = Theme.raised
             }
-            if run.link != nil {
+            if let link = run.link {
+                // El texto puede venir de webs que leyó el agente: solo se abren enlaces web o de correo.
+                guard ["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") else {
+                    result[run.range].link = nil
+                    continue
+                }
                 result[run.range].foregroundColor = Theme.inFlight
                 result[run.range].underlineStyle = .single
             }
