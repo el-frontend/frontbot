@@ -125,7 +125,7 @@ Más reglas:
 
 - Tras cada sesión con `continue`, `nextSessionAfter = ahora + 20 min`, para dar aire y no encadenar sin pausa.
 - Al abrir un tema queda `nextSessionAfter = ahora`, así que se estudia en el siguiente tic si hay presupuesto.
-- **Fallos** (decisión del builder-diseño): tras una sesión `failed`, o `cut` por los 20 minutos o los 60 turnos, la espera crece: 20 min → 1 h → 4 h. Con 3 fallos seguidos, el tema pasa a `paused` y la pestaña muestra el motivo. Una sesión `done` reinicia el contador. El corte por tokens no cuenta como fallo.
+- **Fallos** (decisión del diseño): tras una sesión `failed`, o `cut` por los 20 minutos o los 60 turnos, la espera crece: 20 min → 1 h → 4 h. Con 3 fallos seguidos, el tema pasa a `paused` y la pestaña muestra el motivo. Una sesión `done` reinicia el contador. El corte por tokens no cuenta como fallo.
 - **Presupuesto restante:** el límite de corte de una sesión es el menor entre `sessionTokenCap` y lo que le queda al agente del día. No se lanza una sesión si quedan menos de 20 000 tokens.
 - **Runs simultáneos del mismo agente** (decisión del diseño): una sesión no empieza si hay un chat activo de ese agente. Si el usuario abre un chat o vence una tarea programada durante una sesión, corren en paralelo, como hoy corren tareas y chat. SQLite serializa las escrituras de memoria y cuaderno. `lab_note` solo existe en `study`, así que el chat no escribe en el cuaderno del tema en curso.
 - **Botones del usuario:** "Estudiar ahora" pone `nextSessionAfter = ahora`; "Pausar" lo pasa a `paused`. Desde la UI, un tema pausado puede reanudarse, y también el agente puede reanudarlo.
