@@ -95,7 +95,7 @@ describe("runner", () => {
       yield frame("c", 5000, 0); // no debe procesarse
     })()) as never;
     const done = await new RealRunner((async () => ({})) as never, fakeQuery).run(params(), () => {}, new AbortController().signal);
-    expect(done).toMatchObject({ ok: true, cut: true, lab_tokens: 1000, summary: "Sesión cortada por límite" });
+    expect(done).toMatchObject({ ok: true, cut: true, cut_reason: "tokens", lab_tokens: 1000, summary: "Sesión cortada por límite" });
     expect(aborted).toBe(true);
   });
   const blockUntilAbort = (signal: AbortSignal) => new Promise<void>((resolve) => signal.aborted ? resolve() : signal.addEventListener("abort", () => resolve(), { once: true }));
@@ -108,7 +108,7 @@ describe("runner", () => {
     })()) as never;
     const p = new RealRunner((async () => ({})) as never, fakeQuery).run(params(), () => {}, new AbortController().signal);
     await vi.advanceTimersByTimeAsync(20 * 60 * 1000 + 1);
-    expect(await p).toMatchObject({ ok: true, cut: true, lab_tokens: 100 });
+    expect(await p).toMatchObject({ ok: true, cut: true, cut_reason: "clock", lab_tokens: 100 });
   });
   it("wall clock cut also covers a stream that throws on abort", async () => {
     vi.useFakeTimers();
@@ -119,7 +119,7 @@ describe("runner", () => {
     })()) as never;
     const p = new RealRunner((async () => ({})) as never, fakeQuery).run(params(), () => {}, new AbortController().signal);
     await vi.advanceTimersByTimeAsync(20 * 60 * 1000 + 1);
-    expect(await p).toMatchObject({ ok: true, cut: true });
+    expect(await p).toMatchObject({ ok: true, cut: true, cut_reason: "clock" });
   });
   it("a user cancel is still a cancel, not a cut", async () => {
     const ac = new AbortController();
@@ -129,7 +129,29 @@ describe("runner", () => {
       await blockUntilAbort(args.options.abortController.signal);
       throw new Error("aborted");
     })()) as never;
-    expect(await new RealRunner((async () => ({})) as never, fakeQuery).run(params(), () => {}, ac.signal)).toMatchObject({ ok: false, error: "Cancelado" });
+    const done = await new RealRunner((async () => ({})) as never, fakeQuery).run(params(), () => {}, ac.signal);
+    expect(done).toMatchObject({ ok: false, error: "Cancelado", lab_tokens: 100, input_tokens: 100, models: [{ model: "claude-sonnet-5-5", tokens: 100 }] });
+    expect(done.cut).toBeUndefined();
+  });
+  it("a stream that ends or throws without result still reports the tokens spent", async () => {
+    const ends = (() => (async function* () { yield frame("a", 200, 0); })()) as never;
+    expect(await new RealRunner((async () => ({})) as never, ends).run(params(), () => {}, new AbortController().signal))
+      .toMatchObject({ ok: false, error: "El agente terminó sin resultado", lab_tokens: 200 });
+    const throws = (() => (async function* () { yield frame("a", 300, 0); throw new Error("boom"); })()) as never;
+    expect(await new RealRunner((async () => ({})) as never, throws).run(params(), () => {}, new AbortController().signal))
+      .toMatchObject({ ok: false, error: "boom", lab_tokens: 300 });
+    expect(await new RealRunner((async () => ({})) as never, ends).run(params({ study: undefined }), () => {}, new AbortController().signal))
+      .toMatchObject({ ok: false, lab_tokens: 0 });
+  });
+  it("chat runs keep reporting without lab tokens", async () => {
+    const ac = new AbortController(); ac.abort();
+    const done = await new RealRunner((async () => ({})) as never, (() => (async function* () {})()) as never).run(params({ mode: "chat" }), () => {}, ac.signal);
+    expect(done.lab_tokens).toBeUndefined();
+  });
+  it("study system prompt drops sections whose tools study does not have", () => {
+    const trading = { network: "mainnet" as const, mandate: { mode: "approve", max_risk_pct: 1, max_leverage: 3, coins: ["BTC"], max_trades_per_day: 2 } };
+    const opts = mk(params({ trading, browser: true, folders: ["/tmp/x"] }));
+    for (const s of ["trade_propose", "skills_create_draft", "files_", "Navegador", "notify_user"]) expect(opts.systemPrompt).not.toContain(s);
   });
   it("reports lab tokens on a normal finish", async () => {
     const fakeQuery = (() => (async function* () {
@@ -156,5 +178,19 @@ describe("runner", () => {
     calls.length = 0;
     await fake.run(params({ prompt: "estudiar y pausar" }), () => {}, new AbortController().signal);
     expect(calls[1][1]).toMatchObject({ outcome: "pause" });
+  });
+  it("FakeRunner study cuts by tokens or clock, and reports tokens on cancel", async () => {
+    const calls: string[] = [];
+    const fake = new FakeRunner((async (m: string) => { calls.push(m); return {}; }) as never);
+    expect(await fake.run(params({ prompt: "cortar" }), () => {}, new AbortController().signal)).toMatchObject({ ok: true, cut: true, cut_reason: "tokens", lab_tokens: 5000 });
+    expect(calls).not.toContain("tool.lab_end_session");
+    expect(await fake.run(params({ prompt: "cortar reloj" }), () => {}, new AbortController().signal)).toMatchObject({ cut: true, cut_reason: "clock" });
+    calls.length = 0;
+    await fake.run(params({ prompt: "cortar tras cerrar" }), () => {}, new AbortController().signal);
+    expect(calls).toContain("tool.lab_end_session");
+    const ac = new AbortController();
+    const p = fake.run(params({ prompt: "lento" }), () => {}, ac.signal);
+    ac.abort();
+    expect(await p).toMatchObject({ ok: false, error: "Cancelado", lab_tokens: 777 });
   });
 });
