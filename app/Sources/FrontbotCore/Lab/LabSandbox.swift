@@ -7,10 +7,13 @@ public struct LabSandbox: Sendable {
     let db: AppDatabase
     let sandbox: ScriptSandbox
     let maxAgentBytes: Int
+    /// Cada cuánto se mide el laboratorio mientras corre el script.
+    let sizePollInterval: TimeInterval
 
     public init(paths: AppPaths, db: AppDatabase, nodePath: String? = nil, timeout: TimeInterval = 300,
-                maxAgentBytes: Int = LabWorkspace.defaultMaxAgentBytes) {
+                maxAgentBytes: Int = LabWorkspace.defaultMaxAgentBytes, sizePollInterval: TimeInterval = 2) {
         self.maxAgentBytes = maxAgentBytes
+        self.sizePollInterval = sizePollInterval
         self.paths = paths
         self.db = db
         self.sandbox = ScriptSandbox(timeout: timeout, nodePath: nodePath)
@@ -21,8 +24,9 @@ public struct LabSandbox: Sendable {
             throw ValidationError("Los datasets no se ejecutan: copia el script a tu tema.")
         }
         let workspace = LabWorkspace(paths: paths, db: db, agentId: agentId, topicId: topicId, maxAgentBytes: maxAgentBytes)
+        let limit = maxAgentBytes >= 1_000_000 ? "\(maxAgentBytes / 1_000_000) MB" : "\(maxAgentBytes) bytes"
         guard workspace.usedBytes <= maxAgentBytes else {
-            throw ValidationError("Tu laboratorio superó el límite de \(maxAgentBytes >= 1_000_000 ? "\(maxAgentBytes / 1_000_000) MB" : "\(maxAgentBytes) bytes"): borra archivos antes de ejecutar scripts.")
+            throw ValidationError("Tu laboratorio superó el límite de \(limit): borra archivos antes de ejecutar scripts.")
         }
         let fm = FileManager.default
         // Las carpetas existen antes de resolver, para que el perfil use sus rutas reales.
@@ -48,6 +52,13 @@ public struct LabSandbox: Sendable {
             interpreter = paths.labVenvPython.path
             readDirs.append(paths.labsDir.appendingPathComponent(".venv", isDirectory: true)) // sus paquetes
         }
-        return try sandbox.run(script: url.path, args: args, in: realTopic, readDirs: readDirs, writeDirs: [realTopic, realShared], interpreter: interpreter)
+        // El límite también rige mientras corre: un script que llena el disco se detiene.
+        let labDir = paths.labDir(agentId), cap = maxAgentBytes
+        let watch = ScriptSandbox.Watch(interval: sizePollInterval) {
+            LabWorkspace.directorySize(labDir) > cap
+                ? "Script detenido: tu laboratorio superó el límite de \(limit). Borra archivos o escribe menos datos." : nil
+        }
+        return try sandbox.run(script: url.path, args: args, in: realTopic, readDirs: readDirs, writeDirs: [realTopic, realShared],
+                               interpreter: interpreter, watch: watch)
     }
 }

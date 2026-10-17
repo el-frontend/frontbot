@@ -105,7 +105,9 @@ public struct LabToolHandler: Sendable {
             let (agentId, topicId) = (ctx.topic.agentId, ctx.topic.id)
             // La sandbox bloquea hasta 5 min: se ejecuta fuera del actor que llama.
             let r = try await Task.detached { try sandbox.run(agentId: agentId, topicId: topicId, script: script, args: args) }.value
-            return ["exit_code": .number(Double(r.exitCode)), "stdout": .string(r.stdout), "stderr": .string(r.stderr), "timed_out": .bool(r.timedOut)]
+            var out: [String: JSONValue] = ["exit_code": .number(Double(r.exitCode)), "stdout": .string(r.stdout), "stderr": .string(r.stderr), "timed_out": .bool(r.timedOut)]
+            if let reason = r.killedReason { out["stopped"] = .string(reason) }
+            return .object(out)
         case "tool.lab_fetch_dataset":
             let urls = (params["urls"]?.arrayValue ?? []).compactMap(\.stringValue)
             let meta = try await datasets.fetch(name: try string(params, "name"), urls: urls,
