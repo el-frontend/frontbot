@@ -115,13 +115,46 @@ extension AppDatabase {
         }
     }
 
-    /// Registra la sesión y los totales del tema. Las reglas de espera y fallos las aplica `LabScheduler.apply`.
+    /// Guarda lo que decidió el agente al llamar a `lab_end_session`; la sesión sigue `running` hasta `agent.done`.
+    public func recordSessionEnd(id: String, outcome: LabOutcome, summary: String, conclusion: String?, now: Date) throws {
+        try writer.write { db in
+            guard var session = try LabSession.fetchOne(db, key: id) else { throw ValidationError("No existe sesión con id \(id).") }
+            session.outcome = outcome
+            session.summary = summary
+            try session.update(db)
+            if let conclusion, var topic = try LabTopic.fetchOne(db, key: session.topicId) {
+                topic.conclusion = conclusion
+                topic.updatedAt = now
+                try topic.update(db)
+            }
+        }
+    }
+
+    /// Las últimas `limit` notas sobre el modelo del agente, de todos sus temas, de la más antigua a la más reciente.
+    public func modelNotes(agentId: String, limit: Int) throws -> [LabEntry] {
+        try writer.read { db in
+            let ids = try String.fetchAll(db, sql: "SELECT id FROM labTopic WHERE agentId = ?", arguments: [agentId])
+            guard !ids.isEmpty else { return [] }
+            let rows = try LabEntry.filter(ids.contains(Column("topicId")) && Column("kind") == LabEntryKind.model_note.rawValue)
+                .order(Column("id").desc).limit(limit).fetchAll(db)
+            return rows.reversed()
+        }
+    }
+
+    public func labSession(id: String) throws -> LabSession? {
+        try writer.read { try LabSession.fetchOne($0, key: id) }
+    }
+
+    /// Registra la sesión y los totales del tema. Solo cierra una sesión `running`: una segunda llamada no hace nada.
+    /// Las reglas de espera y fallos (`LabScheduler.apply`) solo se aplican si el tema sigue `studying`:
+    /// si el usuario lo pausó o abandonó durante la sesión, eso manda.
     @discardableResult
     public func finishLabSession(id: String, status: LabSessionStatus, outcome: LabOutcome?, summary: String?, conclusion: String?,
                                  tokens: Int, models: [LabModelUsage], now: Date) throws -> LabTopic {
         try writer.write { db in
             guard var session = try LabSession.fetchOne(db, key: id) else { throw ValidationError("No existe sesión con id \(id).") }
             guard var topic = try LabTopic.fetchOne(db, key: session.topicId) else { throw ValidationError("No existe tema con id \(session.topicId).") }
+            guard session.status == .running else { return topic }
             session.status = status
             session.outcome = outcome
             session.summary = summary
@@ -133,7 +166,9 @@ extension AppDatabase {
             topic.tokensUsed += tokens
             if let conclusion { topic.conclusion = conclusion }
             topic.updatedAt = now
-            LabScheduler.apply(finished: status, outcome: outcome, to: &topic, now: now)
+            if topic.status == .studying {
+                LabScheduler.apply(finished: status, outcome: outcome, to: &topic, now: now)
+            }
             try topic.update(db)
             return topic
         }

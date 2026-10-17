@@ -155,4 +155,28 @@ final class LabStoreTests: XCTestCase {
             XCTAssertEqual(try LabEntry.fetchCount(d), 0)
         }
     }
+
+    func testFinishSessionTwiceIsNoOp() throws {
+        let t = try open()
+        let s = try db.startLabSession(topicId: t.id, now: .dbNow())
+        _ = try db.finishLabSession(id: s.id, status: .failed, outcome: nil, summary: "x", conclusion: nil, tokens: 100, models: [], now: .dbNow())
+        let topic = try db.finishLabSession(id: s.id, status: .done, outcome: .continue, summary: "y", conclusion: nil, tokens: 500, models: [], now: .dbNow())
+        XCTAssertEqual(topic.sessions, 1)
+        XCTAssertEqual(topic.tokensUsed, 100)
+        XCTAssertEqual(topic.consecutiveFailures, 1)
+        let saved = try db.writer.read { try LabSession.fetchOne($0, key: s.id) }
+        XCTAssertEqual(saved?.status, .failed)
+        XCTAssertEqual(saved?.tokens, 100)
+    }
+
+    func testUserPauseDuringSessionWinsOverScheduler() throws {
+        let t = try open()
+        let s = try db.startLabSession(topicId: t.id, now: .dbNow())
+        _ = try db.setTopicStatus(id: t.id, .abandoned, reason: nil, now: .dbNow())
+        let topic = try db.finishLabSession(id: s.id, status: .failed, outcome: nil, summary: nil, conclusion: nil, tokens: 700, models: [], now: .dbNow())
+        XCTAssertEqual(topic.status, .abandoned)
+        XCTAssertEqual(topic.consecutiveFailures, 0)
+        XCTAssertEqual(topic.sessions, 1)
+        XCTAssertEqual(topic.tokensUsed, 700)
+    }
 }
