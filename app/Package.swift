@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Frontbot",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     products: [
         .library(name: "FrontbotCore", targets: ["FrontbotCore"]),
         .executable(name: "FrontbotApp", targets: ["FrontbotApp"]),
@@ -13,7 +13,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "FrontbotCore", dependencies: [.product(name: "GRDB", package: "GRDB")]),
-        .executableTarget(name: "FrontbotApp", dependencies: ["FrontbotCore"]),
+        // Los recursos de la mascota los copia build-app.sh (Bundle.module no funciona dentro de un .app).
+        .executableTarget(name: "FrontbotApp", dependencies: ["FrontbotCore"], exclude: ["Resources"]),
         .testTarget(name: "FrontbotCoreTests", dependencies: ["FrontbotCore"]),
     ]
 )
