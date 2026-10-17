@@ -33,7 +33,7 @@ public struct LabWorkspace: Sendable {
             throw ValidationError("\(path) es una carpeta, no un archivo.")
         }
         let previous = Self.lstatSize(url.path) ?? 0
-        let used = Self.directorySize(paths.labDir(agentId))
+        let used = usedBytes
         guard used - previous + content.utf8.count <= maxAgentBytes else {
             throw ValidationError("Tu laboratorio llegó al límite de \(maxAgentBytes >= 1_000_000 ? "\(maxAgentBytes / 1_000_000) MB" : "\(maxAgentBytes) bytes"): borra o resume archivos antes de escribir más.")
         }
@@ -71,9 +71,8 @@ public struct LabWorkspace: Sendable {
         }
         let url = try resolve(trimmed, forWriting: false)
         var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
-            throw ValidationError("\(trimmed) no es una carpeta.")
-        }
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+        guard !exists || isDir.boolValue else { throw ValidationError("\(trimmed) no es una carpeta.") }
         let prefix = trimmed.split(separator: "/").filter { $0 != "." }.joined(separator: "/")
         return try entries(of: url, prefix: prefix.isEmpty ? "" : prefix + "/")
     }
@@ -116,7 +115,10 @@ public struct LabWorkspace: Sendable {
             throw ValidationError("Los skills y los datasets son de solo lectura: escribe en tu tema o en shared/.")
         }
 
-        guard let root = Self.resolveExisting(base.path) else { throw outside }
+        // La raíz debe ser exactamente su carpeta bajo el padre real: si un script la cambió por un enlace, no vale.
+        guard let parent = Self.resolveExisting(base.deletingLastPathComponent().path),
+              let root = Self.resolveExisting(base.path),
+              root == URL(fileURLWithPath: parent).appendingPathComponent(base.lastPathComponent).path else { throw outside }
         guard let resolved = Self.resolveExisting(parts.reduce(base) { $0.appendingPathComponent($1) }.path) else { throw outside }
         guard Self.path(resolved, isInside: root) else { throw outside }
         return URL(fileURLWithPath: resolved)
@@ -124,11 +126,14 @@ public struct LabWorkspace: Sendable {
 
     // MARK: Auxiliares
 
+    var usedBytes: Int { Self.directorySize(paths.labDir(agentId)) }
+
     private func assignedSkills() throws -> [Skill] {
         try SkillLibrary(db: db, paths: paths).skills(assignedTo: agentId, activeOnly: true)
     }
 
     private func entries(of dir: URL, prefix: String) throws -> [String] {
+        guard Self.lstatSize(dir.path) != nil else { return [] } // aún no se ha escrito nada
         let names = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
         return names.prefix(Self.maxListEntries).map { name in
             var isDir: ObjCBool = false

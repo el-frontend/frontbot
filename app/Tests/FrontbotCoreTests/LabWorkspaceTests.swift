@@ -101,4 +101,31 @@ final class LabWorkspaceTests: XCTestCase {
         // El tope es por agente: shared/ también cuenta.
         XCTAssertThrowsError(try lab.write("shared/z.txt", content: String(repeating: "d", count: 200)))
     }
+
+    func testSwappedTopicRootLinkIsRejected() throws {
+        let lab = workspace()
+        try lab.write("a.txt", content: "x")
+        let outside = root.appendingPathComponent("casa")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try "secreto".write(to: outside.appendingPathComponent("s.txt"), atomically: true, encoding: .utf8)
+        let topic = paths.labTopicDir(agent.id, "t1")
+        try FileManager.default.removeItem(at: topic)
+        try FileManager.default.createSymbolicLink(at: topic, withDestinationURL: outside)
+        XCTAssertThrowsError(try lab.read("s.txt"))
+        XCTAssertThrowsError(try lab.write("n.txt", content: "x"))
+        XCTAssertThrowsError(try lab.list(nil))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outside.appendingPathComponent("n.txt").path))
+        let shared = paths.labSharedDir(agent.id)
+        try FileManager.default.createDirectory(at: shared.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: shared, withDestinationURL: outside)
+        XCTAssertThrowsError(try lab.read("shared/s.txt"))
+        XCTAssertThrowsError(try lab.write("shared/n.txt", content: "x"))
+    }
+
+    func testListOnFreshWorkspaceIsEmptyNotAnError() throws {
+        let lab = workspace()
+        XCTAssertEqual(try lab.list(nil), ["shared/"])
+        XCTAssertEqual(try lab.list("shared"), [])
+        XCTAssertEqual(try lab.list("notas"), [])
+    }
 }
