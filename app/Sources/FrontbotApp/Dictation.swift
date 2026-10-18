@@ -61,7 +61,7 @@ final class Dictation: ObservableObject {
         let sink = AudioSink(request: request) { [weak self] level in
             Task { @MainActor in self?.level = level }
         }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in sink.append(buffer) }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in sink.append(buffer) }
         engine.prepare()
         do { try engine.start() } catch {
             input.removeTap(onBus: 0)
@@ -71,12 +71,15 @@ final class Dictation: ObservableObject {
         self.request = request
         self.onText = onText
         state = .listening
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        // Los callbacks de audio, permisos y reconocimiento llegan en otros hilos: van marcados
+        // @Sendable para que no hereden el MainActor (Swift 6 cierra la app si se llaman fuera de él).
+        let session = ObjectIdentifier(request)
+        task = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
             let text = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
             let failed = error != nil && result == nil
             Task { @MainActor in
-                guard let self, self.request === request else { return }
+                guard let self, let current = self.request, ObjectIdentifier(current) == session else { return }
                 if let text { self.onText?(text) }
                 if isFinal || failed { self.finish() }
             }
@@ -130,7 +133,7 @@ final class Dictation: ObservableObject {
         case .authorized: return true
         case .notDetermined:
             return await withCheckedContinuation { continuation in
-                SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
+                SFSpeechRecognizer.requestAuthorization { @Sendable in continuation.resume(returning: $0 == .authorized) }
             }
         default: return false
         }
