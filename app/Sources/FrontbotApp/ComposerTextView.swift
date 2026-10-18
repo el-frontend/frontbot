@@ -26,9 +26,13 @@ struct ComposerTextView: NSViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
+        // Sin minSize/maxSize el documento no crece en alto y las líneas nuevas quedan fuera de vista.
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -52,6 +56,7 @@ struct ComposerTextView: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
             textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+            context.coordinator.scrollToCaret()
         }
         if textView.placeholder != placeholder { textView.placeholder = placeholder; textView.needsDisplay = true }
         if context.coordinator.focusToken != focusToken {
@@ -60,15 +65,24 @@ struct ComposerTextView: NSViewRepresentable {
         }
     }
 
+    // Mide en un layout aparte: tocar el contenedor real con anchos de prueba de SwiftUI
+    // lo dejaba con un ancho menor al del campo y el texto saltaba de línea antes del borde.
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
-        guard let textView = context.coordinator.textView,
-              let container = textView.textContainer, let layout = textView.layoutManager else { return nil }
         let width = proposal.width ?? 400
-        container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
-        layout.ensureLayout(for: container)
-        let lineHeight = layout.defaultLineHeight(for: Self.font)
-        let used = max(layout.usedRect(for: container).height, lineHeight)
+        let lineHeight = NSLayoutManager().defaultLineHeight(for: Self.font)
+        let used = max(Self.textHeight(text, width: width), lineHeight)
         return CGSize(width: width, height: min(ceil(used), ceil(lineHeight * CGFloat(maxLines))))
+    }
+
+    static func textHeight(_ text: String, width: CGFloat) -> CGFloat {
+        let storage = NSTextStorage(string: text, attributes: [.font: font])
+        let container = NSTextContainer(size: NSSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        let layout = NSLayoutManager()
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        layout.ensureLayout(for: container)
+        return layout.usedRect(for: container).height
     }
 
     @MainActor
@@ -82,7 +96,15 @@ struct ComposerTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             parent.text = textView.string
-            textView.invalidateIntrinsicContentSize()
+            scrollToCaret()
+        }
+
+        /// El alto del campo cambia en el siguiente pase de layout; el cursor se lleva a la vista después.
+        func scrollToCaret() {
+            DispatchQueue.main.async { [weak self] in
+                guard let textView = self?.textView else { return }
+                textView.scrollRangeToVisible(textView.selectedRange())
+            }
         }
 
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
