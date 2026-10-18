@@ -40,6 +40,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleVersion</key><string>4</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Frontbot usa el micrófono para dictar mensajes en el chat.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Frontbot convierte tu voz en texto para escribir en el chat.</string>
 </dict>
 </plist>
 PLIST

@@ -4,6 +4,10 @@ import FrontbotCore
 struct ChatView: View {
     @Bindable var model: AppModel
     @State private var draft = ""
+    @StateObject private var dictation = Dictation()
+    /// Texto que había antes de dictar y lo último que escribió el dictado en el campo.
+    @State private var dictationBase = ""
+    @State private var dictated = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -107,10 +111,18 @@ struct ChatView: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Return envía; ⌘/⇧/⌥ + Return saltan de línea.
-            ComposerTextView(text: $draft,
-                             placeholder: model.selectedBrand.map { "Pídele algo para \($0.name)…" } ?? "Pídele algo a \(model.selectedAgent?.name ?? "Frontbot")…",
-                             focusToken: AnyHashable(model.currentConversationId),
-                             onSubmit: submit)
+            HStack(alignment: .top, spacing: 8) {
+                ComposerTextView(text: $draft,
+                                 placeholder: dictation.state == .listening ? "Te escucho…"
+                                     : model.selectedBrand.map { "Pídele algo para \($0.name)…" } ?? "Pídele algo a \(model.selectedAgent?.name ?? "Frontbot")…",
+                                 focusToken: AnyHashable(model.currentConversationId),
+                                 onSubmit: submit,
+                                 onEscape: { guard dictation.isActive else { return false }; dictation.stop(); return true })
+                MicButton(dictation: dictation, action: toggleDictation)
+            }
+            if let problem = dictation.problem {
+                Text(problem).font(.system(size: 11)).foregroundStyle(Theme.danger)
+            }
             HStack(spacing: 8) {
                 agentMenu
                 Menu {
@@ -215,7 +227,22 @@ struct ChatView: View {
 
     private func submit() {
         guard !model.isRunning, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        dictation.cancel()
         model.send(prompt: draft)
         draft = ""
+    }
+
+    /// El dictado se añade detrás de lo ya escrito y se va reescribiendo mientras hablas.
+    private func toggleDictation() {
+        if !dictation.isActive {
+            dictationBase = draft.isEmpty || draft.last?.isWhitespace == true ? draft : draft + " "
+            dictated = draft
+        }
+        dictation.toggle { text in
+            // Si editaste el campo mientras dictaba, lo tuyo manda: el dictado se para.
+            guard draft == dictated else { dictation.cancel(); return }
+            draft = dictationBase + text
+            dictated = draft
+        }
     }
 }
