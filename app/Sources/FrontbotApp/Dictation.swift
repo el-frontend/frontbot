@@ -2,8 +2,8 @@ import AppKit
 import AVFoundation
 import Speech
 
-/// Dictado del chat con el reconocimiento de voz de macOS. Se hace en el Mac cuando el idioma lo permite:
-/// el audio no sale del equipo ni gasta tokens.
+/// Dictado del chat con el reconocimiento de voz de macOS, siempre en el Mac: el audio no sale
+/// del equipo ni gasta tokens. Si el idioma no tiene reconocimiento local, no se dicta.
 @MainActor
 final class Dictation: ObservableObject {
     enum State: Equatable { case idle, starting, listening }
@@ -45,12 +45,15 @@ final class Dictation: ObservableObject {
         guard let recognizer = Self.recognizer(), recognizer.isAvailable else {
             fail("El reconocimiento de voz no está disponible para tu idioma ahora mismo."); return
         }
+        guard recognizer.supportsOnDeviceRecognition else {
+            fail("Tu idioma no tiene dictado dentro del Mac. Descárgalo en Ajustes del Sistema › Teclado › Dictado."); return
+        }
 
         task?.cancel() // la sesión anterior pudo quedar entregando su resultado final
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.addsPunctuation = true
-        if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
+        request.requiresOnDeviceRecognition = true
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
