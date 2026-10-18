@@ -2,13 +2,16 @@ import SwiftUI
 import AppKit
 
 /// Campo de texto del chat. Return envía; ⌘, ⇧ u ⌥ + Return insertan un salto de línea.
-/// Crece con el texto hasta `maxLines` y a partir de ahí hace scroll.
+/// Mide al menos `minLines`, crece con el texto hasta `maxLines` y a partir de ahí hace scroll.
 struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var focusToken: AnyHashable = 0
+    var minLines = 2
     var maxLines = 8
     var onSubmit: () -> Void
+    /// Esc; devuelve true si lo usó (p. ej. para parar el dictado).
+    var onEscape: () -> Bool = { false }
 
     static let font = NSFont.systemFont(ofSize: 14)
 
@@ -39,7 +42,7 @@ struct ComposerTextView: NSViewRepresentable {
         textView.placeholder = placeholder
         textView.string = text
 
-        let scroll = NSScrollView()
+        let scroll = ComposerScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -70,7 +73,7 @@ struct ComposerTextView: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         let width = proposal.width ?? 400
         let lineHeight = NSLayoutManager().defaultLineHeight(for: Self.font)
-        let used = max(Self.textHeight(text, width: width), lineHeight)
+        let used = max(Self.textHeight(text, width: width), lineHeight * CGFloat(minLines))
         return CGSize(width: width, height: min(ceil(used), ceil(lineHeight * CGFloat(maxLines))))
     }
 
@@ -99,15 +102,14 @@ struct ComposerTextView: NSViewRepresentable {
             scrollToCaret()
         }
 
-        /// El alto del campo cambia en el siguiente pase de layout; el cursor se lleva a la vista después.
+        /// El alto del campo cambia en el siguiente pase de layout; ComposerScrollView vuelve a
+        /// colocar el cursor cuando cambia de tamaño.
         func scrollToCaret() {
-            DispatchQueue.main.async { [weak self] in
-                guard let textView = self?.textView else { return }
-                textView.scrollRangeToVisible(textView.selectedRange())
-            }
+            DispatchQueue.main.async { [weak self] in self?.textView?.revealCaret() }
         }
 
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.cancelOperation(_:)) { return parent.onEscape() }
             guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
             if ComposerNSTextView.wantsLineBreak(NSApp.currentEvent) {
                 textView.insertNewlineIgnoringFieldEditor(nil)
@@ -148,5 +150,24 @@ final class ComposerNSTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         needsDisplay = true
+    }
+
+    /// Si todo el texto cabe, muestra desde arriba; si no, lleva el cursor a la vista.
+    func revealCaret() {
+        guard let clip = enclosingScrollView?.contentView else { return }
+        if frame.height <= clip.bounds.height {
+            clip.scroll(to: .zero)
+            enclosingScrollView?.reflectScrolledClipView(clip)
+        } else {
+            scrollRangeToVisible(selectedRange())
+        }
+    }
+}
+
+/// Al crecer el campo tras un salto de línea, el scroll previo dejaba la primera línea oculta.
+final class ComposerScrollView: NSScrollView {
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        (documentView as? ComposerNSTextView)?.revealCaret()
     }
 }
