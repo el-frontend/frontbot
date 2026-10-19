@@ -20,6 +20,11 @@ beforeAll(() => {
   writeFileSync(join(home, ".ssh", "id"), "k");
   writeFileSync(join(work, "a.txt"), "a");
   symlinkSync(join(home, "Documents"), join(work, "docs"), "dir");
+  symlinkSync(join(home, "Documents", "nuevo.txt"), join(work, "rota-fuera"));
+  symlinkSync(join(home, ".ssh", "authorized_keys"), join(work, "rota-ssh"));
+  symlinkSync(join(work, "bucle-b"), join(work, "bucle-a"));
+  symlinkSync(join(work, "bucle-a"), join(work, "bucle-b"));
+  writeFileSync(join(work, "f.txt"), "f");
   wd = { path: work, read_dirs: [join(home, "Downloads")] };
 });
 afterAll(() => rmSync(home, { recursive: true, force: true }));
@@ -75,12 +80,47 @@ describe("workdirDecision", () => {
   });
 });
 
+describe("enlaces y rutas tramposas", () => {
+  it("enlace roto hacia fuera pregunta; hacia ~/.ssh deniega; bucle deniega", () => {
+    expect(d("Write", { file_path: join(work, "rota-fuera"), content: "x" }).kind).toBe("ask");
+    expect(d("Write", { file_path: join(work, "rota-ssh"), content: "x" }).kind).toBe("deny");
+    expect(d("Write", { file_path: join(work, "bucle-a"), content: "x" }).kind).toBe("deny");
+    expect(d("Read", { file_path: join(work, "bucle-a") }).kind).toBe("deny");
+  });
+  it("Glob con .. relativo", () => {
+    expect(d("Glob", { pattern: "../../Documents/**" }).kind).toBe("deny");
+    expect(d("Glob", { pattern: "../Documents/**" }).kind).toBe("deny");
+    expect(d("Glob", { pattern: "src/**/*.ts" })).toEqual({ kind: "allow" });
+  });
+  it("mayúsculas en APFS", () => {
+    if (process.platform !== "darwin") return;
+    expect(d("Write", { file_path: join(home, ".SSH", "x"), content: "" }).kind).toBe("deny");
+  });
+  it("el .. se aplica después de seguir el enlace", () => {
+    expect(d("Read", { file_path: work + "/docs/../.ssh/id" }).kind).toBe("deny");
+    expect(d("Read", { file_path: work + "/docs/../work/a.txt" })).toEqual({ kind: "allow" });
+  });
+  it("expande ~/ y Edit a través de un enlace hacia fuera pregunta", () => {
+    expect(d("Read", { file_path: "~/Documents/secret.txt" }).kind).toBe("deny");
+    expect(d("Read", { file_path: "~/Downloads/x" })).toEqual({ kind: "allow" });
+    expect(d("Edit", { file_path: join(work, "docs", "secret.txt"), old_string: "a", new_string: "b" }).kind).toBe("ask");
+  });
+  it("read_dirs peligrosos no abren lo protegido", () => {
+    const wide = { path: work, read_dirs: [home, join(home, "Library"), "/"] };
+    expect(d("Read", { file_path: join(home, "Documents", "secret.txt") }, wide).kind).toBe("deny");
+  });
+});
+
 describe("validateWorkdir", () => {
   it("rechaza home, raíz, ancestros de rutas denegadas e inexistentes", () => {
     expect(validateWorkdir({ path: home, read_dirs: [] }, home)).not.toBeNull();
     expect(validateWorkdir({ path: "/", read_dirs: [] }, home)).not.toBeNull();
     expect(validateWorkdir({ path: join(home, "Library"), read_dirs: [] }, home)).not.toBeNull();
     expect(validateWorkdir({ path: join(home, "nada"), read_dirs: [] }, home)).not.toBeNull();
+  });
+  it("rechaza una ruta dentro de una protegida y un archivo", () => {
+    expect(validateWorkdir({ path: join(home, ".ssh"), read_dirs: [] }, home)).not.toBeNull();
+    expect(validateWorkdir({ path: join(work, "f.txt"), read_dirs: [] }, home)).not.toBeNull();
   });
   it("acepta una carpeta normal", () => {
     expect(validateWorkdir(wd, home)).toBeNull();
@@ -97,6 +137,11 @@ describe("sandboxSettings", () => {
     expect(s.filesystem?.allowRead).not.toContain(home);
     expect(s.network?.allowedDomains).toBeUndefined();
     expect(s).toMatchObject({ enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: true });
+  });
+  it("descarta read_dirs y toolPaths que anularían denyRead", () => {
+    const s = sandboxSettings({ path: work, read_dirs: [home, join(home, "Library")] }, home, [home, "/"]);
+    const ar = s.filesystem?.allowRead ?? [];
+    for (const p of [home, join(home, "Library"), "/"]) expect(ar).not.toContain(p);
   });
   it("expone las herramientas", () => {
     expect(WORKDIR_TOOLS).toEqual(["Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoWrite"]);
