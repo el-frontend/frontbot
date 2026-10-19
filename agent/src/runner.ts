@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { dirname, relative, isAbsolute } from "node:path";
 import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, allowedToolsFor, type AppCall, type ToolContext } from "./tools.js";
 import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
@@ -5,6 +7,7 @@ import { buildTradingTools, buildMarketTools, realMarket, TRADING_TOOL_NAMES, ty
 import type { RunStudy } from "./lab.js";
 import { TokenMeter, buildStudyPrompt, studyAgents, STUDY_WARNING } from "./study.js";
 import { prepareSkillPlugin, readGuard, type RunSkill, type SkillPlugin } from "./skills.js";
+import { WORKDIR_TOOLS, isProtectedPath, sandboxSettings, validateWorkdir, workdirDecision, type RunWorkdir } from "./workdir.js";
 import { buildSystemPrompt, buildUserPrompt, buildSummaryPrompt, type MemoryNote, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
@@ -13,7 +16,9 @@ export type RunAgent = { id: string; name: string; instructions: string; is_defa
  *  mode "scheduled": tarea programada, sin nadie mirando; puede avisar con notify_user. */
 export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled" | "study"; study?: RunStudy; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
   /** Carpetas del usuario autorizadas para este agente (rutas reales). */
-  folders?: string[] };
+  folders?: string[];
+  /** Carpeta de trabajo del chat: herramientas de Claude Code dentro de la sandbox. Se ignora fuera de runs de chat. */
+  workdir?: RunWorkdir };
 
 const STUDY_MODEL = "claude-sonnet-5-5";
 const STUDY_WALL_CLOCK_MS = 20 * 60 * 1000;
@@ -72,6 +77,35 @@ function skillReadHooks(plugin: SkillPlugin): Hooks {
   };
 }
 
+/** Dónde se instala el Node de la app y los navegadores: la sandbox de Bash los necesita para leer. */
+const toolPaths = () => [dirname(process.execPath), "/Applications/Google Chrome.app", "/Applications/Chromium.app", "/opt/homebrew", "/usr/local"];
+
+/** Todas las herramientas pasan por aquí: lo protegido se deniega, lo de fuera pide aprobación a la app.
+ *  Con skills, `Read` también vale para sus archivos (salvo rutas protegidas). */
+function workdirHooks(wd: RunWorkdir, runId: string, call: AppCall | undefined, skillRead: ((p: string) => boolean) | undefined): Hooks {
+  const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "deny" as const, permissionDecisionReason: reason } });
+  return {
+    PreToolUse: [{ hooks: [async (input) => {
+      if (input.hook_event_name !== "PreToolUse") return {};
+      const ti = (input.tool_input ?? {}) as Record<string, unknown>;
+      if (input.tool_name === "Read" && skillRead) {
+        const path = String(ti.file_path ?? "");
+        if (path && skillRead(path) && !isProtectedPath(path, wd)) return {};
+      }
+      const d = workdirDecision(input.tool_name, ti, wd);
+      if (d.kind === "allow") return {};
+      if (d.kind === "deny") return deny(d.reason);
+      if (!call) return deny("No se pudo pedir la aprobación al usuario.");
+      try {
+        const res = (await call("workdir.approve", { run_id: runId, ...d.ask })) as { allow?: boolean };
+        return res?.allow === true ? {} : deny("El usuario lo denegó; no insistas.");
+      } catch (err) {
+        return deny(`No se pudo pedir la aprobación: ${(err as Error).message}`);
+      }
+    }] }],
+  };
+}
+
 /** Hooks que pasan cada herramienta del navegador por el guardián (no publicar en redes). */
 function browserHooks(guard: BrowserGuard): Hooks {
   return {
@@ -90,13 +124,17 @@ function browserHooks(guard: BrowserGuard): Hooks {
 
 /** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude.
  *  Con `browser`, añade el Chrome del usuario (Claude in Chrome) detrás del guardián. */
-export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin, meter: TokenMeter | undefined = undefined): Options {
+export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin, meter: TokenMeter | undefined = undefined, call?: AppCall): Options {
   const summarize = params.mode === "summarize";
   // En estudio nadie mira: sin Chrome, sin plugin de skills y sin Read, aunque el run los pida.
   const study = params.mode === "study";
   const browser = params.browser === true && !summarize && !study;
   const skills = !summarize && !study && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
-  const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined, skills ? skillReadHooks(skills) : undefined);
+  // La carpeta de trabajo solo existe en el chat; en el resto de modos se ignora aunque llegue.
+  const workdir = (params.mode === undefined || params.mode === "chat") ? params.workdir : undefined;
+  const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined,
+    // Con carpeta, el hook de carpeta absorbe el Read de los skills (dos hooks de Read se estorbarían).
+    workdir ? workdirHooks(workdir, params.run_id, call, skills ? readGuard(skills.dirs, skills.path) : undefined) : skills ? skillReadHooks(skills) : undefined);
   let warned = false;
   if (study && !meter) throw new Error("El modo study necesita un TokenMeter");
   const studyMeter = study ? meter : undefined;
@@ -108,12 +146,13 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   return {
     // El hilo principal del estudio siempre corre en Sonnet (§8); los subagentes eligen el suyo.
     model: study ? STUDY_MODEL : params.model,
-    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, folders: summarize || study ? undefined : params.folders, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined, study }),
-    tools: summarize ? [] : study ? ["WebSearch", "WebFetch", "Agent"] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : [])],
-    allowedTools: [...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : []),
+    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, folders: summarize || study ? undefined : params.folders, workdir, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined, study }),
+    tools: [...new Set(summarize ? [] : study ? ["WebSearch", "WebFetch", "Agent"] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : []), ...(workdir ? WORKDIR_TOOLS : [])])],
+    allowedTools: [...new Set([...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : []), ...(workdir ? WORKDIR_TOOLS : []),
       // En estudio solo se lee el mercado: ni account_state ni trade_propose.
       ...(params.trading && !summarize ? (study ? MARKET_TOOL_NAMES : TRADING_TOOL_NAMES).map((t) => `mcp__frontbot__${t}`) : []),
-      ...(study ? ["Agent"] : [])],
+      ...(study ? ["Agent"] : [])])],
+    ...(workdir ? { cwd: workdir.path, sandbox: sandboxSettings(workdir, homedir(), toolPaths()) } : {}),
     ...(browser ? { extraArgs: { chrome: null } } : {}),
     ...(hooks || studyHooks ? { hooks: mergeHooks(hooks, studyHooks) } : {}),
     ...(study ? { agents: studyAgents(params.study?.allow_opus === true), forwardSubagentText: true } : {}),
@@ -127,9 +166,23 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
     settingSources: [],
     permissionMode: "dontAsk",
     persistSession: false,
-    maxTurns: summarize ? 6 : study ? 60 : 30,
+    maxTurns: summarize ? 6 : study ? 60 : workdir ? 150 : 30,
     abortController,
   };
+}
+
+/** Texto del evento tool_call. Las integradas de la carpeta de trabajo llevan su detalle ("Bash · ls"). */
+export function toolCallText(name: string, input: unknown, wd?: RunWorkdir): string {
+  if (wd && WORKDIR_TOOLS.includes(name)) {
+    const i = (input ?? {}) as Record<string, unknown>;
+    const s = (v: unknown) => (typeof v === "string" ? v : "");
+    const rel = (f: string) => { const r = isAbsolute(f) ? relative(wd.path, f) : f; return r === ".." || r.startsWith("../") ? f : r; };
+    const detail = name === "Bash" ? s(i.command)
+      : name === "Read" || name === "Write" || name === "Edit" ? rel(s(i.file_path))
+      : name === "Glob" || name === "Grep" ? s(i.pattern) : "";
+    return detail ? `${name} · ${detail.slice(0, 120)}` : name;
+  }
+  return name.replace("mcp__frontbot__", "").replace("mcp__claude-in-chrome__", "chrome · ");
 }
 
 export class RealRunner implements Runner {
@@ -138,6 +191,10 @@ export class RealRunner implements Runner {
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (signal.aborted) return cancelled(params.run_id);
     if (params.mode === "study" && (!params.study || !params.agent)) return { ...cancelled(params.run_id), error: "Sesión de estudio sin tema o sin agente", lab_tokens: 0, models: [] };
+    if ((params.mode === undefined || params.mode === "chat") && params.workdir) {
+      const bad = validateWorkdir(params.workdir);
+      if (bad) return { ...cancelled(params.run_id), error: bad };
+    }
     const abortController = new AbortController();
     signal.addEventListener("abort", () => abortController.abort(), { once: true });
     const plugin = params.skills?.length && params.mode !== "study" ? prepareSkillPlugin(params.skills) : undefined;
@@ -158,7 +215,7 @@ export class RealRunner implements Runner {
     const clock = isStudy ? setTimeout(() => { cut = "clock"; abortController.abort(); }, STUDY_WALL_CLOCK_MS) : undefined;
     emit({ run_id: params.run_id, type: "status", text: "pensando" });
     try {
-      const stream = this.queryFn({ prompt: userPrompt(params), options: buildQueryOptions(params, server, abortController, today, plugin, meter) });
+      const stream = this.queryFn({ prompt: userPrompt(params), options: buildQueryOptions(params, server, abortController, today, plugin, meter, this.call) });
       for await (const msg of stream) {
         if (meter) {
           meter.consume(msg as never);
@@ -169,7 +226,7 @@ export class RealRunner implements Runner {
           if (msg.parent_tool_use_id) continue;
           for (const block of msg.message.content) {
             if (block.type === "text") emit({ run_id: params.run_id, type: "text", text: block.text });
-            if (block.type === "tool_use") emit({ run_id: params.run_id, type: "tool_call", text: block.name.replace("mcp__frontbot__", "").replace("mcp__claude-in-chrome__", "chrome · ") });
+            if (block.type === "tool_use") emit({ run_id: params.run_id, type: "tool_call", text: toolCallText(block.name, block.input, params.workdir) });
           }
         } else if (msg.type === "result") {
           meter?.reconcile(msg.modelUsage);

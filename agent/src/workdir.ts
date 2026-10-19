@@ -99,6 +99,12 @@ function safeReadRoots(paths: string[], home: string): string[] {
   return paths.map(realish).filter((r) => r !== sep && !inside(h, r) && !denied.some((d) => inside(d, r) || inside(r, d)));
 }
 
+/** ¿Cae en una ruta siempre denegada (o no se puede resolver)? Gana sobre cualquier otro permiso. */
+export function isProtectedPath(raw: string, wd: RunWorkdir, home: string = homedir()): boolean {
+  const t = expand(raw, wd, home);
+  return t === null || alwaysDenied(home).map(realish).some((d) => inside(t, d));
+}
+
 export function workdirDecision(tool: string, input: Record<string, unknown>, wd: RunWorkdir, home: string = homedir()): WorkdirDecision {
   const denied = alwaysDenied(home).map(realish);
   const root = realish(wd.path);

@@ -1,6 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { WORKDIR_TOOLS, sandboxSettings } from "../src/workdir.js";
+import { TokenMeter } from "../src/study.js";
+import type { AppCall } from "../src/tools.js";
+import type { SkillPlugin } from "../src/skills.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { buildQueryOptions } from "../src/runner.js";
+import { buildQueryOptions, RealRunner, toolCallText, type RunParams } from "../src/runner.js";
 
 describe("buildQueryOptions", () => {
   it("does not persist sessions to ~/.claude and keeps the tool lockdown", () => {
@@ -74,5 +81,86 @@ describe("folders", () => {
   it("without folders there are no file tools", () => {
     const opts = buildQueryOptions(base, server, new AbortController(), "2026-10-16");
     expect(opts.allowedTools?.some((t) => t.includes("files_"))).toBe(false);
+  });
+});
+
+describe("workdir", () => {
+  const server = createSdkMcpServer({ name: "frontbot", version: "0" });
+  const wd = { path: mkdtempSync(join(tmpdir(), "wd-")), read_dirs: [join(homedir(), "Downloads")] };
+  const base = { run_id: "r", prompt: "hola", model: "m", workdir: wd };
+  const build = (p: Partial<RunParams> = {}, call?: AppCall, plugin?: SkillPlugin) =>
+    buildQueryOptions({ ...base, ...p }, server, new AbortController(), "2026-10-18", plugin, undefined, call);
+  const hook = async (opts: ReturnType<typeof build>, tool_name: string, tool_input: unknown) => {
+    const m = opts.hooks!.PreToolUse!.find((x) => !x.matcher)!;
+    return (await m.hooks[0]({ hook_event_name: "PreToolUse", tool_name, tool_input } as never, undefined, { signal: new AbortController().signal })) as Record<string, any>;
+  };
+
+  it("chat with a workdir gets built-in tools, sandbox and 150 turns", () => {
+    for (const mode of [undefined, "chat" as const]) {
+      const o = build({ mode });
+      expect(o.cwd).toBe(wd.path);
+      expect(o.tools).toEqual(expect.arrayContaining([...WORKDIR_TOOLS, "WebSearch", "WebFetch"]));
+      expect(new Set(o.tools).size).toBe(o.tools!.length);
+      expect(o.allowedTools).toEqual(expect.arrayContaining(WORKDIR_TOOLS));
+      expect(o.sandbox).toEqual(sandboxSettings(wd, homedir(), [dirname(process.execPath), "/Applications/Google Chrome.app", "/Applications/Chromium.app", "/opt/homebrew", "/usr/local"]));
+      expect(o.maxTurns).toBe(150);
+      expect(o.hooks!.PreToolUse!.some((m) => !m.matcher)).toBe(true);
+      expect(String(o.systemPrompt)).toContain(`Carpeta de trabajo: ${wd.path}`);
+    }
+  });
+
+  it("other modes ignore the workdir", () => {
+    for (const mode of ["scheduled", "study", "summarize"] as const) {
+      const o2 = buildQueryOptions({ ...base, mode, study: { topic_id: "t", session_id: "s" } as never }, server, new AbortController(), "2026-10-18", undefined, new TokenMeter(10));
+      expect(o2.cwd).toBeUndefined();
+      expect(o2.sandbox).toBeUndefined();
+      expect(o2.tools).not.toContain("Bash");
+      expect(o2.maxTurns).toBe(mode === "summarize" ? 6 : mode === "study" ? 60 : 30);
+    }
+  });
+
+  it("an invalid workdir fails the run without calling query", async () => {
+    const queryFn = vi.fn();
+    const r = await new RealRunner(async () => ({}), queryFn as never).run({ ...base, workdir: { path: "/no/existe/xyz", read_dirs: [] } }, () => {}, new AbortController().signal);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe("La carpeta no existe.");
+    expect(queryFn).not.toHaveBeenCalled();
+  });
+
+  it("hook denies reads outside with the guard's reason", async () => {
+    const r = await hook(build(), "Read", { file_path: "/etc/hosts" });
+    expect(r.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(r.hookSpecificOutput.permissionDecisionReason).toContain("Fuera de la carpeta de trabajo");
+  });
+
+  it("hook asks the app for writes outside and obeys the answer", async () => {
+    const path = join(homedir(), "Downloads", "x.txt");
+    const call = vi.fn().mockResolvedValueOnce({ allow: true }).mockResolvedValueOnce({ allow: false }).mockRejectedValueOnce(new Error("sin app"));
+    const o = build({}, call);
+    expect(await hook(o, "Write", { file_path: path, content: "hola" })).toEqual({});
+    expect(call).toHaveBeenCalledWith("workdir.approve", { run_id: "r", kind: "write", tool: "Write", path: realpathSync(join(homedir(), "Downloads")) + "/x.txt", content: "hola" });
+    const denied = await hook(o, "Write", { file_path: path, content: "hola" });
+    expect(denied.hookSpecificOutput.permissionDecisionReason).toBe("El usuario lo denegó; no insistas.");
+    expect((await hook(o, "Write", { file_path: path, content: "hola" })).hookSpecificOutput.permissionDecision).toBe("deny");
+  });
+
+  it("with skills, skill files are readable outside the folder but protected paths never are", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sk-"));
+    mkdirSync(join(dir, "skills"));
+    writeFileSync(join(dir, "skills", "SKILL.md"), "x");
+    const plugin = { path: dir, skillNames: ["a"], dirs: [dir], cleanup() {} };
+    const o = build({}, undefined, plugin);
+    expect(await hook(o, "Read", { file_path: join(dir, "skills", "SKILL.md") })).toEqual({});
+    const evil = { ...plugin, dirs: [homedir()] };
+    const r = await hook(build({}, undefined, evil), "Read", { file_path: join(homedir(), ".ssh", "x") });
+    expect(r.hookSpecificOutput.permissionDecision).toBe("deny");
+  });
+
+  it("tool_call text carries the detail, relative to the folder", () => {
+    expect(toolCallText("Bash", { command: "ls" }, wd)).toBe("Bash · ls");
+    expect(toolCallText("Read", { file_path: `${wd.path}/a/b.md` }, wd)).toBe("Read · a/b.md");
+    expect(toolCallText("Grep", { pattern: "x".repeat(200) }, wd)).toBe(`Grep · ${"x".repeat(120)}`);
+    expect(toolCallText("TodoWrite", { todos: [] }, wd)).toBe("TodoWrite");
+    expect(toolCallText("mcp__frontbot__lab_note", {}, wd)).toBe("lab_note");
   });
 });
