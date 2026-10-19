@@ -80,6 +80,11 @@ Publicar, operar con wallets y trades reales siguen **sin** ninguna vía nueva: 
   - Así "dentro de la carpeta" se cumple también para comandos, no solo para las herramientas de archivos.
 
 **Red de los comandos** (decisión del usuario, 2026-10-19): **lista de sitios** en `sandbox.network.allowedDomains`: `registry.npmjs.org`, `*.npmjs.org`, `github.com`, `*.github.com`, `*.githubusercontent.com`, `cdn.jsdelivr.net`, `unpkg.com`, `fonts.googleapis.com`, `fonts.gstatic.com`, más los dominios que el render de HyperFrames necesite de verdad (anotados). Fuera de la lista, la petición falla.
+- **La lista es de cada agente** (decisión del usuario, 2026-10-19):
+  - se edita en la página del agente, en una sección "Sitios de red" junto a sus carpetas;
+  - un agente nuevo o sin cambios usa la lista base de arriba;
+  - "Restaurar" vuelve a ella.
+  - Cada entrada es un dominio (`ejemplo.com`) o un comodín de subdominio (`*.ejemplo.com`); nunca `*` solo.
 
 **Fuera de la carpeta**:
 - **Lectura** con `Read`/`Glob`/`Grep`:
