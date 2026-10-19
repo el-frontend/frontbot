@@ -90,9 +90,9 @@ describe("workdir", () => {
   const base = { run_id: "r", prompt: "hola", model: "m", workdir: wd };
   const build = (p: Partial<RunParams> = {}, call?: AppCall, plugin?: SkillPlugin) =>
     buildQueryOptions({ ...base, ...p }, server, new AbortController(), "2026-10-18", plugin, undefined, call);
-  const hook = async (opts: ReturnType<typeof build>, tool_name: string, tool_input: unknown) => {
+  const hook = async (opts: ReturnType<typeof build>, tool_name: string, tool_input: unknown, tool_use_id = "u") => {
     const m = opts.hooks!.PreToolUse!.find((x) => !x.matcher)!;
-    return (await m.hooks[0]({ hook_event_name: "PreToolUse", tool_name, tool_input } as never, undefined, { signal: new AbortController().signal })) as Record<string, any>;
+    return (await m.hooks[0]({ hook_event_name: "PreToolUse", tool_name, tool_input, tool_use_id } as never, undefined, { signal: new AbortController().signal })) as Record<string, any>;
   };
 
   it("chat with a workdir gets built-in tools, sandbox and 150 turns", () => {
@@ -162,19 +162,36 @@ describe("workdir", () => {
     expect(plain.canUseTool).toBeUndefined();
   });
 
-  it("canUseTool denies unknown tools and unapproved unsandboxed Bash, and allows an approved one once", async () => {
+  it("canUseTool denies unknown tools and unapproved unsandboxed Bash, and allows an approved call once", async () => {
     const call = vi.fn().mockResolvedValue({ allow: true });
     const o = build({}, call);
     const cu = o.canUseTool!;
-    const opt = { signal: new AbortController().signal, toolUseID: "u" } as never;
+    const opt = (id?: string) => ({ signal: new AbortController().signal, toolUseID: id }) as never;
     const bash = { command: "npx hyperframes render", dangerouslyDisableSandbox: true };
-    expect(await cu("WebFetch", {}, opt)).toEqual({ behavior: "deny", message: "No permitido." });
-    expect(await cu("Bash", bash, opt)).toEqual({ behavior: "deny", message: "No permitido." });
-    await hook(o, "Bash", bash);
-    expect(await cu("Bash", { ...bash, command: "otro" }, opt)).toMatchObject({ behavior: "deny" });
-    expect(await cu("Bash", { command: bash.command }, opt)).toMatchObject({ behavior: "deny" });
-    expect(await cu("Bash", bash, opt)).toEqual({ behavior: "allow", updatedInput: bash });
-    expect(await cu("Bash", bash, opt)).toMatchObject({ behavior: "deny" });
+    const no = { behavior: "deny", message: "No permitido." };
+    expect(await cu("WebFetch", {}, opt("u"))).toEqual(no);
+    expect(await cu("Bash", bash, opt("u"))).toEqual(no);
+    await hook(o, "Bash", bash, "u");
+    expect(await cu("Bash", { ...bash, command: "otro" }, opt("u"))).toEqual(no);
+    expect(await cu("Bash", { command: bash.command }, opt("u"))).toEqual(no);
+    expect(await cu("Bash", bash, opt(undefined))).toEqual(no);
+    expect(await cu("Bash", bash, opt("u"))).toEqual({ behavior: "allow", updatedInput: bash });
+    expect(await cu("Bash", bash, opt("u"))).toEqual(no);
+  });
+
+  it("canUseTool: an approval for one tool use does not allow another with the same command", async () => {
+    const o = build({}, vi.fn().mockResolvedValue({ allow: true }));
+    const bash = { command: "npx hyperframes render", dangerouslyDisableSandbox: true };
+    await hook(o, "Bash", bash, "A");
+    expect(await o.canUseTool!("Bash", bash, { signal: new AbortController().signal, toolUseID: "B" } as never)).toMatchObject({ behavior: "deny" });
+    expect(await o.canUseTool!("Bash", bash, { signal: new AbortController().signal, toolUseID: "A" } as never)).toMatchObject({ behavior: "allow" });
+  });
+
+  it("canUseTool: a user-denied unsandboxed ask leaves nothing approved", async () => {
+    const o = build({}, vi.fn().mockResolvedValue({ allow: false }));
+    const bash = { command: "npx hyperframes render", dangerouslyDisableSandbox: true };
+    expect((await hook(o, "Bash", bash, "A")).hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(await o.canUseTool!("Bash", bash, { signal: new AbortController().signal, toolUseID: "A" } as never)).toMatchObject({ behavior: "deny" });
   });
 
   it("with skills, skill files are readable outside the folder but protected paths never are", async () => {

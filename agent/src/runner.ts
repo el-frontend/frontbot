@@ -82,7 +82,7 @@ const toolPaths = () => [dirname(process.execPath), "/Applications/Google Chrome
 
 /** Todas las herramientas pasan por aquí: lo protegido se deniega, lo de fuera pide aprobación a la app.
  *  Con skills, `Read` también vale para sus archivos (salvo rutas protegidas). */
-function workdirHooks(wd: RunWorkdir, runId: string, call: AppCall | undefined, skillRead: ((p: string) => boolean) | undefined, approved: Set<string>): Hooks {
+function workdirHooks(wd: RunWorkdir, runId: string, call: AppCall | undefined, skillRead: ((p: string) => boolean) | undefined, approved: Map<string, string>): Hooks {
   const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "deny" as const, permissionDecisionReason: reason } });
   return {
     PreToolUse: [{ hooks: [async (input) => {
@@ -98,8 +98,8 @@ function workdirHooks(wd: RunWorkdir, runId: string, call: AppCall | undefined, 
       if (!call) return deny("No se pudo pedir la aprobación al usuario.");
       try {
         const res = (await call("workdir.approve", { run_id: runId, ...d.ask })) as { allow?: boolean };
-        // Bash sin sandbox: canUseTool solo lo deja pasar si el usuario aprobó ese comando exacto.
-        if (res?.allow === true && d.ask.kind === "unsandboxed") approved.add(d.ask.command);
+        // Bash sin sandbox: canUseTool solo lo deja pasar si el usuario aprobó esa llamada (id) con ese comando exacto.
+        if (res?.allow === true && d.ask.kind === "unsandboxed" && input.tool_use_id) approved.set(input.tool_use_id, d.ask.command);
         // Aprobado: allow explícito, porque en dontAsk un `{}` deja a Bash sin sandbox sin permiso.
         return res?.allow === true ? { hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "allow" as const, permissionDecisionReason: "Aprobado por el usuario" } } : deny("El usuario lo denegó; no insistas.");
       } catch (err) {
@@ -109,11 +109,13 @@ function workdirHooks(wd: RunWorkdir, runId: string, call: AppCall | undefined, 
   };
 }
 
-/** Con carpeta de trabajo: lo que no está ya permitido se deniega, salvo el Bash sin sandbox que el usuario aprobó (una sola vez). */
-export function unsandboxedOnly(approved: Set<string>): CanUseTool {
-  return async (toolName, input) => {
-    const command = typeof input.command === "string" ? input.command : "";
-    if (toolName === "Bash" && input.dangerouslyDisableSandbox === true && approved.delete(command)) {
+/** Con carpeta de trabajo: lo que no está ya permitido se deniega, salvo el Bash sin sandbox que el usuario aprobó (esa llamada, una sola vez). */
+export function unsandboxedOnly(approved: Map<string, string>): CanUseTool {
+  return async (toolName, input, options) => {
+    const command = input.command;
+    const id = options.toolUseID;
+    if (toolName === "Bash" && input.dangerouslyDisableSandbox === true && typeof command === "string" && command !== "" && id && approved.get(id) === command) {
+      approved.delete(id);
       return { behavior: "allow", updatedInput: input };
     }
     return { behavior: "deny", message: "No permitido." };
@@ -146,7 +148,7 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   const skills = !summarize && !study && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
   // La carpeta de trabajo solo existe en el chat; en el resto de modos se ignora aunque llegue.
   const workdir = (params.mode === undefined || params.mode === "chat") ? params.workdir : undefined;
-  const approvedUnsandboxed = new Set<string>();
+  const approvedUnsandboxed = new Map<string, string>();
   const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined,
     // Con carpeta, el hook de carpeta absorbe el Read de los skills (dos hooks de Read se estorbarían).
     workdir ? workdirHooks(workdir, params.run_id, call, skills ? readGuard(skills.dirs, skills.path) : undefined, approvedUnsandboxed) : skills ? skillReadHooks(skills) : undefined);

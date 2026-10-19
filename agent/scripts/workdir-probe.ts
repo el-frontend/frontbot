@@ -56,7 +56,7 @@ const loggingQuery = ((args: Parameters<typeof query>[0]) => {
   })();
 }) as typeof query;
 
-// Registra cada llamada a canUseTool (no debería ocurrir con Bash dentro de la sandbox).
+// Registra cada llamada a canUseTool (se espera para SandboxNetworkAccess y para el Bash sin sandbox aprobado; nunca para Bash dentro de la sandbox).
 const wrappedQuery = ((args: Parameters<typeof query>[0]) => {
   const cu = args.options?.canUseTool;
   if (cu && args.options) {
