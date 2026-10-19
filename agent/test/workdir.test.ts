@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { workdirDecision, alwaysDenied, sandboxSettings, validateWorkdir, WORKDIR_TOOLS, type RunWorkdir } from "../src/workdir.js";
+import { workdirDecision, alwaysDenied, sandboxSettings, validateWorkdir, WORKDIR_TOOLS, WORKDIR_ALLOWED_DOMAINS, type RunWorkdir } from "../src/workdir.js";
 
 let home: string;
 let work: string;
@@ -135,7 +135,8 @@ describe("sandboxSettings", () => {
     expect(s.filesystem?.denyRead).toEqual(expect.arrayContaining(alwaysDenied(home)));
     expect(s.filesystem?.allowRead).toEqual(expect.arrayContaining([wd.path, ...wd.read_dirs, "/opt/x"]));
     expect(s.filesystem?.allowRead).not.toContain(home);
-    expect(s.network?.allowedDomains).toBeUndefined();
+    expect(s.network?.allowedDomains).toEqual(WORKDIR_ALLOWED_DOMAINS);
+    expect(s.network?.allowedDomains).not.toContain("*");
     expect(s).toMatchObject({ enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: true });
   });
   it("descarta read_dirs y toolPaths que anularían denyRead", () => {
