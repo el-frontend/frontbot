@@ -27,7 +27,7 @@
 - **Rutas siempre denegadas,** aunque caigan en una carpeta elegida: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/Library/Application Support/Frontbot`, `~/Library/Application Support/Google/Chrome`, y el perfil de Frontbot Chrome (ruta que ya usa el código del navegador).
 - **Lectura permitida:** solo la carpeta de trabajo, `~/Downloads` (siempre, no se quita) y las carpetas de lectura extra de la conversación.
 - **Escritura sin preguntar:** solo dentro de la carpeta de trabajo.
-- **Red de los comandos:** lista de sitios (decisión del usuario 2026-10-19): `registry.npmjs.org`, `*.npmjs.org`, `github.com`, `*.github.com`, `*.githubusercontent.com`, `cdn.jsdelivr.net`, `unpkg.com`, `fonts.googleapis.com`, `fonts.gstatic.com` + los que el render de HyperFrames necesite (Tarea 3 los anota).
+- **Red de los comandos:** lista de sitios (decisión del usuario 2026-10-19): `registry.npmjs.org`, `*.npmjs.org`, `github.com`, `*.github.com`, `*.githubusercontent.com`, `cdn.jsdelivr.net`, `unpkg.com`, `fonts.googleapis.com`, `fonts.gstatic.com` + los que el render de HyperFrames necesite (Tarea 3 los anota). La lista es **por agente** (decisión del usuario): editable en la página del agente; sin cambios usa la base (`WORKDIR_ALLOWED_DOMAINS`).
 - **Sandbox de `Bash`:**
   - siempre activa: `enabled: true`, `failIfUnavailable: true`, `autoAllowBashIfSandboxed: true`, `allowUnsandboxedCommands: true`;
   - todo `Bash` con `dangerouslyDisableSandbox: true` pasa por aprobación (una vez / denegar, sin "en esta conversación").
@@ -211,6 +211,20 @@ Tarea de verificación, la hace el controlador o un subagente capaz. Gasta token
   - **Petición `workdir.approve`** (método RPC exacto, sin prefijo `tool.`): Si `run_id` no es un run activo y atendido → `{allow:false}`. Si lo es, llama al aprobador **sin plazo** y responde `{allow: Bool}`.
   - **`AgentClient.cancel(runId:)`:** además de lo que ya hace, emite `AgentUpdate.workdirApprovalCancelled(runId:)`, un caso nuevo, para que la app cierre la hoja.
 
+- **Sitios de red por agente** (añadido 2026-10-19):
+  - `Agent.networkDomains: [String]?` (columna JSON `networkDomains`, `NULL` = lista base, en la misma migración `v11-workdir`).
+  - `public static let defaultNetworkDomains: [String]` en `Workdir`, idéntica a `WORKDIR_ALLOWED_DOMAINS` del sidecar.
+  - `Workdir.validatedDomain(_ raw: String) throws -> String`:
+    - pasa a minúsculas y quita espacios;
+    - acepta `host.tld` o `*.host.tld` (regex `^(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$`);
+    - rechaza `*` solo, esquemas, rutas y puertos.
+  - `AppDatabase.setNetworkDomains(agentId:, _ domains: [String]?) throws`.
+  - `run(workdir:)` añade `allowed_domains` (los del agente, o la base) al objeto `workdir`.
+  - **Sidecar** (`agent/src/workdir.ts`):
+    - `RunWorkdir` gana `allowed_domains?: string[]`;
+    - `sandboxSettings` usa `wd.allowed_domains` filtrado con la misma regex, descartando `*` y lo inválido, o `WORKDIR_ALLOWED_DOMAINS` si falta;
+    - test en `workdir.test.ts`.
+
 - [ ] **Paso 1: tests que fallan en `WorkdirTests.swift`.** Usa una carpeta temporal como `home`.
   - `validated(home)` lanza.
   - `validated("/")` lanza.
@@ -219,6 +233,11 @@ Tarea de verificación, la hace el controlador o un subagente capaz. Gasta token
   - `validated(<inexistente>)` lanza.
   - `validated(home + "/work")` devuelve la ruta real (sin enlaces).
   - `isBroad(home + "/Documents")` es true; `isBroad(home + "/Documents/proyecto")` es false.
+  - `validatedDomain`:
+    - `"*.Example.com "` → `"*.example.com"`;
+    - lanza con `"*"`, `"https://x.com"`, `"x.com/a"`, `"x.com:80"` y `"localhost"`;
+    - un agente nuevo tiene `networkDomains == nil`;
+    - `setNetworkDomains` relee igual.
   - Migración: una conversación nueva tiene `workdir == nil` y `readDirs == []`; después de `setWorkdir`/`setReadDirs` se releen iguales.
   - `AgentClient.run` con una conversación cuya carpeta se borró lanza el mensaje exacto "La carpeta … ya no existe: elige otra o quítala." y no deja el run en `running`. Sigue el patrón de tests existentes de `AgentClient` con sidecar falso.
   - `workdir.approve` de un run inexistente → `{allow:false}`, sin llamar al aprobador.
@@ -267,6 +286,11 @@ Tarea de verificación, la hace el controlador o un subagente capaz. Gasta token
     - "Mostrar en Finder";
     - "Quitar carpeta".
   - Deshabilitado mientras `model.isRunningHere`.
+- [ ] **Paso 4b: sección "Sitios de red" en la página del agente** (`AgentNetworkSection`, junto a `AgentFoldersSection` en `FilesViews.swift`, mismo estilo).
+  - Texto: "Sitios a los que pueden conectarse sus comandos cuando trabaja en una carpeta."
+  - Lista con "Quitar" por fila, un campo + "Añadir" (valida con `Workdir.validatedDomain` y muestra el error) y "Restaurar lista base" si `networkDomains != nil`.
+  - Al editar sin lista propia, parte de la base.
+
 - [ ] **Paso 5: `WorkdirApprovalSheet`**, con el estilo de la hoja de escritura de archivos existente.
   - **`.write`:** título "¿Escribir fuera de la carpeta?", la ruta, y el contenido. Para `Edit`, quitado/añadido con `LineDiff`, que ya existe.
     - Botones: "Denegar" (Esc), "Permitir en esta conversación", "Permitir una vez" (Return).
