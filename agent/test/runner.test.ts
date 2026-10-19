@@ -154,6 +154,29 @@ describe("workdir", () => {
     expect(await hook(o, "Bash", { command: "ls" })).toEqual({});
   });
 
+  it("with a workdir the mode is default with a deny-by-default canUseTool; without it, dontAsk", async () => {
+    expect(build().permissionMode).toBe("default");
+    expect(typeof build().canUseTool).toBe("function");
+    const plain = buildQueryOptions({ run_id: "r", prompt: "p", model: "m" }, server, new AbortController(), "2026-10-18");
+    expect(plain.permissionMode).toBe("dontAsk");
+    expect(plain.canUseTool).toBeUndefined();
+  });
+
+  it("canUseTool denies unknown tools and unapproved unsandboxed Bash, and allows an approved one once", async () => {
+    const call = vi.fn().mockResolvedValue({ allow: true });
+    const o = build({}, call);
+    const cu = o.canUseTool!;
+    const opt = { signal: new AbortController().signal, toolUseID: "u" } as never;
+    const bash = { command: "npx hyperframes render", dangerouslyDisableSandbox: true };
+    expect(await cu("WebFetch", {}, opt)).toEqual({ behavior: "deny", message: "No permitido." });
+    expect(await cu("Bash", bash, opt)).toEqual({ behavior: "deny", message: "No permitido." });
+    await hook(o, "Bash", bash);
+    expect(await cu("Bash", { ...bash, command: "otro" }, opt)).toMatchObject({ behavior: "deny" });
+    expect(await cu("Bash", { command: bash.command }, opt)).toMatchObject({ behavior: "deny" });
+    expect(await cu("Bash", bash, opt)).toEqual({ behavior: "allow", updatedInput: bash });
+    expect(await cu("Bash", bash, opt)).toMatchObject({ behavior: "deny" });
+  });
+
   it("with skills, skill files are readable outside the folder but protected paths never are", async () => {
     const dir = mkdtempSync(join(tmpdir(), "sk-"));
     mkdirSync(join(dir, "skills"));
