@@ -7,7 +7,7 @@ import { buildTradingTools, buildMarketTools, realMarket, TRADING_TOOL_NAMES, ty
 import type { RunStudy } from "./lab.js";
 import { TokenMeter, buildStudyPrompt, studyAgents, STUDY_WARNING } from "./study.js";
 import { prepareSkillPlugin, readGuard, type RunSkill, type SkillPlugin } from "./skills.js";
-import { WORKDIR_TOOLS, isProtectedPath, sandboxSettings, validateWorkdir, workdirDecision, type RunWorkdir } from "./workdir.js";
+import { WORKDIR_TOOLS, isProtectedPath, sandboxSettings, workdirEnv, validateWorkdir, workdirDecision, type RunWorkdir } from "./workdir.js";
 import { buildSystemPrompt, buildUserPrompt, buildSummaryPrompt, type MemoryNote, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
@@ -118,7 +118,7 @@ export function unsandboxedOnly(approved: Map<string, string>): CanUseTool {
       approved.delete(id);
       return { behavior: "allow", updatedInput: input };
     }
-    return { behavior: "deny", message: "No permitido." };
+    return { behavior: "deny", message: "Frontbot no permite esta acción en la carpeta de trabajo (p. ej. escribir en .git o .claude, o conectarse a un sitio fuera de la lista del agente)." };
   };
 }
 
@@ -169,7 +169,7 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
       // En estudio solo se lee el mercado: ni account_state ni trade_propose.
       ...(params.trading && !summarize ? (study ? MARKET_TOOL_NAMES : TRADING_TOOL_NAMES).map((t) => `mcp__frontbot__${t}`) : []),
       ...(study ? ["Agent"] : [])])],
-    ...(workdir ? { cwd: workdir.path, sandbox: sandboxSettings(workdir, homedir(), toolPaths()), canUseTool: unsandboxedOnly(approvedUnsandboxed) } : {}),
+    ...(workdir ? { cwd: workdir.path, env: workdirEnv(workdir), sandbox: sandboxSettings(workdir, homedir(), toolPaths()), canUseTool: unsandboxedOnly(approvedUnsandboxed) } : {}),
     ...(browser ? { extraArgs: { chrome: null } } : {}),
     ...(hooks || studyHooks ? { hooks: mergeHooks(hooks, studyHooks) } : {}),
     ...(study ? { agents: studyAgents(params.study?.allow_opus === true), forwardSubagentText: true } : {}),

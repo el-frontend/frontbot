@@ -168,7 +168,7 @@ describe("workdir", () => {
     const cu = o.canUseTool!;
     const opt = (id?: string) => ({ signal: new AbortController().signal, toolUseID: id }) as never;
     const bash = { command: "npx hyperframes render", dangerouslyDisableSandbox: true };
-    const no = { behavior: "deny", message: "No permitido." };
+    const no = { behavior: "deny", message: expect.stringContaining("Frontbot no permite esta acción") };
     expect(await cu("WebFetch", {}, opt("u"))).toEqual(no);
     expect(await cu("Bash", bash, opt("u"))).toEqual(no);
     await hook(o, "Bash", bash, "u");
@@ -185,6 +185,24 @@ describe("workdir", () => {
     await hook(o, "Bash", bash, "A");
     expect(await o.canUseTool!("Bash", bash, { signal: new AbortController().signal, toolUseID: "B" } as never)).toMatchObject({ behavior: "deny" });
     expect(await o.canUseTool!("Bash", bash, { signal: new AbortController().signal, toolUseID: "A" } as never)).toMatchObject({ behavior: "allow" });
+  });
+
+  it("canUseTool denies an approved unsandboxed ask with an empty or non-string command", async () => {
+    const o = build({}, vi.fn().mockResolvedValue({ allow: true }));
+    const opt = (id: string) => ({ signal: new AbortController().signal, toolUseID: id }) as never;
+    for (const [id, command] of [["E", ""], ["N", 42]] as const) {
+      const bash = { command, dangerouslyDisableSandbox: true };
+      await hook(o, "Bash", bash, id);
+      expect(await o.canUseTool!("Bash", bash, opt(id))).toMatchObject({ behavior: "deny" });
+    }
+  });
+
+  it("workdir runs keep npm/puppeteer caches inside the folder", () => {
+    const env = build().env!;
+    expect(env.npm_config_cache).toBe(join(wd.path, ".frontbot-cache", "npm"));
+    expect(env.XDG_CACHE_HOME).toBe(join(wd.path, ".frontbot-cache"));
+    expect(env.PUPPETEER_CACHE_DIR).toBe(join(wd.path, ".frontbot-cache", "puppeteer"));
+    expect(env.PATH).toBe(process.env.PATH);
   });
 
   it("canUseTool: a user-denied unsandboxed ask leaves nothing approved", async () => {

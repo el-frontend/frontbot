@@ -149,6 +149,9 @@ export function workdirDecision(tool: string, input: Record<string, unknown>, wd
       const t = expand(raw, wd, home);
       if (t === null) return { kind: "deny", reason: `No se puede resolver la ruta: ${raw}` };
       if (hitsDenied(t)) return { kind: "deny", reason: `Esa ruta está protegida y nunca se puede escribir: ${raw}` };
+      // Un enlace duro editaría el mismo archivo desde fuera de la carpeta.
+      try { if (lstatSync(t).nlink > 1) return { kind: "deny", reason: "El archivo tiene varios enlaces duros; cópialo antes de editarlo." }; } catch { /* no existe: archivo nuevo */ }
+      // Riesgo residual aceptado: un enlace simbólico creado entre esta comprobación y la escritura (carrera).
       if (inside(t, root)) return { kind: "allow" };
       const ask: WorkdirAsk = { kind: "write", tool, path: t };
       if (tool === "Write") ask.content = str(input.content) ?? "";
@@ -159,6 +162,8 @@ export function workdirDecision(tool: string, input: Record<string, unknown>, wd
       return { kind: "ask", ask };
     }
     case "Bash":
+      // Un proceso en segundo plano sobreviviría a la aprobación y a la sandbox del comando.
+      if (input.run_in_background === true) return { kind: "deny", reason: "Los comandos en segundo plano no están permitidos en la carpeta de trabajo." };
       return input.dangerouslyDisableSandbox === true
         ? { kind: "ask", ask: { kind: "unsandboxed", command: str(input.command) ?? "" } }
         : { kind: "allow" };
@@ -192,6 +197,12 @@ export const WORKDIR_ALLOWED_DOMAINS = [
 /** Igual que la validación de la app: `host.tld` o `*.host.tld`; sin `*` solo, esquemas, rutas ni puertos. */
 const DOMAIN_RE = /^(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
+/** Cachés de los comandos dentro de la carpeta: así un run no puede envenenar `~/.npm` ni `~/.cache`. */
+export function workdirEnv(wd: RunWorkdir, base: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
+  const c = join(wd.path, ".frontbot-cache");
+  return { ...base, npm_config_cache: join(c, "npm"), XDG_CACHE_HOME: c, PUPPETEER_CACHE_DIR: join(c, "puppeteer") };
+}
+
 /**
  * Sandbox de Bash. `allowRead` re-permite dentro de `denyRead` (home entero): la Tarea 3 lo verifica de verdad.
  * Red: solo `wd.allowed_domains` o, si falta, `WORKDIR_ALLOWED_DOMAINS` (sin `allowedDomains` la sandbox bloquea todo).
@@ -211,7 +222,8 @@ export function sandboxSettings(wd: RunWorkdir, home: string, toolPaths: string[
     allowUnsandboxedCommands: true,
     network: { allowedDomains: domains },
     filesystem: {
-      allowWrite: [wd.path, ...cache, ...tmps],
+      // Las cachés de npm/npx se leen pero no se escriben: van dentro de la carpeta (ver `workdirEnv`).
+      allowWrite: [wd.path, ...tmps],
       denyRead: [home, ...alwaysDenied(home)],
       allowRead: [wd.path, ...reads, ...cache, join(home, ".npm-global"), join(home, ".nvm"), ...tmps],
     },
