@@ -183,9 +183,15 @@ export function validateWorkdir(wd: RunWorkdir, home: string = homedir()): strin
   return null;
 }
 
+/** Dominios que los comandos pueden alcanzar: registros de paquetes, GitHub, CDNs y fuentes. Nada más. */
+export const WORKDIR_ALLOWED_DOMAINS = [
+  "registry.npmjs.org", "*.npmjs.org", "github.com", "*.github.com", "*.githubusercontent.com",
+  "cdn.jsdelivr.net", "unpkg.com", "fonts.googleapis.com", "fonts.gstatic.com",
+];
+
 /**
  * Sandbox de Bash. `allowRead` re-permite dentro de `denyRead` (home entero): la Tarea 3 lo verifica de verdad.
- * Red abierta a propósito: sin `allowedDomains`.
+ * Red: solo `WORKDIR_ALLOWED_DOMAINS` (sin `allowedDomains` la sandbox bloquea todo).
  */
 export function sandboxSettings(wd: RunWorkdir, home: string, toolPaths: string[]): SandboxSettings {
   const reads = safeReadRoots([...wd.read_dirs, ...toolPaths], home);
@@ -196,7 +202,7 @@ export function sandboxSettings(wd: RunWorkdir, home: string, toolPaths: string[
     failIfUnavailable: true,
     autoAllowBashIfSandboxed: true,
     allowUnsandboxedCommands: true,
-    network: {},
+    network: { allowedDomains: WORKDIR_ALLOWED_DOMAINS },
     filesystem: {
       allowWrite: [wd.path, ...cache, ...tmps],
       denyRead: [home, ...alwaysDenied(home)],
