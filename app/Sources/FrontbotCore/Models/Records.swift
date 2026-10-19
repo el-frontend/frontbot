@@ -92,6 +92,10 @@ public struct Conversation: Codable, FetchableRecord, PersistableRecord, Identif
     public var summarizedAt: Date?
     /// Último mensaje incluido en ese resumen.
     public var summarizedThrough: Int64
+    /// Carpeta de trabajo (ruta real) donde el agente usa herramientas de Claude Code; nil = sin carpeta.
+    public var workdir: String? = nil
+    /// Carpetas extra de solo lectura de esta conversación (se suman a ~/Downloads).
+    public var readDirs: [String] = []
 }
 
 public struct Agent: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Hashable, Sendable {
@@ -110,6 +114,8 @@ public struct Agent: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     public var templateId: String?
     public var createdAt: Date
     public var updatedAt: Date
+    /// Sitios a los que pueden llegar los comandos de la carpeta de trabajo; nil = la lista base.
+    public var networkDomains: [String]? = nil
 }
 
 /// Lo que el usuario (o Frontbot) define de un agente; el resto lo pone el store.

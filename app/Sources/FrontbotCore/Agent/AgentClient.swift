@@ -41,6 +41,21 @@ public enum AgentUpdate: Sendable, Equatable {
     /// Una tarea programada pidió avisar al usuario (`notify_user`).
     case notify(runId: String, title: String, message: String)
     case finished(AgentRun)
+    /// El run se canceló: la app debe cerrar la hoja de aprobación pendiente y responder que no.
+    case workdirApprovalCancelled(runId: String)
+}
+
+/// Acción de la carpeta de trabajo que el sidecar pide aprobar (escribir fuera de la carpeta o un comando sin sandbox).
+public struct WorkdirApproval: Equatable, Sendable {
+    public enum Kind: String, Sendable { case write, unsandboxed }
+    public var runId: String
+    public var kind: Kind
+    public var tool: String?
+    public var path: String?
+    public var content: String?
+    public var oldString: String?
+    public var newString: String?
+    public var command: String?
 }
 
 public enum AgentClientError: Error, Equatable, LocalizedError {
@@ -99,6 +114,10 @@ public actor AgentClient {
     private var fileWriteApprover: (@Sendable (FileWriteRequest) async -> Bool)?
     public func setFileWriteApprover(_ approver: @escaping @Sendable (FileWriteRequest) async -> Bool) { fileWriteApprover = approver }
 
+    /// Aprobación de acciones de la carpeta de trabajo. Sin plazo: el run espera la respuesta o su cancelación.
+    private var workdirApprover: (@Sendable (WorkdirApproval) async -> Bool)?
+    public func setWorkdirApprover(_ approver: @escaping @Sendable (WorkdirApproval) async -> Bool) { workdirApprover = approver }
+
     /// Claves de las API wallets de Hyperliquid (la app las lee del llavero).
     private var tradeKeys: (any TradeKeyStore)?
     public func setTradeKeys(_ keys: any TradeKeyStore) { tradeKeys = keys }
@@ -150,7 +169,8 @@ public actor AgentClient {
     /// `summarize`: run en segundo plano que solo guarda en la memoria lo aprendido en `history`.
     /// `task`: ejecución de una tarea programada (sin nadie mirando; puede usar notify_user).
     public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil,
-                    summarize: Bool = false, task: ScheduledTask? = nil, study: StudyContext? = nil) async throws -> AgentRun {
+                    summarize: Bool = false, task: ScheduledTask? = nil, study: StudyContext? = nil,
+                    workdir: Conversation? = nil) async throws -> AgentRun {
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
@@ -204,6 +224,10 @@ public actor AgentClient {
                                    "notebook": notebook]
                 try db.attachAgentRun(labSessionId: study.session.id, agentRunId: run.id)
             }
+            // La carpeta solo existe en chats: tareas, estudio y resúmenes la ignoran.
+            if let conversation = workdir, let path = conversation.workdir, task == nil, study == nil, !summarize {
+                params["workdir"] = .object(try workdirParams(path: path, readDirs: conversation.readDirs, agent: agent))
+            }
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
             return run
         } catch {
@@ -211,6 +235,23 @@ public actor AgentClient {
             fail(runId: run.id, summary: error.localizedDescription, labTokens: 0)
             throw error
         }
+    }
+
+    /// Se revalida en cada run: la carpeta pudo borrarse o moverse desde que se eligió.
+    private func workdirParams(path: String, readDirs: [String], agent: Agent?) throws -> [String: JSONValue] {
+        guard AgentFiles.realPath(path) != nil else {
+            throw ValidationError("La carpeta \(path) ya no existe: elige otra o quítala.")
+        }
+        let real = try Workdir.validated(path, protected: [files.paths.root])
+        // ~/Downloads siempre se puede leer; si no existe se omite en vez de fallar.
+        var reads: [String] = []
+        for dir in [NSHomeDirectory() + "/Downloads"] + readDirs {
+            guard let r = AgentFiles.realPath(dir), !reads.contains(r) else { continue }
+            reads.append(r)
+        }
+        let domains = agent?.networkDomains ?? Workdir.defaultNetworkDomains
+        return ["path": .string(real), "read_dirs": .array(reads.map(JSONValue.string)),
+                "allowed_domains": .array(domains.map(JSONValue.string))]
     }
 
     /// Llamada con respuesta al sidecar (p. ej. `trade.execute`). La hace la app, nunca el agente.
@@ -238,6 +279,7 @@ public actor AgentClient {
     }
 
     public func cancel(runId: String) async {
+        broadcast(.workdirApprovalCancelled(runId: runId))
         try? send(.request(id: takeId(), method: "agent.cancel", params: ["run_id": .string(runId)]))
         // Si el sidecar no confirma a tiempo (runner colgado), se da por cancelado y se reinicia el proceso.
         let grace = cancelGrace
@@ -465,6 +507,21 @@ public actor AgentClient {
                 } catch {
                     self.reply(id, .failure(error))
                 }
+            }
+        case .request(let id, "workdir.approve", let params):
+            guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId), !unattendedRuns.contains(runId),
+                  let approver = workdirApprover else {
+                try? send(.response(id: id, result: ["allow": .bool(false)]))
+                return
+            }
+            let approval = WorkdirApproval(
+                runId: runId, kind: params["kind"]?.stringValue == "write" ? .write : .unsandboxed,
+                tool: params["tool"]?.stringValue, path: params["path"]?.stringValue, content: params["content"]?.stringValue,
+                oldString: params["old_string"]?.stringValue, newString: params["new_string"]?.stringValue,
+                command: params["command"]?.stringValue)
+            Task {
+                let allow = await approver(approval)
+                self.reply(id, .success(["allow": .bool(allow)]))
             }
         case .request(let id, let method, let params):
             do {

@@ -139,6 +139,13 @@ describe("sandboxSettings", () => {
     expect(s.network?.allowedDomains).not.toContain("*");
     expect(s).toMatchObject({ enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: true });
   });
+  it("usa los allowed_domains del agente y descarta lo inválido (incluido `*`)", () => {
+    const s = sandboxSettings({ ...wd, allowed_domains: ["example.com", "*.cdn.example.com", "*", "https://x.com", "x.com/a", "x.com:80", "localhost", "EVIL.com"] }, home, []);
+    expect(s.network?.allowedDomains).toEqual(["example.com", "*.cdn.example.com"]);
+  });
+  it("con allowed_domains vacío no permite ningún sitio", () => {
+    expect(sandboxSettings({ ...wd, allowed_domains: [] }, home, []).network?.allowedDomains).toEqual([]);
+  });
   it("descarta read_dirs y toolPaths que anularían denyRead", () => {
     const s = sandboxSettings({ path: work, read_dirs: [home, join(home, "Library")] }, home, [home, "/"]);
     const ar = s.filesystem?.allowRead ?? [];
