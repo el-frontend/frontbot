@@ -24,6 +24,7 @@ const CHECKS = `Ejecuta con la herramienta Bash, uno por uno y EXACTAMENTE como 
 5. ls ~/Downloads
 6. curl -sI https://example.com | head -1
 7. npx -y hyperframes --version
+8. echo x > ~/.npm/probe
 Si un comando falla, no lo reintentes de otra forma: solo informa el error.`;
 
 const RENDER = `Crea con HyperFrames (paquete npm \`hyperframes\`; usa \`npx -y hyperframes --help\` para aprender su uso) un vídeo de 3 segundos con el texto "Hola Frontbot" sobre fondo negro, hazlo y renderízalo a .mp4 dentro de la carpeta actual. Usa Bash. Si un comando falla por la sandbox (EPERM u operation not permitted), reintenta ese mismo comando con dangerouslyDisableSandbox true para que el usuario lo apruebe. Informa la ruta del .mp4 y cada error literal que veas.`;

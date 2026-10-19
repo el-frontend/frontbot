@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, linkSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workdirDecision, alwaysDenied, sandboxSettings, validateWorkdir, WORKDIR_TOOLS, WORKDIR_ALLOWED_DOMAINS, type RunWorkdir } from "../src/workdir.js";
@@ -127,10 +127,31 @@ describe("validateWorkdir", () => {
   });
 });
 
+describe("Bash en segundo plano y enlaces duros", () => {
+  it("deniega Bash con run_in_background", () => {
+    const d = workdirDecision("Bash", { command: "sleep 9", run_in_background: true }, wd, home);
+    expect(d).toEqual({ kind: "deny", reason: "Los comandos en segundo plano no están permitidos en la carpeta de trabajo." });
+    expect(workdirDecision("Bash", { command: "ls" }, wd, home).kind).toBe("allow");
+  });
+  it("deniega Write/Edit sobre un archivo con enlaces duros, no sobre uno normal", () => {
+    writeFileSync(join(work, "orig.txt"), "x");
+    linkSync(join(work, "orig.txt"), join(work, "dup.txt"));
+    for (const tool of ["Write", "Edit"]) {
+      const d = workdirDecision(tool, { file_path: join(work, "dup.txt"), content: "y" }, wd, home);
+      expect(d).toEqual({ kind: "deny", reason: "El archivo tiene varios enlaces duros; cópialo antes de editarlo." });
+    }
+    writeFileSync(join(work, "solo.txt"), "x");
+    expect(workdirDecision("Write", { file_path: join(work, "solo.txt"), content: "y" }, wd, home).kind).toBe("allow");
+  });
+});
+
 describe("sandboxSettings", () => {
   it("construye permisos y banderas", () => {
     const s = sandboxSettings(wd, home, ["/opt/x"]);
     expect(s.filesystem?.allowWrite).toContain(wd.path);
+    expect(s.filesystem?.allowWrite).not.toContain(join(home, ".npm"));
+    expect(s.filesystem?.allowWrite).not.toContain(join(home, ".cache"));
+    expect(s.filesystem?.allowRead).toEqual(expect.arrayContaining([join(home, ".npm"), join(home, ".cache")]));
     expect(s.filesystem?.denyRead).toContain(home);
     expect(s.filesystem?.denyRead).toEqual(expect.arrayContaining(alwaysDenied(home)));
     expect(s.filesystem?.allowRead).toEqual(expect.arrayContaining([wd.path, ...wd.read_dirs, "/opt/x"]));
