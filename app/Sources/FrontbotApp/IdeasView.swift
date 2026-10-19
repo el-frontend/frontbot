@@ -119,7 +119,7 @@ private struct IdeaDetail: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("FUENTES").font(Theme.mono(10)).foregroundStyle(Theme.muted)
                             ForEach(idea.sources, id: \.self) { source in
-                                if let url = URL(string: source), url.scheme?.hasPrefix("http") == true {
+                                if let url = URL(string: source), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
                                     Link(destination: url) {
                                         Text(source).font(Theme.mono(11)).lineLimit(1).truncationMode(.middle)
                                     }
