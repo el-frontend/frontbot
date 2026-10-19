@@ -5,6 +5,7 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { RealRunner, type RunParams } from "../src/runner.js";
 
 const step = process.argv[2] ?? "checks";
@@ -25,7 +26,7 @@ const CHECKS = `Ejecuta con la herramienta Bash, uno por uno y EXACTAMENTE como 
 7. npx -y hyperframes --version
 Si un comando falla, no lo reintentes de otra forma: solo informa el error.`;
 
-const RENDER = `Crea con HyperFrames (paquete npm \`hyperframes\`; usa \`npx -y hyperframes --help\` para aprender su uso) un vídeo de 3 segundos con el texto "Hola Frontbot" sobre fondo negro, hazlo y renderízalo a .mp4 dentro de la carpeta actual. Usa Bash. Informa la ruta del .mp4 y cada error literal que veas.`;
+const RENDER = `Crea con HyperFrames (paquete npm \`hyperframes\`; usa \`npx -y hyperframes --help\` para aprender su uso) un vídeo de 3 segundos con el texto "Hola Frontbot" sobre fondo negro, hazlo y renderízalo a .mp4 dentro de la carpeta actual. Usa Bash. Si un comando falla por la sandbox (EPERM u operation not permitted), reintenta ese mismo comando con dangerouslyDisableSandbox true para que el usuario lo apruebe. Informa la ruta del .mp4 y cada error literal que veas.`;
 
 const params: RunParams = {
   run_id: "probe-" + step,
@@ -40,7 +41,22 @@ const call = async (method: string, p: Record<string, unknown>) => {
   return { allow: true };
 };
 
-const done = await new RealRunner(call).run(
+// Envuelve query() para registrar los resultados de herramientas (mensajes `user` con tool_result).
+const loggingQuery = ((args: Parameters<typeof query>[0]) => {
+  const inner = query(args);
+  return (async function* () {
+    for await (const m of inner) {
+      if (m.type === "user" && Array.isArray(m.message.content)) {
+        for (const b of m.message.content as { type: string; content?: unknown }[]) {
+          if (b.type === "tool_result") console.log("RESULT " + JSON.stringify(b.content).slice(0, 500));
+        }
+      }
+      yield m;
+    }
+  })();
+}) as typeof query;
+
+const done = await new RealRunner(call, loggingQuery).run(
   params,
   (e) => console.log("EVENT " + JSON.stringify(e)),
   new AbortController().signal,
