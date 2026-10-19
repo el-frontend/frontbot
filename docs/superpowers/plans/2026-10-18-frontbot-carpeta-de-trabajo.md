@@ -22,7 +22,7 @@
 
 - **Copia y comentarios:** la copia de UI va en español. Los comentarios siguen el estilo del código: en español, cortos, explican el porqué.
 - **Plataforma:** macOS 15+, Swift 6 con concurrencia estricta. Los callbacks que lleguen de otros hilos van `@Sendable` (lección de `Dictation.swift`).
-- **SDK:** `@anthropic-ai/claude-agent-sdk` 0.3.296 sin actualizar. `permissionMode: "dontAsk"`, `settingSources: []` y `persistSession: false` no cambian.
+- **SDK:** `@anthropic-ai/claude-agent-sdk` 0.3.296 sin actualizar. `settingSources: []` y `persistSession: false` no cambian. `permissionMode`: sin carpeta, `"dontAsk"` como hoy; con carpeta, `"default"` + `canUseTool` que niega todo salvo un `Bash` sin sandbox con ese comando exacto ya aprobado por el usuario, una vez (bajo `dontAsk` el SDK negaba el comando aprobado; Tarea 3).
 - **Dónde existe la carpeta de trabajo:** solo en runs de chat, con `mode` ausente o `"chat"`. En `scheduled`, `study` y `summarize` el sidecar ignora `workdir` aunque llegue.
 - **Rutas siempre denegadas,** aunque caigan en una carpeta elegida: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/Library/Application Support/Frontbot`, `~/Library/Application Support/Google/Chrome`, y el perfil de Frontbot Chrome (ruta que ya usa el código del navegador).
 - **Lectura permitida:** solo la carpeta de trabajo, `~/Downloads` (siempre, no se quita) y las carpetas de lectura extra de la conversación.
