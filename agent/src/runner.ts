@@ -98,7 +98,8 @@ function workdirHooks(wd: RunWorkdir, runId: string, call: AppCall | undefined, 
       if (!call) return deny("No se pudo pedir la aprobación al usuario.");
       try {
         const res = (await call("workdir.approve", { run_id: runId, ...d.ask })) as { allow?: boolean };
-        return res?.allow === true ? {} : deny("El usuario lo denegó; no insistas.");
+        // Aprobado: allow explícito, porque en dontAsk un `{}` deja a Bash sin sandbox sin permiso.
+        return res?.allow === true ? { hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "allow" as const, permissionDecisionReason: "Aprobado por el usuario" } } : deny("El usuario lo denegó; no insistas.");
       } catch (err) {
         return deny(`No se pudo pedir la aprobación: ${(err as Error).message}`);
       }

@@ -137,11 +137,21 @@ describe("workdir", () => {
     const path = join(homedir(), "Downloads", "x.txt");
     const call = vi.fn().mockResolvedValueOnce({ allow: true }).mockResolvedValueOnce({ allow: false }).mockRejectedValueOnce(new Error("sin app"));
     const o = build({}, call);
-    expect(await hook(o, "Write", { file_path: path, content: "hola" })).toEqual({});
+    expect(await hook(o, "Write", { file_path: path, content: "hola" })).toEqual({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", permissionDecisionReason: "Aprobado por el usuario" } });
     expect(call).toHaveBeenCalledWith("workdir.approve", { run_id: "r", kind: "write", tool: "Write", path: realpathSync(join(homedir(), "Downloads")) + "/x.txt", content: "hola" });
     const denied = await hook(o, "Write", { file_path: path, content: "hola" });
     expect(denied.hookSpecificOutput.permissionDecisionReason).toBe("El usuario lo denegó; no insistas.");
     expect((await hook(o, "Write", { file_path: path, content: "hola" })).hookSpecificOutput.permissionDecision).toBe("deny");
+  });
+
+  it("an approved unsandboxed Bash ask is explicitly allowed, a denied one is not", async () => {
+    const call = vi.fn().mockResolvedValueOnce({ allow: true }).mockResolvedValueOnce({ allow: false });
+    const o = build({}, call);
+    const input = { command: "npx hyperframes render", dangerouslyDisableSandbox: true };
+    expect((await hook(o, "Bash", input)).hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(call).toHaveBeenCalledWith("workdir.approve", { run_id: "r", kind: "unsandboxed", command: "npx hyperframes render" });
+    expect((await hook(o, "Bash", input)).hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(await hook(o, "Bash", { command: "ls" })).toEqual({});
   });
 
   it("with skills, skill files are readable outside the folder but protected paths never are", async () => {
