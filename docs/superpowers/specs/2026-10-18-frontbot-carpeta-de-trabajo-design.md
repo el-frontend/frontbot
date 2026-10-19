@@ -18,7 +18,7 @@ Hoy no puede:
 | Dónde se activa | En el chat, eligiendo una carpeta. Ahí se abre una sesión de Claude Code (herramientas reales del SDK) con esa carpeta como directorio de trabajo. |
 | Permisos dentro de la carpeta | **Carta blanca**: leer, buscar, crear, editar, borrar y ejecutar comandos dentro de la carpeta sin preguntar. |
 | Lectura fuera de la carpeta | **Solo** la carpeta de trabajo, `~/Downloads` y las carpetas de lectura que el usuario añada explícitamente. Nada más del usuario, tampoco desde comandos. |
-| Red de los comandos | **Abierta.** |
+| Red de los comandos | **Lista de sitios** (cambiado por el usuario el 2026-10-19 tras ver que la sandbox bloquea todo sin lista): npm, GitHub, jsDelivr, unpkg, Google Fonts y lo estrictamente necesario para el render de HyperFrames. Un sitio fuera de la lista falla y el agente lo dice. |
 | Permisos fuera de la carpeta | Se piden al usuario (ver §Permisos). |
 
 ## Decisiones mías (el usuario puede corregirlas)
@@ -79,7 +79,7 @@ Publicar, operar con wallets y trades reales siguen **sin** ninguna vía nueva: 
     - La lista exacta la ajusta el constructor hasta que el render funcione, sin añadir carpetas de datos del usuario.
   - Así "dentro de la carpeta" se cumple también para comandos, no solo para las herramientas de archivos.
 
-**Red de los comandos** (decisión del usuario): **abierta**, sin lista de dominios.
+**Red de los comandos** (decisión del usuario, 2026-10-19): **lista de sitios** en `sandbox.network.allowedDomains`: `registry.npmjs.org`, `*.npmjs.org`, `github.com`, `*.github.com`, `*.githubusercontent.com`, `cdn.jsdelivr.net`, `unpkg.com`, `fonts.googleapis.com`, `fonts.gstatic.com`, más los dominios que el render de HyperFrames necesite de verdad (anotados). Fuera de la lista, la petición falla.
 
 **Fuera de la carpeta**:
 - **Lectura** con `Read`/`Glob`/`Grep`:

@@ -27,7 +27,7 @@
 - **Rutas siempre denegadas,** aunque caigan en una carpeta elegida: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/Library/Application Support/Frontbot`, `~/Library/Application Support/Google/Chrome`, y el perfil de Frontbot Chrome (ruta que ya usa el código del navegador).
 - **Lectura permitida:** solo la carpeta de trabajo, `~/Downloads` (siempre, no se quita) y las carpetas de lectura extra de la conversación.
 - **Escritura sin preguntar:** solo dentro de la carpeta de trabajo.
-- **Red de los comandos:** abierta, sin lista de dominios.
+- **Red de los comandos:** lista de sitios (decisión del usuario 2026-10-19): `registry.npmjs.org`, `*.npmjs.org`, `github.com`, `*.github.com`, `*.githubusercontent.com`, `cdn.jsdelivr.net`, `unpkg.com`, `fonts.googleapis.com`, `fonts.gstatic.com` + los que el render de HyperFrames necesite (Tarea 3 los anota).
 - **Sandbox de `Bash`:**
   - siempre activa: `enabled: true`, `failIfUnavailable: true`, `autoAllowBashIfSandboxed: true`, `allowUnsandboxedCommands: true`;
   - todo `Bash` con `dangerouslyDisableSandbox: true` pasa por aprobación (una vez / denegar, sin "en esta conversación").
