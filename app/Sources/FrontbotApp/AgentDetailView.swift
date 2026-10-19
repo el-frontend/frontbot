@@ -53,6 +53,7 @@ struct AgentDetailView: View {
                 settings
                 if agent.trading { TradingSettings(model: model, agent: agent).id(agent.id) }
                 AgentFoldersSection(model: model, agent: agent)
+                AgentNetworkSection(model: model, agent: agent)
                 skillsSection
                 tasksSection
                 memory

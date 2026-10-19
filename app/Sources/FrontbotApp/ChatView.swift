@@ -163,6 +163,7 @@ struct ChatView: View {
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
                 .fixedSize()
                 .help("Modelo del agente")
+                WorkdirChip(model: model)
                 if model.selectedAgent?.browser == true {
                     Label("Chrome", systemImage: "globe").font(Theme.mono()).foregroundStyle(Theme.muted)
                         .padding(.horizontal, 10).frame(height: 28)
