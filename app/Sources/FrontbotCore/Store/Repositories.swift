@@ -692,6 +692,10 @@ extension AppDatabase {
         }
     }
 
+    public func conversation(id: String) throws -> Conversation? {
+        try writer.read { try Conversation.fetchOne($0, key: id) }
+    }
+
     public func messages(conversationId: String) throws -> [StoredMessage] {
         try writer.read { try StoredMessage.filter(Column("conversationId") == conversationId).order(Column("id")).fetchAll($0) }
     }

@@ -113,6 +113,8 @@ final class AppModel {
             await self?.client.setTradeKeys(KeychainTradeKeys())
             await self?.client.setScriptApprover { [weak self] request in await self?.askScriptApproval(request) ?? false }
             await self?.client.setFileWriteApprover { [weak self] request in await self?.askFileWriteApproval(request) ?? false }
+            // El cliente lo llama desde otro hilo: el closure es @Sendable y entra a MainActor con await.
+            await self?.client.setWorkdirApprover { @Sendable [weak self] approval in await self?.askWorkdirApproval(approval) ?? false }
         }
     }
 
@@ -768,6 +770,124 @@ final class AppModel {
         pendingFileWrite = nil
     }
 
+    // MARK: Carpeta de trabajo
+
+    /// Carpeta y carpetas de lectura de la conversación abierta; sin conversación, quedan pendientes hasta `send`.
+    private(set) var workdir: String?
+    private(set) var readDirs: [String] = []
+    /// Rutas aprobadas "en esta conversación" (solo memoria).
+    private var workdirGrants: [String: Set<String>] = [:]
+
+    private func loadWorkdir(from conversation: Conversation?) {
+        workdir = conversation?.workdir
+        readDirs = conversation?.readDirs ?? []
+    }
+
+    func chooseWorkdir(_ url: URL) {
+        guard !isRunningHere else { return }
+        var warning: String?
+        let ok = perform {
+            let path = try Workdir.validated(url.path, protected: [paths.root])
+            if let id = currentConversationId { try db.setWorkdir(conversationId: id, path: path) }
+            workdir = path
+            if Workdir.isBroad(path) {
+                warning = "Vas a darle carta blanca sobre toda la carpeta \(URL(fileURLWithPath: path).lastPathComponent). Mejor una subcarpeta del proyecto."
+            }
+        }
+        if ok, let warning { errorMessage = warning } // aviso, no bloquea: la carpeta ya quedó elegida
+    }
+
+    func clearWorkdir() {
+        guard !isRunningHere else { return }
+        perform {
+            if let id = currentConversationId { try db.setWorkdir(conversationId: id, path: nil) }
+            workdir = nil
+        }
+    }
+
+    func addReadDir(_ url: URL) {
+        guard !isRunningHere else { return }
+        perform {
+            let path = try Workdir.validated(url.path, protected: [paths.root])
+            if path.lowercased() == URL(fileURLWithPath: NSHomeDirectory() + "/Downloads").resolvingSymlinksInPath().path.lowercased() {
+                throw ValidationError("~/Downloads ya está incluida.")
+            }
+            guard !readDirs.contains(path) else { return }
+            let updated = readDirs + [path]
+            if let id = currentConversationId { try db.setReadDirs(conversationId: id, updated) }
+            readDirs = updated
+        }
+    }
+
+    func removeReadDir(_ path: String) {
+        guard !isRunningHere else { return }
+        perform {
+            let updated = readDirs.filter { $0 != path }
+            if let id = currentConversationId { try db.setReadDirs(conversationId: id, updated) }
+            readDirs = updated
+        }
+    }
+
+    // MARK: Sitios de red del agente
+
+    func setNetworkDomains(agentId: String, _ domains: [String]?) {
+        perform { try db.setNetworkDomains(agentId: agentId, domains) }
+        reloadAgents()
+    }
+
+    // MARK: Aprobación de la carpeta de trabajo
+
+    enum WorkdirChoice { case once, conversation, deny }
+
+    private struct QueuedWorkdirApproval {
+        let id: UUID
+        let approval: WorkdirApproval
+        let conversationId: String?
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+    /// FIFO: la primera se muestra en la hoja; las demás esperan su turno (no se deniegan).
+    private var workdirQueue: [QueuedWorkdirApproval] = []
+    var pendingWorkdirApproval: WorkdirApproval? { workdirQueue.first?.approval }
+
+    func askWorkdirApproval(_ approval: WorkdirApproval) async -> Bool {
+        let conversationId = activeRun?.conversationId
+        if approval.kind == .write, let path = approval.path, let conversationId,
+           workdirGrants[conversationId]?.contains(path) == true { return true }
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                workdirQueue.append(QueuedWorkdirApproval(id: id, approval: approval, conversationId: conversationId, continuation: continuation))
+                NSApp.activate()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.dropWorkdirApproval(id: id) } // venció el plazo de aprobación
+        }
+    }
+
+    func answerWorkdir(_ choice: WorkdirChoice) {
+        guard !workdirQueue.isEmpty else { return }
+        let item = workdirQueue.removeFirst()
+        // "En esta conversación" solo existe para escrituras fuera de la carpeta.
+        if choice == .conversation, item.approval.kind == .write, let path = item.approval.path, let cid = item.conversationId {
+            workdirGrants[cid, default: []].insert(path)
+        }
+        item.continuation.resume(returning: choice != .deny)
+    }
+
+    private func dropWorkdirApproval(id: UUID) {
+        guard let index = workdirQueue.firstIndex(where: { $0.id == id }) else { return }
+        workdirQueue.remove(at: index).continuation.resume(returning: false)
+    }
+
+    /// Responde que no a todas las pendientes del run (o a todas si aún no se conoce su id).
+    private func denyWorkdirApprovals(runId: String?) {
+        let (denied, kept) = workdirQueue.reduce(into: ([QueuedWorkdirApproval](), [QueuedWorkdirApproval]())) { acc, item in
+            if runId == nil || item.approval.runId == runId { acc.0.append(item) } else { acc.1.append(item) }
+        }
+        workdirQueue = kept
+        for item in denied { item.continuation.resume(returning: false) }
+    }
+
     // MARK: Agentes
 
     func reloadAgents() {
@@ -808,7 +928,7 @@ final class AppModel {
         guard !(isRunning && activeRun?.agentId == id) else { return }
         guard perform({ try db.deleteAgent(id: id) }) else { return }
         for network in TradeNetwork.allCases { try? tradeKeys.remove(agentId: id, network: network) }
-        if selectedAgentId == id { selectedAgentId = agents.first { $0.isDefault }?.id ?? "" ; messages = []; currentConversationId = nil }
+        if selectedAgentId == id { selectedAgentId = agents.first { $0.isDefault }?.id ?? "" ; messages = []; currentConversationId = nil; loadWorkdir(from: nil) }
         reloadAgents()
         reloadConversations()
         section = .chat
@@ -847,9 +967,14 @@ final class AppModel {
         let history = chatHistory()
         if currentConversationId == nil {
             guard perform({
-                currentConversationId = try db.createConversation(workspaceId: workspace.id, agentId: selectedAgentId, brandId: selectedBrandId, firstPrompt: text).id
+                let id = try db.createConversation(workspaceId: workspace.id, agentId: selectedAgentId, brandId: selectedBrandId, firstPrompt: text).id
+                currentConversationId = id
+                // La carpeta elegida antes de existir la conversación se guarda ahora.
+                if let workdir { try db.setWorkdir(conversationId: id, path: workdir) }
+                if !readDirs.isEmpty { try db.setReadDirs(conversationId: id, readDirs) }
             }) else { return }
         }
+        let withFolder = workdir == nil ? nil : currentConversationId.flatMap { try? db.conversation(id: $0) }
         record(.user, text)
         if let conversationId = currentConversationId {
             activeRun = ActiveRun(conversationId: conversationId, agentId: agent.id, brandId: selectedBrandId)
@@ -858,7 +983,7 @@ final class AppModel {
         mascot.runStarted(at: Date())
         Task {
             do {
-                let id = try await client.run(prompt: text, agent: agent, brand: selectedBrand, history: history, model: agent.model).id
+                let id = try await client.run(prompt: text, agent: agent, brand: selectedBrand, history: history, model: agent.model, workdir: withFolder).id
                 if let run = earlyFinished.removeValue(forKey: id) { finish(run) } else { currentRunId = id }
             } catch {
                 isRunning = false
@@ -901,6 +1026,7 @@ final class AppModel {
         if let agentId { selectedAgentId = agentId }
         messages = []
         currentConversationId = nil
+        loadWorkdir(from: nil)
         lastAgentReply = nil
         section = .chat
     }
@@ -912,6 +1038,7 @@ final class AppModel {
         perform {
             messages = try db.messages(conversationId: conversation.id).map { ChatMessage(role: $0.role, text: $0.text) }
             currentConversationId = conversation.id
+            loadWorkdir(from: conversation)
             if let agentId = conversation.agentId, agents.contains(where: { $0.id == agentId }) { selectedAgentId = agentId }
             lastAgentReply = messages.last { $0.role == .agent }?.text
             if let brandId = conversation.brandId, brands.contains(where: { $0.id == brandId }) { selectedBrandId = brandId }
@@ -921,7 +1048,7 @@ final class AppModel {
     func deleteConversation(_ conversation: Conversation) {
         guard !(isRunning && conversation.id == runningConversationId) else { return }
         perform { try db.deleteConversation(id: conversation.id) }
-        if conversation.id == currentConversationId { messages = []; currentConversationId = nil; lastAgentReply = nil }
+        if conversation.id == currentConversationId { messages = []; currentConversationId = nil; loadWorkdir(from: nil); lastAgentReply = nil }
         reloadConversations()
     }
 
@@ -941,6 +1068,7 @@ final class AppModel {
     }
 
     func cancel() {
+        denyWorkdirApprovals(runId: currentRunId)
         guard let id = currentRunId else { return }
         Task { await client.cancel(runId: id) }
     }
@@ -975,6 +1103,7 @@ final class AppModel {
 
     private func finish(_ run: AgentRun) {
         isRunning = false
+        denyWorkdirApprovals(runId: run.id) // por si quedó alguna sin respuesta
         mascot.runFinished(ok: run.status == .done, at: Date())
         currentRunId = nil
         if run.status == .failed { record(.error, run.resultSummary ?? "Error", in: activeRun?.conversationId) }
@@ -1007,6 +1136,8 @@ final class AppModel {
                 finish(run)
             case .finished(let run) where isRunning && currentRunId == nil:
                 earlyFinished[run.id] = run
+            case .workdirApprovalCancelled(let runId):
+                denyWorkdirApprovals(runId: runId)
             case .tradesChanged(let proposal):
                 reloadProposals()
                 notifyTrade(proposal)

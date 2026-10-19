@@ -42,6 +42,9 @@ struct RootView: View {
         .sheet(item: Binding(get: { model.pendingFileWrite.map(IdentifiedFileWrite.init) }, set: { if $0 == nil { model.answerFileWrite(false) } })) { item in
             FileWriteApprovalSheet(model: model, request: item.request)
         }
+        .sheet(item: Binding(get: { model.pendingWorkdirApproval.map(IdentifiedWorkdirApproval.init) }, set: { if $0 == nil { model.answerWorkdir(.deny) } })) { item in
+            WorkdirApprovalSheet(model: model, approval: item.approval)
+        }
         .alert("Frontbot", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
         } message: {
@@ -58,4 +61,9 @@ private struct IdentifiedScript: Identifiable {
 private struct IdentifiedFileWrite: Identifiable {
     let request: FileWriteRequest
     var id: String { request.agentName + request.path + String(request.content.hashValue) }
+}
+
+private struct IdentifiedWorkdirApproval: Identifiable {
+    let approval: WorkdirApproval
+    var id: String { approval.runId + (approval.path ?? approval.command ?? "") + String((approval.content ?? approval.newString ?? "").hashValue) }
 }

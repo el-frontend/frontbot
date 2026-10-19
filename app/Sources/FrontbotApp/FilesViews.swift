@@ -46,6 +46,64 @@ struct AgentFoldersSection: View {
     }
 }
 
+/// Sitios a los que pueden conectarse los comandos del agente cuando trabaja en una carpeta.
+struct AgentNetworkSection: View {
+    @Bindable var model: AppModel
+    let agent: Agent
+    @State private var newDomain = ""
+    @State private var problem: String?
+
+    private var domains: [String] { agent.networkDomains ?? Workdir.defaultNetworkDomains }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Sitios de red").font(.system(size: 14, weight: .semibold))
+                Text("\(domains.count) sitios").font(Theme.mono()).foregroundStyle(Theme.muted)
+                Spacer()
+                if agent.networkDomains != nil {
+                    Button("Restaurar lista base") { model.setNetworkDomains(agentId: agent.id, nil) }.buttonStyle(OutlineButtonStyle())
+                }
+            }
+            Text("Sitios a los que pueden conectarse sus comandos cuando trabaja en una carpeta.")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            ForEach(domains, id: \.self) { domain in
+                HStack(spacing: 10) {
+                    Image(systemName: "network").foregroundStyle(Theme.muted)
+                    Text(domain).font(Theme.mono(12)).lineLimit(1)
+                    Spacer()
+                    Button("Quitar") { model.setNetworkDomains(agentId: agent.id, domains.filter { $0 != domain }) }
+                        .buttonStyle(.plain).foregroundStyle(Theme.muted).font(.system(size: 12))
+                        .accessibilityLabel("Quitar \(domain)")
+                }
+                .padding(.vertical, 2)
+            }
+            HStack(spacing: 8) {
+                TextField("ejemplo.com o *.ejemplo.com", text: $newDomain)
+                    .textFieldStyle(.plain).font(Theme.mono(12)).padding(.horizontal, 10).frame(height: 28)
+                    .panel(radius: 7, fill: Theme.raised).onSubmit(add)
+                Button("Añadir", action: add).buttonStyle(OutlineButtonStyle(prominent: true))
+            }
+            if let problem { Text(problem).font(.system(size: 11)).foregroundStyle(Theme.danger) }
+        }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 12)
+    }
+
+    private func add() {
+        do {
+            let domain = try Workdir.validatedDomain(newDomain)
+            problem = nil
+            newDomain = ""
+            // Al editar sin lista propia se parte de la base.
+            if !domains.contains(domain) { model.setNetworkDomains(agentId: agent.id, domains + [domain]) }
+        } catch let e as ValidationError {
+            problem = e.message
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+}
+
 /// Un agente quiere crear o reemplazar un archivo: el usuario ve la ruta y el contenido y decide.
 struct FileWriteApprovalSheet: View {
     let model: AppModel
