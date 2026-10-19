@@ -56,7 +56,20 @@ const loggingQuery = ((args: Parameters<typeof query>[0]) => {
   })();
 }) as typeof query;
 
-const done = await new RealRunner(call, loggingQuery).run(
+// Registra cada llamada a canUseTool (no debería ocurrir con Bash dentro de la sandbox).
+const wrappedQuery = ((args: Parameters<typeof query>[0]) => {
+  const cu = args.options?.canUseTool;
+  if (cu && args.options) {
+    args.options.canUseTool = async (tool, input, o) => {
+      const r = await cu(tool, input, o);
+      console.log("CANUSETOOL " + JSON.stringify({ tool, input, r }).slice(0, 400));
+      return r;
+    };
+  }
+  return loggingQuery(args);
+}) as typeof query;
+
+const done = await new RealRunner(call, wrappedQuery).run(
   params,
   (e) => console.log("EVENT " + JSON.stringify(e)),
   new AbortController().signal,

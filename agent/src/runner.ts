@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { dirname, relative, isAbsolute } from "node:path";
-import { query, createSdkMcpServer, type Options } from "@anthropic-ai/claude-agent-sdk";
+import { query, createSdkMcpServer, type Options, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, allowedToolsFor, type AppCall, type ToolContext } from "./tools.js";
 import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
 import { buildTradingTools, buildMarketTools, realMarket, TRADING_TOOL_NAMES, type RunTrading } from "./trading.js";
@@ -82,7 +82,7 @@ const toolPaths = () => [dirname(process.execPath), "/Applications/Google Chrome
 
 /** Todas las herramientas pasan por aquí: lo protegido se deniega, lo de fuera pide aprobación a la app.
  *  Con skills, `Read` también vale para sus archivos (salvo rutas protegidas). */
-function workdirHooks(wd: RunWorkdir, runId: string, call: AppCall | undefined, skillRead: ((p: string) => boolean) | undefined): Hooks {
+function workdirHooks(wd: RunWorkdir, runId: string, call: AppCall | undefined, skillRead: ((p: string) => boolean) | undefined, approved: Set<string>): Hooks {
   const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "deny" as const, permissionDecisionReason: reason } });
   return {
     PreToolUse: [{ hooks: [async (input) => {
@@ -98,12 +98,25 @@ function workdirHooks(wd: RunWorkdir, runId: string, call: AppCall | undefined, 
       if (!call) return deny("No se pudo pedir la aprobación al usuario.");
       try {
         const res = (await call("workdir.approve", { run_id: runId, ...d.ask })) as { allow?: boolean };
+        // Bash sin sandbox: canUseTool solo lo deja pasar si el usuario aprobó ese comando exacto.
+        if (res?.allow === true && d.ask.kind === "unsandboxed") approved.add(d.ask.command);
         // Aprobado: allow explícito, porque en dontAsk un `{}` deja a Bash sin sandbox sin permiso.
         return res?.allow === true ? { hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "allow" as const, permissionDecisionReason: "Aprobado por el usuario" } } : deny("El usuario lo denegó; no insistas.");
       } catch (err) {
         return deny(`No se pudo pedir la aprobación: ${(err as Error).message}`);
       }
     }] }],
+  };
+}
+
+/** Con carpeta de trabajo: lo que no está ya permitido se deniega, salvo el Bash sin sandbox que el usuario aprobó (una sola vez). */
+export function unsandboxedOnly(approved: Set<string>): CanUseTool {
+  return async (toolName, input) => {
+    const command = typeof input.command === "string" ? input.command : "";
+    if (toolName === "Bash" && input.dangerouslyDisableSandbox === true && approved.delete(command)) {
+      return { behavior: "allow", updatedInput: input };
+    }
+    return { behavior: "deny", message: "No permitido." };
   };
 }
 
@@ -133,9 +146,10 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   const skills = !summarize && !study && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
   // La carpeta de trabajo solo existe en el chat; en el resto de modos se ignora aunque llegue.
   const workdir = (params.mode === undefined || params.mode === "chat") ? params.workdir : undefined;
+  const approvedUnsandboxed = new Set<string>();
   const hooks = mergeHooks(browser ? browserHooks(new BrowserGuard()) : undefined,
     // Con carpeta, el hook de carpeta absorbe el Read de los skills (dos hooks de Read se estorbarían).
-    workdir ? workdirHooks(workdir, params.run_id, call, skills ? readGuard(skills.dirs, skills.path) : undefined) : skills ? skillReadHooks(skills) : undefined);
+    workdir ? workdirHooks(workdir, params.run_id, call, skills ? readGuard(skills.dirs, skills.path) : undefined, approvedUnsandboxed) : skills ? skillReadHooks(skills) : undefined);
   let warned = false;
   if (study && !meter) throw new Error("El modo study necesita un TokenMeter");
   const studyMeter = study ? meter : undefined;
@@ -153,7 +167,7 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
       // En estudio solo se lee el mercado: ni account_state ni trade_propose.
       ...(params.trading && !summarize ? (study ? MARKET_TOOL_NAMES : TRADING_TOOL_NAMES).map((t) => `mcp__frontbot__${t}`) : []),
       ...(study ? ["Agent"] : [])])],
-    ...(workdir ? { cwd: workdir.path, sandbox: sandboxSettings(workdir, homedir(), toolPaths()) } : {}),
+    ...(workdir ? { cwd: workdir.path, sandbox: sandboxSettings(workdir, homedir(), toolPaths()), canUseTool: unsandboxedOnly(approvedUnsandboxed) } : {}),
     ...(browser ? { extraArgs: { chrome: null } } : {}),
     ...(hooks || studyHooks ? { hooks: mergeHooks(hooks, studyHooks) } : {}),
     ...(study ? { agents: studyAgents(params.study?.allow_opus === true), forwardSubagentText: true } : {}),
@@ -165,7 +179,8 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
     mcpServers: { frontbot: server },
     strictMcpConfig: true,
     settingSources: [],
-    permissionMode: "dontAsk",
+    // `dontAsk` niega todo Bash sin sandbox aunque el hook lo apruebe; con carpeta se usa `default` y canUseTool niega por defecto.
+    permissionMode: workdir ? "default" : "dontAsk",
     persistSession: false,
     maxTurns: summarize ? 6 : study ? 60 : workdir ? 150 : 30,
     abortController,
