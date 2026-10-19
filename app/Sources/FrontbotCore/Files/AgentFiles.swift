@@ -121,7 +121,7 @@ public struct AgentFiles: Sendable {
         return lstat(path, &info) == 0
     }
 
-    private static func isDirectory(_ path: String) -> Bool {
+    static func isDirectory(_ path: String) -> Bool {
         var isDir: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }

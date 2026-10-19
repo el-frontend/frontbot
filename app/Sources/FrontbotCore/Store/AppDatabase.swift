@@ -320,7 +320,41 @@ public final class AppDatabase: Sendable {
                 t.add(column: "skillId", .text)
             }
         }
+        m.registerMigration("v11-workdir") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "workdir", .text)
+                t.add(column: "readDirs", .text).notNull().defaults(to: "[]")
+            }
+            try db.alter(table: "agent") { t in
+                t.add(column: "networkDomains", .text)
+            }
+        }
         return m
+    }
+
+    public func setWorkdir(conversationId: String, path: String?) throws {
+        try writer.write { db in
+            guard var c = try Conversation.fetchOne(db, key: conversationId) else { throw ValidationError("No existe la conversación.") }
+            c.workdir = path
+            try c.update(db)
+        }
+    }
+
+    public func setReadDirs(conversationId: String, _ dirs: [String]) throws {
+        try writer.write { db in
+            guard var c = try Conversation.fetchOne(db, key: conversationId) else { throw ValidationError("No existe la conversación.") }
+            c.readDirs = dirs
+            try c.update(db)
+        }
+    }
+
+    /// nil = volver a la lista base.
+    public func setNetworkDomains(agentId: String, _ domains: [String]?) throws {
+        try writer.write { db in
+            guard var a = try Agent.fetchOne(db, key: agentId) else { throw ValidationError("No existe el agente.") }
+            a.networkDomains = domains
+            try a.update(db)
+        }
     }
 
     public func ensureDefaultWorkspace() throws -> Workspace {

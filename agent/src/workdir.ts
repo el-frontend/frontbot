@@ -5,8 +5,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import type { SandboxSettings } from "@anthropic-ai/claude-agent-sdk";
 
-/** Rutas reales. `read_dirs` incluye `~/Downloads` ya resuelto: lo pone la app. */
-export type RunWorkdir = { path: string; read_dirs: string[] };
+/** Rutas reales. `read_dirs` incluye `~/Downloads` ya resuelto: lo pone la app. `allowed_domains`: los del agente (si falta, la lista base). */
+export type RunWorkdir = { path: string; read_dirs: string[]; allowed_domains?: string[] };
 
 export type WorkdirAsk =
   | { kind: "write"; tool: "Write" | "Edit"; path: string; content?: string; old_string?: string; new_string?: string }
@@ -189,12 +189,19 @@ export const WORKDIR_ALLOWED_DOMAINS = [
   "cdn.jsdelivr.net", "unpkg.com", "fonts.googleapis.com", "fonts.gstatic.com",
 ];
 
+/** Igual que la validación de la app: `host.tld` o `*.host.tld`; sin `*` solo, esquemas, rutas ni puertos. */
+const DOMAIN_RE = /^(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+
 /**
  * Sandbox de Bash. `allowRead` re-permite dentro de `denyRead` (home entero): la Tarea 3 lo verifica de verdad.
- * Red: solo `WORKDIR_ALLOWED_DOMAINS` (sin `allowedDomains` la sandbox bloquea todo).
+ * Red: solo `wd.allowed_domains` o, si falta, `WORKDIR_ALLOWED_DOMAINS` (sin `allowedDomains` la sandbox bloquea todo).
  */
 export function sandboxSettings(wd: RunWorkdir, home: string, toolPaths: string[]): SandboxSettings {
   const reads = safeReadRoots([...wd.read_dirs, ...toolPaths], home);
+  // Se filtra aquí también: no se confía en lo que llegue por el protocolo.
+  const domains = Array.isArray(wd.allowed_domains)
+    ? wd.allowed_domains.filter((d) => typeof d === "string" && DOMAIN_RE.test(d))
+    : WORKDIR_ALLOWED_DOMAINS;
   const tmps = [...new Set([realish(tmpdir()), "/private/tmp"])];
   const cache = [join(home, ".npm"), join(home, ".cache")];
   return {
@@ -202,7 +209,7 @@ export function sandboxSettings(wd: RunWorkdir, home: string, toolPaths: string[
     failIfUnavailable: true,
     autoAllowBashIfSandboxed: true,
     allowUnsandboxedCommands: true,
-    network: { allowedDomains: WORKDIR_ALLOWED_DOMAINS },
+    network: { allowedDomains: domains },
     filesystem: {
       allowWrite: [wd.path, ...cache, ...tmps],
       denyRead: [home, ...alwaysDenied(home)],
