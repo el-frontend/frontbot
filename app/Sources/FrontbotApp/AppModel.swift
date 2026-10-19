@@ -790,6 +790,7 @@ final class AppModel {
             let path = try Workdir.validated(url.path, protected: [paths.root])
             if let id = currentConversationId { try db.setWorkdir(conversationId: id, path: path) }
             workdir = path
+            reloadConversations()
             if Workdir.isBroad(path) {
                 warning = "Vas a darle carta blanca sobre toda la carpeta \(URL(fileURLWithPath: path).lastPathComponent). Mejor una subcarpeta del proyecto."
             }
@@ -802,6 +803,7 @@ final class AppModel {
         perform {
             if let id = currentConversationId { try db.setWorkdir(conversationId: id, path: nil) }
             workdir = nil
+            reloadConversations()
         }
     }
 
@@ -816,6 +818,7 @@ final class AppModel {
             let updated = readDirs + [path]
             if let id = currentConversationId { try db.setReadDirs(conversationId: id, updated) }
             readDirs = updated
+            reloadConversations()
         }
     }
 
@@ -825,6 +828,7 @@ final class AppModel {
             let updated = readDirs.filter { $0 != path }
             if let id = currentConversationId { try db.setReadDirs(conversationId: id, updated) }
             readDirs = updated
+            reloadConversations()
         }
     }
 
@@ -974,7 +978,15 @@ final class AppModel {
                 if !readDirs.isEmpty { try db.setReadDirs(conversationId: id, readDirs) }
             }) else { return }
         }
-        let withFolder = workdir == nil ? nil : currentConversationId.flatMap { try? db.conversation(id: $0) }
+        var withFolder: Conversation?
+        if workdir != nil, let id = currentConversationId {
+            // Si falla la lectura no se arranca el run: correría sin la carpeta sin avisar.
+            do { withFolder = try db.conversation(id: id) } catch {
+                record(.user, text)
+                record(.error, error.localizedDescription, in: id)
+                return
+            }
+        }
         record(.user, text)
         if let conversationId = currentConversationId {
             activeRun = ActiveRun(conversationId: conversationId, agentId: agent.id, brandId: selectedBrandId)
@@ -1038,7 +1050,7 @@ final class AppModel {
         perform {
             messages = try db.messages(conversationId: conversation.id).map { ChatMessage(role: $0.role, text: $0.text) }
             currentConversationId = conversation.id
-            loadWorkdir(from: conversation)
+            loadWorkdir(from: try db.conversation(id: conversation.id) ?? conversation) // lectura fresca: la lista en caché puede estar vieja
             if let agentId = conversation.agentId, agents.contains(where: { $0.id == agentId }) { selectedAgentId = agentId }
             lastAgentReply = messages.last { $0.role == .agent }?.text
             if let brandId = conversation.brandId, brands.contains(where: { $0.id == brandId }) { selectedBrandId = brandId }

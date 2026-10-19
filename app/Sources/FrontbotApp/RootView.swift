@@ -4,6 +4,8 @@ import FrontbotCore
 struct RootView: View {
     @Bindable var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    /// Id de la hoja de carpeta que se está mostrando: un cierre solo deniega si sigue siendo la primera de la cola.
+    @State private var shownWorkdirId: String?
 
     var body: some View {
         NavigationSplitView {
@@ -42,8 +44,8 @@ struct RootView: View {
         .sheet(item: Binding(get: { model.pendingFileWrite.map(IdentifiedFileWrite.init) }, set: { if $0 == nil { model.answerFileWrite(false) } })) { item in
             FileWriteApprovalSheet(model: model, request: item.request)
         }
-        .sheet(item: Binding(get: { model.pendingWorkdirApproval.map(IdentifiedWorkdirApproval.init) }, set: { if $0 == nil { model.answerWorkdir(.deny) } })) { item in
-            WorkdirApprovalSheet(model: model, approval: item.approval)
+        .sheet(item: Binding(get: { model.pendingWorkdirApproval.map(IdentifiedWorkdirApproval.init) }, set: { if $0 == nil, model.pendingWorkdirApproval.map({ IdentifiedWorkdirApproval(approval: $0).id }) == shownWorkdirId { model.answerWorkdir(.deny) } })) { item in
+            WorkdirApprovalSheet(model: model, approval: item.approval).onAppear { shownWorkdirId = item.id }
         }
         .alert("Frontbot", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
