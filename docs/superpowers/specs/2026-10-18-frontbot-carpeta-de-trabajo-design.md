@@ -105,6 +105,8 @@ Publicar, operar con wallets y trades reales siguen **sin** ninguna vía nueva: 
 
 Se aplica a las herramientas de archivos (hook) y a `Bash` (lectura denegada en la sandbox). Las rutas siempre denegadas ganan también a `~/Downloads` y a las carpetas de lectura extra. Si el usuario elige como carpeta (de trabajo o de lectura) su `~` entero o `/`, la app lo rechaza y pide una carpeta concreta *(mía)*.
 
+**Comprobado (Tarea 3):** el render de HyperFrames no puede correr en la sandbox (macOS bloquea `setpriority`/`uptime`), así que cada render pide esta aprobación.
+
 **Si un comando no puede correr en la sandbox** (p. ej. el Chrome headless del render de HyperFrames lo bloquea) *(mía)*:
 - no se desactiva la sandbox en general;
 - el agente puede pedir ejecutar **ese comando** sin sandbox, y eso abre la hoja de aprobación con el comando exacto (una vez / denegar, sin "siempre").
@@ -133,7 +135,7 @@ Se aplica a las herramientas de archivos (hook) y a `Bash` (lectura denegada en 
 - **Sidecar** (`agent/src/runner.ts`), al construir las opciones con `params.workdir`:
   - `cwd`, `tools` + `allowedTools` con las integradas;
   - `sandbox`;
-  - `permissionMode` sigue en `dontAsk`, y un `canUseTool`/hook `PreToolUse` decide dentro/fuera/denegado;
+  - un hook `PreToolUse` decide dentro/fuera/denegado. Con carpeta, `permissionMode` pasa a `default` con un `canUseTool` que niega todo salvo el comando sin sandbox recién aprobado (verificado en Tarea 3: bajo `dontAsk` el SDK lo negaba igual);
   - las preguntas viajan a la app por el mismo canal JSON-RPC que hoy usan `askScriptApproval`/`askFileWriteApproval`.
 - **App**:
   - columna `workdir` en `conversation` (migración);
