@@ -78,4 +78,12 @@ describe("buildSystemPrompt memory", () => {
   it("says so when memory is empty", () => {
     expect(buildSystemPrompt({ today: "2026-10-16", agent: { name: "T", instructions: "x", memory: [] } })).toContain("Tu memoria está vacía");
   });
+
+  it("workdir section lists the folder, read dirs and how to ask for more", () => {
+    const p = buildSystemPrompt({ today: "2026-10-18", workdir: { path: "/w/proj", read_dirs: ["/w/a", "/w/b"] } });
+    expect(p).toContain("Carpeta de trabajo: /w/proj.");
+    expect(p).toContain("/w/a, /w/b");
+    expect(p).toContain("pídele al usuario que la añada como carpeta de lectura");
+    expect(buildSystemPrompt({ today: "2026-10-18" })).not.toContain("Carpeta de trabajo");
+  });
 });
