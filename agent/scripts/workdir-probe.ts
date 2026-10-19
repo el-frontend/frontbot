@@ -1,0 +1,48 @@
+// Prueba real de la sandbox de la carpeta de trabajo (gasta tokens, usa Haiku).
+// Uso: cd agent && npx vite-node scripts/workdir-probe.ts <checks|render>
+// Crea ~/frontbot-probe-<fecha>, lanza RealRunner con un `call` falso que aprueba todo y registra,
+// y escribe en stdout cada petición, cada tool_call y el RunDone. Borrar la carpeta a mano al terminar.
+import { mkdirSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { RealRunner, type RunParams } from "../src/runner.js";
+
+const step = process.argv[2] ?? "checks";
+const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12).replace(/^(\d{8})(\d{4})$/, "$1-$2");
+const dir = process.env.PROBE_DIR ?? join(homedir(), `frontbot-probe-${stamp}`);
+mkdirSync(dir, { recursive: true });
+const path = realpathSync(dir);
+const downloads = realpathSync(join(homedir(), "Downloads"));
+console.log(JSON.stringify({ probe_dir: path, read_dirs: [downloads] }));
+
+const CHECKS = `Ejecuta con la herramienta Bash, uno por uno y EXACTAMENTE como están escritos (sin reformular ni buscar rodeos), estos comandos, y para cada uno informa literalmente el comando, el código de salida y la salida (stdout/stderr) tal cual:
+1. echo ok > dentro.txt
+2. echo x > ~/fuera-probe.txt
+3. cat ~/Documents/*
+4. ls ~/Desktop
+5. ls ~/Downloads
+6. curl -sI https://example.com | head -1
+7. npx -y hyperframes --version
+Si un comando falla, no lo reintentes de otra forma: solo informa el error.`;
+
+const RENDER = `Crea con HyperFrames (paquete npm \`hyperframes\`; usa \`npx -y hyperframes --help\` para aprender su uso) un vídeo de 3 segundos con el texto "Hola Frontbot" sobre fondo negro, hazlo y renderízalo a .mp4 dentro de la carpeta actual. Usa Bash. Informa la ruta del .mp4 y cada error literal que veas.`;
+
+const params: RunParams = {
+  run_id: "probe-" + step,
+  prompt: step === "render" ? RENDER : CHECKS,
+  model: "claude-haiku-4-5-20251001",
+  mode: "chat",
+  workdir: { path, read_dirs: [downloads] },
+};
+
+const call = async (method: string, p: Record<string, unknown>) => {
+  console.log("CALL " + JSON.stringify({ method, params: p }));
+  return { allow: true };
+};
+
+const done = await new RealRunner(call).run(
+  params,
+  (e) => console.log("EVENT " + JSON.stringify(e)),
+  new AbortController().signal,
+);
+console.log("DONE " + JSON.stringify(done));
