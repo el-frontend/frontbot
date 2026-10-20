@@ -12,19 +12,25 @@ struct CalendarView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            grid
-            unscheduled
-        }
-        .background(Theme.background)
-        .inspector(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+        // Panel lateral propio en vez de `.inspector`: al redimensionar el inspector de AppKit la app
+        // se cerraba (EXC_BAD_ACCESS en el layout de AppKit, macOS 26).
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                header
+                grid
+                unscheduled
+            }
+            .frame(maxWidth: .infinity)
             if let post = editing {
+                Theme.border.frame(width: 1)
                 PostEditorView(model: model, post: post) { editing = nil }
                     .id(post.id)
-                    .inspectorColumnWidth(min: 480, ideal: 560, max: 700)
+                    .frame(width: 560)
+                    .transition(.move(edge: .trailing))
             }
         }
+        .background(Theme.background)
+        .animation(.easeOut(duration: 0.18), value: editing?.id)
     }
 
     private var header: some View {
