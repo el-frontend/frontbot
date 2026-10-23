@@ -97,6 +97,14 @@ private struct IdeaDetail: View {
     let idea: BusinessIdea
     var onDelete: () -> Void
 
+    /// La idea entera en markdown, para pegarla en otro sitio.
+    private var markdown: String {
+        var parts = ["# \(idea.title)", idea.summary]
+        if !idea.sources.isEmpty { parts.append("## Fuentes\n" + idea.sources.map { "- \($0)" }.joined(separator: "\n")) }
+        if let report = model.ideaReport(idea) { parts.append(report) }
+        return parts.joined(separator: "\n\n")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
@@ -104,6 +112,7 @@ private struct IdeaDetail: View {
                 IdeaScore(score: idea.score)
                 Text(idea.createdAt.formatted(date: .abbreviated, time: .omitted)).font(.system(size: 12)).foregroundStyle(Theme.muted)
                 Spacer()
+                CopyButton(help: "Copiar la idea completa (resumen, fuentes e informe) en markdown") { markdown }
                 Button(action: onDelete) { Image(systemName: "trash") }
                     .buttonStyle(OutlineButtonStyle()).help("Eliminar")
             }

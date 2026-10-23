@@ -69,6 +69,7 @@ struct PostEditorView: View {
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(Capsule().fill(Theme.statusColor(current.status).opacity(0.12)))
             Spacer()
+            CopyButton(help: "Copiar el texto del post") { text }
             Button(action: close) { Image(systemName: "xmark") }.buttonStyle(.plain).foregroundStyle(Theme.muted)
                 .accessibilityLabel("Cerrar").keyboardShortcut(.cancelAction)
         }
