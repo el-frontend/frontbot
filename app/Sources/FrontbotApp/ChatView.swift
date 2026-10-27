@@ -89,14 +89,24 @@ struct ChatView: View {
     private func row(_ message: ChatMessage) -> some View {
         switch message.role {
         case .user:
-            Text(message.text)
-                .textSelection(.enabled).lineSpacing(3)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .panel(radius: 12, fill: Theme.raised)
-                .frame(maxWidth: 520, alignment: .trailing)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(message.text)
+                    .textSelection(.enabled).lineSpacing(3)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .panel(radius: 12, fill: Theme.raised)
+                MessageCopyButton(text: message.text)
+            }
+            .frame(maxWidth: 520, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .contextMenu { copyMenu(message.text) }
         case .agent:
-            MarkdownView(text: message.text)
+            // Cada bloque del Markdown es un Text aparte y la selección no cruza entre ellos:
+            // el botón copia la respuesta entera de una vez.
+            VStack(alignment: .leading, spacing: 4) {
+                MarkdownView(text: message.text)
+                MessageCopyButton(text: message.text)
+            }
+            .contextMenu { copyMenu(message.text) }
         case .tool:
             HStack(spacing: 8) {
                 Text("✓").foregroundStyle(Theme.approved)
@@ -105,6 +115,13 @@ struct ChatView: View {
             .font(Theme.mono(12)).foregroundStyle(Theme.muted)
         case .error:
             Text(message.text).foregroundStyle(Theme.danger)
+        }
+    }
+
+    private func copyMenu(_ text: String) -> some View {
+        Button("Copiar mensaje") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
         }
     }
 
@@ -245,5 +262,33 @@ struct ChatView: View {
             draft = dictationBase + text
             dictated = draft
         }
+    }
+}
+
+/// Icono discreto bajo cada mensaje que copia su texto completo (Markdown incluido).
+private struct MessageCopyButton: View {
+    let text: String
+    @State private var copied = false
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            withAnimation(.easeOut(duration: 0.15)) { copied = true }
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                withAnimation(.easeOut(duration: 0.2)) { copied = false }
+            }
+        } label: {
+            Label(copied ? "Copiado" : "Copiar", systemImage: copied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 11))
+                .foregroundStyle(copied ? Theme.approved : hovering ? Theme.text : Theme.muted)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Copiar el mensaje completo")
+        .accessibilityLabel(copied ? "Mensaje copiado" : "Copiar mensaje")
     }
 }

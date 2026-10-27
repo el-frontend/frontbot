@@ -9,42 +9,44 @@ struct MarkdownView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(MarkdownBlocks.parse(text).enumerated()), id: \.offset) { _, block in
-                view(for: block)
+            ForEach(Array(Self.segments(MarkdownBlocks.parse(text)).enumerated()), id: \.offset) { _, segment in
+                view(for: segment)
             }
         }
         .foregroundStyle(color)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private func view(for block: MarkdownBlock) -> some View {
-        switch block {
-        case let .heading(level, text):
-            Inline(text: text)
-                .font(.system(size: level == 1 ? 20 : level == 2 ? 17 : 15, weight: .semibold))
-                .foregroundStyle(Theme.text)
-                .padding(.top, level <= 2 ? 6 : 2)
-        case let .paragraph(text):
-            Inline(text: text).lineSpacing(4)
-        case let .list(_, items):
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(item.marker)
-                            .font(item.marker.hasSuffix(".") ? Theme.mono(12) : .system(size: 13))
-                            .foregroundStyle(item.marker == "☑" ? Theme.approved : Theme.muted)
-                            .frame(minWidth: 14, alignment: .trailing)
-                        Inline(text: item.text).lineSpacing(4)
-                            .strikethrough(item.marker == "☑", color: Theme.muted)
-                    }
-                    .padding(.leading, CGFloat(item.depth) * 18)
-                }
+    /// Tramos que se pintan juntos: el texto corrido va en un solo Text para que la selección
+    /// con el cursor cruce títulos, párrafos y listas; código, tablas y separadores van aparte.
+    private enum Segment {
+        case prose([MarkdownBlock])
+        case code(language: String?, code: String)
+        case table(header: [String], rows: [[String]])
+        case rule
+    }
+
+    private static func segments(_ blocks: [MarkdownBlock]) -> [Segment] {
+        var result: [Segment] = []
+        var prose: [MarkdownBlock] = []
+        func flush() { if !prose.isEmpty { result.append(.prose(prose)); prose = [] } }
+        for block in blocks {
+            switch block {
+            case let .code(language, code): flush(); result.append(.code(language: language, code: code))
+            case let .table(header, rows): flush(); result.append(.table(header: header, rows: rows))
+            case .rule: flush(); result.append(.rule)
+            default: prose.append(block)
             }
-        case let .quote(text):
-            Inline(text: text).lineSpacing(4).foregroundStyle(Theme.textSecondary)
-                .padding(.leading, 12)
-                .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1).fill(Theme.accent.opacity(0.6)).frame(width: 2) }
+        }
+        flush()
+        return result
+    }
+
+    @ViewBuilder
+    private func view(for segment: Segment) -> some View {
+        switch segment {
+        case let .prose(blocks):
+            Text(Self.prose(blocks)).lineSpacing(4).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         case let .code(language, code):
             CodeBlockView(language: language, code: code)
         case let .table(header, rows):
@@ -52,6 +54,45 @@ struct MarkdownView: View {
         case .rule:
             Theme.border.frame(height: 1).padding(.vertical, 4)
         }
+    }
+
+    /// Une los bloques de texto en un AttributedString; un salto de línea con letra pequeña hace de espacio entre bloques.
+    private static func prose(_ blocks: [MarkdownBlock]) -> AttributedString {
+        var out = AttributedString()
+        var gap = AttributedString("\n\n")
+        gap.font = .system(size: 6)
+        for (index, block) in blocks.enumerated() {
+            if index > 0 { out += gap }
+            switch block {
+            case let .heading(level, text):
+                var heading = Inline.attributed(text)
+                let font = Font.system(size: level == 1 ? 20 : level == 2 ? 17 : 15, weight: .semibold)
+                for run in heading.runs where run.font == nil { heading[run.range].font = font }
+                heading.foregroundColor = Theme.text
+                out += heading
+            case let .paragraph(text):
+                out += Inline.attributed(text)
+            case let .list(_, items):
+                for (i, item) in items.enumerated() {
+                    if i > 0 { out += AttributedString("\n") }
+                    var marker = AttributedString(String(repeating: "    ", count: item.depth) + item.marker + "  ")
+                    marker.font = item.marker.hasSuffix(".") ? Theme.mono(12) : .system(size: 13)
+                    marker.foregroundColor = item.marker == "☑" ? Theme.approved : Theme.muted
+                    var body = Inline.attributed(item.text)
+                    if item.marker == "☑" { body.swiftUI.strikethroughStyle = Text.LineStyle(pattern: .solid, color: Theme.muted) }
+                    out += marker + body
+                }
+            case let .quote(text):
+                var bar = AttributedString("▎ ")
+                bar.foregroundColor = Theme.accent.opacity(0.6)
+                var quote = Inline.attributed(text)
+                for run in quote.runs where run.foregroundColor == nil { quote[run.range].foregroundColor = Theme.textSecondary }
+                out += bar + quote
+            case .code, .table, .rule:
+                break
+            }
+        }
+        return out
     }
 }
 
