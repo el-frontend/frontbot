@@ -170,6 +170,12 @@ public actor AgentClient {
     /// detrás del guardián del sidecar. `model`: el elegido en la app (si no, el de la configuración).
     /// `summarize`: run en segundo plano que solo guarda en la memoria lo aprendido en `history`.
     /// `task`: ejecución de una tarea programada (sin nadie mirando; puede usar notify_user).
+    /// Ejecuta una tarea con un modelo válido para el proveedor actual de su agente.
+    public func runScheduledTask(_ task: ScheduledTask, agent: Agent) async throws -> AgentRun {
+        try await run(prompt: task.instruction, agent: agent, brand: nil,
+                      model: AgentProvider.resolve(task.model, for: agent.provider), task: task)
+    }
+
     public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil,
                     summarize: Bool = false, task: ScheduledTask? = nil, study: StudyContext? = nil,
                     workdir: Conversation? = nil) async throws -> AgentRun {
