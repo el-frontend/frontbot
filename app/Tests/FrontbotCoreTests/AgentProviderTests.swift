@@ -21,4 +21,12 @@ final class AgentProviderTests: XCTestCase {
         XCTAssertFalse(AgentProvider.models(for: .codex).contains { $0.id.hasPrefix("claude-") })
         XCTAssertTrue(AgentProvider.models(for: .codex).contains { $0.id == "gpt-5-codex" })
     }
+
+    func testDraftDefaultsModelForSelectedProviderAndKeepsExplicitModel() {
+        let codex = AgentDraft(name: "Codex", instructions: "x", provider: .codex)
+        XCTAssertEqual(codex.model, AgentProvider.defaultModel(for: .codex))
+
+        let explicit = AgentDraft(name: "Codex", instructions: "x", provider: .codex, model: "gpt-5")
+        XCTAssertEqual(explicit.model, "gpt-5")
+    }
 }
