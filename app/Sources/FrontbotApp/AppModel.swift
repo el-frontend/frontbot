@@ -101,6 +101,10 @@ final class AppModel {
         selectedBrandId = brands.first?.id
         reloadContent()
         reloadConversations()
+        // Quien ya usaba Frontbot antes del asistente de bienvenida no lo ve.
+        if !brands.isEmpty || !conversations.isEmpty { onboardingDone = true }
+        // Para revisar el asistente sin borrar datos: open Frontbot.app --args --onboarding
+        if ProcessInfo.processInfo.arguments.contains("--onboarding") { onboardingDone = false }
         reloadSkills()
         if AgentLocator.locate(environment: ProcessInfo.processInfo.environment, resources: Bundle.main.resourceURL) == nil {
             errorMessage = AgentLocator.notFoundMessage
@@ -162,6 +166,28 @@ final class AppModel {
             assets = []
             guide = nil
         }
+    }
+
+    // MARK: Primera vez y funciones experimentales
+
+    var onboardingDone = UserDefaults.standard.bool(forKey: "onboardingDone") {
+        didSet { UserDefaults.standard.set(onboardingDone, forKey: "onboardingDone") }
+    }
+
+    /// El asistente de bienvenida sale solo en una instalación nueva.
+    var showOnboarding: Bool { !onboardingDone }
+
+    /// Cierra el asistente; con prompt, abre un chat nuevo y se lo manda a Frontbot.
+    func finishOnboarding(prompt: String? = nil) {
+        onboardingDone = true
+        guard let prompt else { section = .chat; return }
+        newConversation(agentId: agents.first { $0.isDefault }?.id)
+        send(prompt: prompt)
+    }
+
+    /// Laboratorio y trading: muy específicos, ocultos salvo que los actives en Ajustes.
+    var experimentalFeatures = UserDefaults.standard.bool(forKey: "experimentalFeatures") {
+        didSet { UserDefaults.standard.set(experimentalFeatures, forKey: "experimentalFeatures") }
     }
 
     // MARK: Marcas

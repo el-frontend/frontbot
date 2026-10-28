@@ -37,6 +37,7 @@ struct RootView: View {
         .background(Theme.background)
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
+        .overlay { if model.showOnboarding { OnboardingView(model: model) } }
         .onAppear { model.openMainWindowAction = { [openWindow] in openWindow(id: AppModel.mainWindowId) } }
         .sheet(item: Binding(get: { model.pendingScript.map(IdentifiedScript.init) }, set: { if $0 == nil { model.answerScript(false) } })) { item in
             ScriptApprovalSheet(model: model, request: item.request)
