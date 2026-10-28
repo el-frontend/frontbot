@@ -132,9 +132,10 @@ public struct AgentDraft: Equatable, Sendable {
     public var templateId: String?
 
     public init(name: String, icon: String = "person.crop.circle", description: String = "", instructions: String,
-                provider: AgentProvider = .claude, model: String = AgentConfig.defaultModel, browser: Bool = false, trading: Bool = false, templateId: String? = nil) {
+                provider: AgentProvider = .claude, model: String? = nil, browser: Bool = false, trading: Bool = false, templateId: String? = nil) {
         self.name = name; self.icon = icon; self.description = description; self.instructions = instructions
-        self.provider = provider; self.model = model; self.browser = browser; self.trading = trading; self.templateId = templateId
+        self.provider = provider; self.model = model ?? AgentProvider.defaultModel(for: provider)
+        self.browser = browser; self.trading = trading; self.templateId = templateId
     }
 
     public init(agent: Agent) {
