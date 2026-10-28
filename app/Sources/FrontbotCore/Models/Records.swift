@@ -106,6 +106,7 @@ public struct Agent: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     public var icon: String
     public var description: String
     public var instructions: String
+    public var provider: AgentProvider = .claude
     public var model: String
     public var browser: Bool
     public var trading: Bool
@@ -124,20 +125,21 @@ public struct AgentDraft: Equatable, Sendable {
     public var icon: String
     public var description: String
     public var instructions: String
+    public var provider: AgentProvider
     public var model: String
     public var browser: Bool
     public var trading: Bool
     public var templateId: String?
 
     public init(name: String, icon: String = "person.crop.circle", description: String = "", instructions: String,
-                model: String = AgentConfig.defaultModel, browser: Bool = false, trading: Bool = false, templateId: String? = nil) {
+                provider: AgentProvider = .claude, model: String = AgentConfig.defaultModel, browser: Bool = false, trading: Bool = false, templateId: String? = nil) {
         self.name = name; self.icon = icon; self.description = description; self.instructions = instructions
-        self.model = model; self.browser = browser; self.trading = trading; self.templateId = templateId
+        self.provider = provider; self.model = model; self.browser = browser; self.trading = trading; self.templateId = templateId
     }
 
     public init(agent: Agent) {
         self.init(name: agent.name, icon: agent.icon, description: agent.description, instructions: agent.instructions,
-                  model: agent.model, browser: agent.browser, trading: agent.trading, templateId: agent.templateId)
+                  provider: agent.provider, model: agent.model, browser: agent.browser, trading: agent.trading, templateId: agent.templateId)
     }
 }
 
