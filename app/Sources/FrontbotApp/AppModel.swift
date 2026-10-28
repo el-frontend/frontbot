@@ -519,7 +519,7 @@ final class AppModel {
         Task {
             defer { startingTaskIds.remove(task.id) }
             do {
-                let run = try await client.run(prompt: task.instruction, agent: agent, brand: nil, model: task.model, task: task)
+                let run = try await client.run(prompt: task.instruction, agent: agent, brand: nil, model: AgentProvider.resolve(task.model, for: agent.provider), task: task)
                 try? db.attachAgentRun(taskRunId: taskRun.id, agentRunId: run.id)
                 scheduledRuns[run.id] = ScheduledRunLog(taskRunId: taskRun.id, task: task, startedAt: taskRun.startedAt, manual: manual)
                 for update in orphanUpdates.removeValue(forKey: run.id) ?? [] { handleScheduled(update) }
