@@ -23,6 +23,8 @@ final class AppModel {
     var isRunning = false
     var errorMessage: String?
     var apiKeyPresent = false
+    var openAIKeyPresent = false
+    var codexStatus: CodexStatus = .checking
     /// Agentes (Frontbot primero) y con cuál se habla en el chat.
     var agents: [Agent] = []
     var selectedAgentId = ""
@@ -91,6 +93,8 @@ final class AppModel {
         workspace = try db.ensureDefaultWorkspace()
         let key = try? credentials.get("\(workspace.id).\(CredentialStore.anthropicKey)")
         apiKeyPresent = CredentialStore.normalizedApiKey(key) != nil
+        let openAIKey = try? credentials.openAIKey(workspaceId: workspace.id)
+        openAIKeyPresent = CredentialStore.normalizedApiKey(openAIKey ?? nil) != nil
         client = AgentClient(config: Self.makeConfig(apiKey: key), db: db, files: BrandFiles(paths: paths), workspaceId: workspace.id)
         lab = LabController(db: db, paths: paths, client: client, workspaceId: workspace.id, model: self)
         let frontbot = try db.ensureDefaultAgent(workspaceId: workspace.id)
@@ -109,6 +113,7 @@ final class AppModel {
         if AgentLocator.locate(environment: ProcessInfo.processInfo.environment, resources: Bundle.main.resourceURL) == nil {
             errorMessage = AgentLocator.notFoundMessage
         }
+        refreshCodexStatus()
         Task { await listen() }
         reloadProposals()
         reloadTasks()
@@ -1158,9 +1163,48 @@ final class AppModel {
         let ok = perform { try credentials.set(keyAccount, value: key) }
         if ok {
             apiKeyPresent = true
-            Task { await client.setConfig(Self.makeConfig(apiKey: key)) }
+            reconfigureSidecarCredentials()
         }
         return ok
+    }
+
+    @discardableResult
+    func saveOpenAIAPIKey(_ key: String) -> Bool {
+        guard CredentialStore.normalizedApiKey(key) != nil else {
+            errorMessage = "La API key está vacía."
+            return false
+        }
+        let ok = perform { try credentials.setOpenAIKey(key, workspaceId: workspace.id) }
+        if ok {
+            openAIKeyPresent = true
+            reconfigureSidecarCredentials()
+        }
+        return ok
+    }
+
+    @discardableResult
+    func deleteOpenAIAPIKey() -> Bool {
+        let ok = perform { try credentials.deleteOpenAIKey(workspaceId: workspace.id) }
+        if ok {
+            openAIKeyPresent = false
+            reconfigureSidecarCredentials()
+        }
+        return ok
+    }
+
+    func refreshCodexStatus() {
+        codexStatus = .checking
+        let environment = ProcessInfo.processInfo.environment
+        Task { [weak self] in
+            let status = await Task.detached { CodexLocator.status(environment: environment) }.value
+            self?.codexStatus = status
+        }
+    }
+
+    /// Credential edits refresh the process configuration without retaining key values in view state.
+    private func reconfigureSidecarCredentials() {
+        let anthropicKey = try? credentials.get(keyAccount)
+        Task { await client.setConfig(Self.makeConfig(apiKey: anthropicKey ?? nil)) }
     }
 
     @discardableResult

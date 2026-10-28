@@ -4,36 +4,25 @@ import FrontbotCore
 struct SettingsView: View {
     @Bindable var model: AppModel
     @State private var key = ""
+    @State private var openAIKey = ""
+    @State private var credentialProvider: AgentProvider = .claude
     @State private var saved = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Ajustes").font(.system(size: 18, weight: .semibold))
 
-            section("Cuenta de Claude") {
-                HStack(spacing: 8) {
-                    StatusDot(color: Theme.approved, size: 7)
-                    (model.apiKeyPresent ? Text("Usando tu API key de Anthropic") : Text("Usando tu sesión de Claude Code"))
-                        .font(.system(size: 13, weight: .medium))
+            section("Proveedores de IA") {
+                Picker("Proveedor", selection: $credentialProvider) {
+                    Text("Claude").tag(AgentProvider.claude)
+                    Text("Codex").tag(AgentProvider.codex)
                 }
-                note(model.apiKeyPresent
-                     ? "Se cobra por uso en tu cuenta de Anthropic."
-                     : "No necesitas API key. Si pones una, Frontbot la usará en lugar de tu sesión.")
-                HStack(spacing: 8) {
-                    SecureField("API key de Anthropic (opcional)", text: $key)
-                        .textFieldStyle(.plain).font(.system(size: 13))
-                        .padding(.horizontal, 10).frame(height: 30)
-                        .panel(radius: 7, fill: Theme.raised)
-                    Button("Guardar") {
-                        saved = model.saveApiKey(key)
-                        if saved { key = "" }
-                    }
-                    .buttonStyle(OutlineButtonStyle(prominent: true))
-                    .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                if saved { note("Guardada en el llavero.") }
-                if !saved, let error = model.errorMessage {
-                    Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger)
+                .pickerStyle(.segmented)
+
+                if credentialProvider == .claude {
+                    claudeCredentials
+                } else {
+                    codexCredentials
                 }
             }
 
@@ -89,6 +78,99 @@ struct SettingsView: View {
         .background(Theme.background)
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
+        .onChange(of: credentialProvider) { _, _ in saved = false }
+    }
+
+    @ViewBuilder
+    private var claudeCredentials: some View {
+        HStack(spacing: 8) {
+            StatusDot(color: Theme.approved, size: 7)
+            Text(model.apiKeyPresent ? "Usando tu API key de Anthropic" : "Usando tu sesión de Claude Code")
+                .font(.system(size: 13, weight: .medium))
+        }
+        note(model.apiKeyPresent
+             ? "Se cobra por uso en tu cuenta de Anthropic."
+             : "No necesitas API key. Si pones una, Frontbot la usará en lugar de tu sesión.")
+        HStack(spacing: 8) {
+            SecureField("API key de Anthropic (opcional)", text: $key)
+                .textFieldStyle(.plain).font(.system(size: 13))
+                .padding(.horizontal, 10).frame(height: 30)
+                .panel(radius: 7, fill: Theme.raised)
+            Button("Guardar") {
+                saved = model.saveApiKey(key)
+                if saved { key = "" }
+            }
+            .buttonStyle(OutlineButtonStyle(prominent: true))
+            .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        if saved { note("Guardada en el llavero.") }
+        if !saved, let error = model.errorMessage {
+            Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger)
+        }
+    }
+
+    @ViewBuilder
+    private var codexCredentials: some View {
+        HStack(spacing: 8) {
+            StatusDot(color: codexStatusColor, size: 7)
+            Text(codexStatusText).font(.system(size: 13, weight: .medium))
+            Spacer()
+            Button("Revisar") { model.refreshCodexStatus() }
+                .buttonStyle(OutlineButtonStyle())
+        }
+        note("Puedes usar tu sesión local de Codex CLI o guardar una API key de OpenAI.")
+        switch model.codexStatus {
+        case .checking:
+            note("Revisando Codex CLI…")
+        case .notInstalled:
+            note("Instala Codex CLI y vuelve a revisar. La API key no requiere iniciar sesión en la CLI, pero Codex CLI sí debe estar instalado.")
+        case .notSignedIn:
+            note("Inicia sesión con `codex login` en Terminal o guarda una API key de OpenAI aquí.")
+        case .unavailable:
+            note("No pude comprobar la sesión. Revisa que Codex CLI funcione en Terminal o usa una API key de OpenAI.")
+        case .available:
+            note("Codex CLI está instalado y la sesión está activa.")
+        }
+        HStack(spacing: 8) {
+            SecureField("API key de OpenAI (opcional)", text: $openAIKey)
+                .textFieldStyle(.plain).font(.system(size: 13))
+                .padding(.horizontal, 10).frame(height: 30)
+                .panel(radius: 7, fill: Theme.raised)
+            Button("Guardar") {
+                saved = model.saveOpenAIAPIKey(openAIKey)
+                if saved { openAIKey = "" }
+            }
+            .buttonStyle(OutlineButtonStyle(prominent: true))
+            .disabled(openAIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        HStack(spacing: 8) {
+            Text(model.openAIKeyPresent ? "API key guardada en el llavero." : "No hay una API key guardada.")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            Spacer()
+            if model.openAIKeyPresent {
+                Button("Eliminar") { saved = model.deleteOpenAIAPIKey() }
+                    .buttonStyle(OutlineButtonStyle())
+            }
+        }
+        if !saved, let error = model.errorMessage {
+            Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger)
+        }
+    }
+
+    private var codexStatusText: String {
+        switch model.codexStatus {
+        case .checking: "Comprobando Codex CLI"
+        case .available: "Codex CLI disponible"
+        case .notInstalled: "Codex CLI no está instalado"
+        case .notSignedIn: "Codex CLI no tiene sesión iniciada"
+        case .unavailable: "No se pudo comprobar Codex CLI"
+        }
+    }
+
+    private var codexStatusColor: Color {
+        if case .available = model.codexStatus { return Theme.approved }
+        if case .checking = model.codexStatus { return Theme.draft }
+        return Theme.danger
     }
 
     private func section(_ title: LocalizedStringKey, @ViewBuilder content: () -> some View) -> some View {

@@ -4,6 +4,7 @@ import Security
 /// Secretos en el Keychain del usuario. Nunca en disco ni en git.
 public struct CredentialStore: Sendable {
     public static let anthropicKey = "anthropic_api_key"
+    public static let openAIKey = "openai_api_key"
     let service: String
 
     public init(service: String = "app.frontbot.credentials") { self.service = service }
@@ -45,5 +46,19 @@ public struct CredentialStore: Sendable {
     public func delete(_ account: String) throws {
         let status = SecItemDelete(base(account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw ValidationError(String(localized: "Error de Keychain \(String(status)).")) }
+    }
+
+    /// OpenAI API key scoped to a Frontbot workspace. The key is only returned to the caller when needed.
+    public func openAIKey(workspaceId: String) throws -> String? {
+        try get("\(workspaceId).\(Self.openAIKey)")
+    }
+
+    public func setOpenAIKey(_ rawValue: String, workspaceId: String) throws {
+        guard let value = Self.normalizedApiKey(rawValue) else { throw ValidationError("La API key está vacía.") }
+        try set("\(workspaceId).\(Self.openAIKey)", value: value)
+    }
+
+    public func deleteOpenAIKey(workspaceId: String) throws {
+        try delete("\(workspaceId).\(Self.openAIKey)")
     }
 }
