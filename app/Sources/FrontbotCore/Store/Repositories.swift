@@ -515,7 +515,7 @@ extension AppDatabase {
         guard let agent = try agent(id: agentId) else { throw notFound("agente", agentId) }
         let stamp = Date.dbNow()
         let task = ScheduledTask(id: UUID().uuidString, agentId: agentId, name: clean.name, instruction: clean.instruction,
-                                 schedule: clean.schedule, model: AgentModel.resolve(clean.model ?? agent.model), status: status,
+                                 schedule: clean.schedule, model: AgentProvider.resolve(clean.model ?? agent.model, for: agent.provider), status: status,
                                  maxRunsPerDay: clean.maxRunsPerDay, lastRunAt: nil,
                                  nextRunAt: status == .active ? clean.schedule.next(after: now) : nil,
                                  createdByAgentId: createdBy, templateKey: templateKey, createdAt: stamp, updatedAt: stamp)
@@ -527,9 +527,10 @@ extension AppDatabase {
         let clean = try Self.validated(draft)
         return try writer.write { db in
             guard var t = try ScheduledTask.fetchOne(db, key: id) else { throw notFound("tarea", id) }
+            guard let agent = try Agent.fetchOne(db, key: t.agentId) else { throw notFound("agente", t.agentId) }
             let scheduleChanged = t.schedule != clean.schedule
             t.name = clean.name; t.instruction = clean.instruction; t.schedule = clean.schedule
-            t.model = AgentModel.resolve(clean.model ?? t.model); t.maxRunsPerDay = clean.maxRunsPerDay
+            t.model = AgentProvider.resolve(clean.model ?? t.model, for: agent.provider); t.maxRunsPerDay = clean.maxRunsPerDay
             if scheduleChanged && t.status == .active { t.nextRunAt = clean.schedule.next(after: now) }
             t.updatedAt = .dbNow()
             try t.update(db)
