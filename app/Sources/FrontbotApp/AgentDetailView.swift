@@ -19,7 +19,7 @@ struct AgentDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            tabPicker
+            if model.experimentalFeatures { tabPicker }
             switch tab {
             case .general: general
             case .lab: LabTabView(model: model, agent: agent).id(agent.id)
@@ -33,7 +33,7 @@ struct AgentDetailView: View {
         }
     }
 
-    private var tab: AgentTab { model.agentTab[agent.id] ?? .general }
+    private var tab: AgentTab { model.experimentalFeatures ? model.agentTab[agent.id] ?? .general : .general }
 
     private var tabPicker: some View {
         Picker("Sección", selection: Binding(get: { tab }, set: { model.agentTab[agent.id] = $0 })) {
@@ -148,14 +148,17 @@ struct AgentDetailView: View {
                 }
             }
             .toggleStyle(.switch).controlSize(.small)
-            Toggle(isOn: Binding(get: { agent.trading }, set: { value in save { $0.trading = value } })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Trading en Hyperliquid").font(.system(size: 13, weight: .medium))
-                    Text("Lee el mercado y propone trades con stop loss. Nada se ejecuta fuera de tu aprobación o de su mandato.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            // Con las funciones experimentales apagadas sigue visible si ya está activo, para poder apagarlo.
+            if model.experimentalFeatures || agent.trading {
+                Toggle(isOn: Binding(get: { agent.trading }, set: { value in save { $0.trading = value } })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Trading en Hyperliquid").font(.system(size: 13, weight: .medium))
+                        Text("Lee el mercado y propone trades con stop loss. Nada se ejecuta fuera de tu aprobación o de su mandato.")
+                            .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                .toggleStyle(.switch).controlSize(.small)
             }
-            .toggleStyle(.switch).controlSize(.small)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading).panel(radius: 12)
     }

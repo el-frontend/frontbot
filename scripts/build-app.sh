@@ -1,5 +1,10 @@
 #!/bin/bash
-# Arma build/Frontbot.app: binario release + Node + sidecar, firmado ad-hoc.
+# Arma build/Frontbot.app: binario release + Node + sidecar.
+# Sin variables se firma ad-hoc (solo funciona en este Mac). Para repartirla:
+#   DEVELOPER_ID="Developer ID Application: Nombre (TEAMID)"  firma con runtime endurecido
+#   NOTARY_PROFILE=frontbot  además notariza y grapa el ticket; crea el perfil una vez con
+#     xcrun notarytool store-credentials frontbot --apple-id <email> --team-id <TEAMID>
+# El resultado para repartir queda en build/Frontbot.zip.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/build/Frontbot.app"
@@ -46,6 +51,32 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-echo "→ Firmando (ad-hoc)"
-codesign --force --deep -s - "$APP" >/dev/null 2>&1
-echo "✓ $APP ($(du -sh "$APP" | cut -f1))"
+if [ -z "${DEVELOPER_ID:-}" ]; then
+  echo "→ Firmando (ad-hoc)"
+  codesign --force --deep -s - "$APP" >/dev/null 2>&1
+  echo "✓ $APP ($(du -sh "$APP" | cut -f1))"
+  exit 0
+fi
+
+echo "→ Firmando con $DEVELOPER_ID"
+ENTITLEMENTS="$ROOT/scripts/Frontbot.entitlements"
+sign() { codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" -s "$DEVELOPER_ID" "$1"; }
+# De dentro hacia fuera: cada binario anidado (node, claude, addons nativos) y al final la app.
+while IFS= read -r f; do
+  file "$f" | grep -q "Mach-O" && sign "$f"
+done < <(find "$APP/Contents/Resources" -type f \( -perm -u+x -o -name "*.node" -o -name "*.dylib" \))
+sign "$APP"
+codesign --verify --strict --deep "$APP"
+
+ZIP="$ROOT/build/Frontbot.zip"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+if [ -n "${NOTARY_PROFILE:-}" ]; then
+  echo "→ Notarizando (tarda unos minutos)"
+  xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$APP"
+  rm -f "$ZIP"
+  ditto -c -k --keepParent "$APP" "$ZIP" # de nuevo, ya con el ticket grapado
+  spctl --assess --type execute "$APP"
+fi
+echo "✓ $APP ($(du -sh "$APP" | cut -f1)) → $ZIP ($(du -sh "$ZIP" | cut -f1))"
