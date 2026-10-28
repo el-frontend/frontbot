@@ -12,4 +12,24 @@ final class CredentialStoreTests: XCTestCase {
         try store.delete("k")
         XCTAssertNil(try store.get("k"))
     }
+
+    func testOpenAIKeyIsScopedToWorkspaceAndNormalizesWhitespace() throws {
+        let store = CredentialStore(service: "app.frontbot.tests.\(UUID().uuidString)")
+        let firstWorkspace = UUID().uuidString
+        let secondWorkspace = UUID().uuidString
+
+        XCTAssertNil(try store.openAIKey(workspaceId: firstWorkspace))
+        try store.setOpenAIKey("  sk-openai-secret\n", workspaceId: firstWorkspace)
+
+        XCTAssertEqual(try store.openAIKey(workspaceId: firstWorkspace), "sk-openai-secret")
+        XCTAssertNil(try store.openAIKey(workspaceId: secondWorkspace))
+        try store.deleteOpenAIKey(workspaceId: firstWorkspace)
+        XCTAssertNil(try store.openAIKey(workspaceId: firstWorkspace))
+    }
+
+    func testOpenAIKeyRejectsWhitespaceOnlyValue() throws {
+        let store = CredentialStore(service: "app.frontbot.tests.\(UUID().uuidString)")
+
+        XCTAssertThrowsError(try store.setOpenAIKey(" \n\t ", workspaceId: UUID().uuidString))
+    }
 }
