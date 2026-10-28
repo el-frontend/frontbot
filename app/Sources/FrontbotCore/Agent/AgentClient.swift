@@ -200,7 +200,7 @@ public actor AgentClient {
                 let memory = MemoryPrompt.trimmed(try db.memories(agentId: agent.id))
                 params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
                                    "is_default": .bool(agent.isDefault), "memory": MemoryPrompt.json(memory)]
-                if agent.browser { params["browser"] = .bool(true) }
+                if agent.provider == .claude && agent.browser { params["browser"] = .bool(true) }
                 let folders = try db.folders(agentId: agent.id)
                 if !folders.isEmpty { params["folders"] = .array(folders.map(JSONValue.string)) }
                 if agent.trading {
