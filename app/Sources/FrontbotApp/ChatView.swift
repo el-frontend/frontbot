@@ -60,6 +60,10 @@ struct ChatView: View {
                 .onAppear { scrollToEnd(proxy) }
             }
 
+            if !model.queue.isEmpty {
+                MessageQueueView(model: model)
+                    .frame(maxWidth: 760).padding(.horizontal, 24).padding(.bottom, 8)
+            }
             composer.padding(.horizontal, 24).padding(.bottom, 22)
         }
         .background(Theme.background)
@@ -189,6 +193,13 @@ struct ChatView: View {
                 }
 
                 Spacer()
+                if model.isRunningHere && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button(action: submit) { Image(systemName: "text.badge.plus").font(.system(size: 13)) }
+                        .buttonStyle(.plain).foregroundStyle(Theme.text)
+                        .frame(width: 32, height: 32).panel(radius: 8, fill: Theme.raised)
+                        .help("Añadir a la cola: se envía cuando termine")
+                        .accessibilityLabel("Añadir a la cola")
+                }
                 if model.isRunningHere {
                     Button { model.cancel() } label: { Image(systemName: "stop.fill").font(.system(size: 12)) }
                         .buttonStyle(.plain).foregroundStyle(Theme.text)
@@ -243,8 +254,16 @@ struct ChatView: View {
         DispatchQueue.main.async { proxy.scrollTo(last.id, anchor: .bottom) }
     }
 
+    /// Si el agente está trabajando en este chat, el mensaje va a la cola en vez de perderse.
     private func submit() {
-        guard !model.isRunning, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if model.isRunningHere {
+            dictation.cancel()
+            model.enqueue(draft)
+            draft = ""
+            return
+        }
+        guard !model.isRunning else { return }
         dictation.cancel()
         model.send(prompt: draft)
         draft = ""
@@ -290,5 +309,77 @@ private struct MessageCopyButton: View {
         .onHover { hovering = $0 }
         .help("Copiar el mensaje completo")
         .accessibilityLabel(copied ? "Mensaje copiado" : "Copiar mensaje")
+    }
+}
+
+/// Mensajes en espera sobre el composer: se editan, se borran y salen solos cuando el agente termina.
+private struct MessageQueueView: View {
+    @Bindable var model: AppModel
+    @State private var editingId: UUID?
+    @State private var editText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "list.bullet").font(.system(size: 11))
+                Text(model.isRunningHere ? "En cola · se envían al terminar" : "Cola en pausa")
+                    .font(Theme.mono(11))
+                Spacer()
+                if !model.isRunning {
+                    Button("Enviar siguiente") { model.sendNextQueued() }
+                        .buttonStyle(OutlineButtonStyle())
+                        .help("Envía el primer mensaje de la cola")
+                }
+            }
+            .foregroundStyle(Theme.muted)
+            .padding(.horizontal, 12).frame(height: 32)
+            ForEach(Array(model.queue.enumerated()), id: \.element.id) { index, item in
+                Theme.border.frame(height: 1)
+                row(index: index, item: item)
+            }
+        }
+        .panel(radius: 10, fill: Theme.surface)
+    }
+
+    @ViewBuilder
+    private func row(index: Int, item: QueuedMessage) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(index + 1)").font(Theme.mono(11)).foregroundStyle(Theme.muted).frame(minWidth: 14, alignment: .trailing)
+                .padding(.top, 2)
+            if editingId == item.id {
+                VStack(alignment: .trailing, spacing: 6) {
+                    TextField("Mensaje", text: $editText, axis: .vertical)
+                        .textFieldStyle(.plain).lineLimit(1...8)
+                        .onSubmit { save(item) }
+                    HStack(spacing: 8) {
+                        Button("Cancelar") { editingId = nil }.buttonStyle(.plain).foregroundStyle(Theme.muted)
+                            .keyboardShortcut(.cancelAction)
+                        Button("Guardar") { save(item) }.buttonStyle(OutlineButtonStyle())
+                    }
+                    .font(.system(size: 11))
+                }
+            } else {
+                Text(item.text).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
+                    .onTapGesture(count: 2) { startEditing(item) }
+                Button { startEditing(item) } label: { Image(systemName: "pencil") }
+                    .buttonStyle(.plain).foregroundStyle(Theme.muted)
+                    .help("Editar").accessibilityLabel("Editar mensaje en cola")
+                Button { model.removeQueued(item.id) } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).foregroundStyle(Theme.muted)
+                    .help("Quitar de la cola").accessibilityLabel("Quitar mensaje de la cola")
+            }
+        }
+        .font(.system(size: 12.5))
+        .padding(.horizontal, 12).padding(.vertical, 8)
+    }
+
+    private func startEditing(_ item: QueuedMessage) {
+        editText = item.text
+        editingId = item.id
+    }
+
+    private func save(_ item: QueuedMessage) {
+        model.updateQueued(item.id, text: editText)
+        editingId = nil
     }
 }
