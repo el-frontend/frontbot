@@ -251,7 +251,7 @@ extension AppDatabase {
                 let now = Date.dbNow()
                 agent = Agent(id: UUID().uuidString, workspaceId: workspaceId, name: "Frontbot", icon: "sparkles",
                               description: "Marcas, redes sociales, tareas e ideas de negocio.",
-                              instructions: AgentTemplate.frontbotInstructions, model: AgentConfig.defaultModel,
+                              instructions: AgentTemplate.frontbotInstructions, provider: .claude, model: AgentProvider.defaultModel(for: .claude),
                               browser: false, trading: false, status: .active, isDefault: true, templateId: nil,
                               createdAt: now, updatedAt: now)
                 try agent.insert(db)
@@ -266,7 +266,7 @@ extension AppDatabase {
         let clean = try Self.validated(draft)
         let now = Date.dbNow()
         let agent = Agent(id: UUID().uuidString, workspaceId: workspaceId, name: clean.name, icon: clean.icon,
-                          description: clean.description, instructions: clean.instructions, model: clean.model,
+                          description: clean.description, instructions: clean.instructions, provider: clean.provider, model: clean.model,
                           browser: clean.browser, trading: clean.trading, status: status, isDefault: false,
                           templateId: clean.templateId, createdAt: now, updatedAt: now)
         try writer.write { try agent.insert($0) }
@@ -278,7 +278,7 @@ extension AppDatabase {
         return try writer.write { db in
             guard var agent = try Agent.fetchOne(db, key: id) else { throw notFound("agente", id) }
             agent.name = clean.name; agent.icon = clean.icon; agent.description = clean.description
-            agent.instructions = clean.instructions; agent.model = clean.model
+            agent.instructions = clean.instructions; agent.provider = clean.provider; agent.model = clean.model
             agent.browser = clean.browser; agent.trading = clean.trading
             agent.updatedAt = .dbNow()
             try agent.update(db)
@@ -346,7 +346,7 @@ extension AppDatabase {
         guard d.name.count <= 40 else { throw ValidationError(String(localized: "El nombre del agente admite hasta 40 caracteres.")) }
         guard !d.instructions.isEmpty else { throw ValidationError(String(localized: "El agente necesita instrucciones.")) }
         guard d.instructions.count <= 20_000 else { throw ValidationError(String(localized: "Las instrucciones admiten hasta 20.000 caracteres.")) }
-        d.model = AgentModel.resolve(d.model)
+        d.model = AgentProvider.resolve(d.model, for: d.provider)
         if d.icon.isEmpty { d.icon = "person.crop.circle" }
         return d
     }

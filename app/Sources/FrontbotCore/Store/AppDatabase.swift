@@ -329,6 +329,11 @@ public final class AppDatabase: Sendable {
                 t.add(column: "networkDomains", .text)
             }
         }
+        m.registerMigration("v12-agent-provider") { db in
+            try db.alter(table: "agent") { t in
+                t.add(column: "provider", .text).notNull().defaults(to: AgentProvider.claude.rawValue)
+            }
+        }
         return m
     }
 

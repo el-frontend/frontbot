@@ -1,4 +1,5 @@
 import XCTest
+import GRDB
 @testable import FrontbotCore
 
 final class AgentStoreTests: XCTestCase {
@@ -49,6 +50,48 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertEqual(updated.instructions, "nuevas")
         XCTAssertTrue(updated.browser)
         XCTAssertEqual(updated.createdAt, a.createdAt)
+    }
+
+    func testProviderAndModelRoundTripForBothProviders() throws {
+        let claude = try db.createAgent(workspaceId: ws.id, draft: AgentDraft(name: "Claude", instructions: "x"), status: .active)
+        let codex = try db.createAgent(workspaceId: ws.id,
+                                      draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex, model: "gpt-5"), status: .active)
+        XCTAssertEqual(try db.agent(id: claude.id)?.provider, .claude)
+        XCTAssertEqual(try db.agent(id: claude.id)?.model, AgentConfig.defaultModel)
+        XCTAssertEqual(try db.agent(id: codex.id)?.provider, .codex)
+        XCTAssertEqual(try db.agent(id: codex.id)?.model, "gpt-5")
+    }
+
+    func testUpdatingAgentPreservesProviderAndNormalizesIncompatibleModel() throws {
+        let agent = try db.createAgent(workspaceId: ws.id,
+                                       draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex, model: "gpt-5"), status: .active)
+        var draft = AgentDraft(agent: agent)
+        draft.instructions = "updated"
+        let updated = try db.updateAgent(id: agent.id, draft: draft)
+        XCTAssertEqual(updated.provider, .codex)
+        XCTAssertEqual(updated.model, "gpt-5")
+
+        draft.model = "claude-sonnet-5-5"
+        XCTAssertEqual(try db.updateAgent(id: agent.id, draft: draft).model, AgentProvider.defaultModel(for: .codex))
+    }
+
+    func testV11AgentsMigrateToClaudeProvider() throws {
+        let writer = try DatabaseQueue()
+        try AppDatabase.migrator.migrate(writer, upTo: "v11-workdir")
+        try writer.write { db in
+            try db.execute(sql: "INSERT INTO workspace (id, name, createdAt) VALUES ('legacy-workspace', 'Legacy', '2026-10-01 10:00:00.000')")
+            try db.execute(sql: """
+                INSERT INTO agent (id, workspaceId, name, icon, description, instructions, model, browser, trading,
+                                   status, isDefault, templateId, createdAt, updatedAt, networkDomains)
+                VALUES ('legacy-agent', 'legacy-workspace', 'Legacy', 'person', '', 'instructions', 'claude-opus-5-5',
+                        0, 0, 'active', 0, NULL, '2026-10-01 10:00:00.000', '2026-10-01 10:00:00.000', NULL)
+                """)
+        }
+
+        let migrated = try AppDatabase(writer)
+        let agent = try XCTUnwrap(migrated.agent(id: "legacy-agent"))
+        XCTAssertEqual(agent.provider, .claude)
+        XCTAssertEqual(agent.model, "claude-opus-5-5")
     }
 
     func testDeletingAnAgentDeletesItsConversationsButNotFrontbot() throws {
