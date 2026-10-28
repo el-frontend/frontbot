@@ -49,6 +49,56 @@ final class ScheduledTaskTests: XCTestCase {
         XCTAssertEqual(edited.model, AgentProvider.defaultModel(for: .claude))
     }
 
+    func testScheduledDispatchSendsCodexDefaultForLegacyClaudeTaskModel() async throws {
+        let codexAgent = try db.createAgent(workspaceId: agent.workspaceId,
+                                            draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex), status: .active)
+        var legacyTask = try db.createTask(agentId: codexAgent.id,
+                                           draft: TaskDraft(name: "Legacy", instruction: "x", schedule: .daily(TimeOfDay(9, 0))),
+                                           status: .active, createdBy: nil, now: now)
+        legacyTask.model = "claude-opus-5-5"
+
+        let node = ProcessInfo.processInfo.environment["FRONTBOT_NODE"] ?? "/opt/homebrew/bin/node"
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: node), "usa FRONTBOT_NODE=$(which node)")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let capturedParams = root.appendingPathComponent("run-params.json")
+        let capturePath = capturedParams.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+        let script = root.appendingPathComponent("capture.js")
+        try """
+        let buffer = "";
+        process.stdin.setEncoding("utf8");
+        process.stdin.on("data", chunk => {
+          buffer += chunk;
+          for (;;) {
+            const end = buffer.indexOf("\\n");
+            if (end < 0) break;
+            const line = buffer.slice(0, end);
+            buffer = buffer.slice(end + 1);
+            const request = JSON.parse(line);
+            if (request.id !== undefined) {
+              require("fs").writeFileSync('\(capturePath)', JSON.stringify(request));
+              process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { accepted: true } }) + "\\n");
+            }
+          }
+        });
+        """.write(to: script, atomically: true, encoding: .utf8)
+
+        let client = AgentClient(config: AgentConfig(nodePath: node, scriptPath: script.path, apiKey: nil,
+                                                    model: AgentConfig.defaultModel, fakeAgent: false),
+                                 db: db, files: BrandFiles(paths: AppPaths(root: root)), workspaceId: agent.workspaceId)
+        defer { Task { await client.stop() } }
+        _ = try await client.runScheduledTask(legacyTask, agent: codexAgent)
+        for _ in 0..<50 where !FileManager.default.fileExists(atPath: capturedParams.path) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let message = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: capturedParams)) as? [String: Any])
+        let params = try XCTUnwrap(message["params"] as? [String: Any])
+        XCTAssertEqual(message["method"] as? String, "agent.run")
+        XCTAssertEqual(params["model"] as? String, AgentProvider.defaultModel(for: .codex))
+    }
+
     func testTaskModelCatalogUsesOnlyAssignedAgentProviderModels() {
         let codexModels = AgentProvider.models(for: .codex).map(\.id)
         XCTAssertTrue(codexModels.contains("gpt-5-codex"))
