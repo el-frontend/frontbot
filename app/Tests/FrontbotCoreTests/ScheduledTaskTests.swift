@@ -28,7 +28,7 @@ final class ScheduledTaskTests: XCTestCase {
 
     func testTaskModelIsNormalizedForAssignedAgentProvider() throws {
         let codexAgent = try db.createAgent(workspaceId: agent.workspaceId,
-                                            draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex), status: .active)
+                                            draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex, browser: true), status: .active)
         let task = try db.createTask(agentId: codexAgent.id,
                                      draft: TaskDraft(name: "Codex task", instruction: "x", schedule: .daily(TimeOfDay(9, 0)), model: "claude-opus-5-5"),
                                      status: .active, createdBy: nil, now: now)
@@ -51,7 +51,7 @@ final class ScheduledTaskTests: XCTestCase {
 
     func testScheduledDispatchSendsCodexDefaultForLegacyClaudeTaskModel() async throws {
         let codexAgent = try db.createAgent(workspaceId: agent.workspaceId,
-                                            draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex), status: .active)
+                                            draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex, browser: true), status: .active)
         var legacyTask = try db.createTask(agentId: codexAgent.id,
                                            draft: TaskDraft(name: "Legacy", instruction: "x", schedule: .daily(TimeOfDay(9, 0))),
                                            status: .active, createdBy: nil, now: now)
@@ -97,6 +97,8 @@ final class ScheduledTaskTests: XCTestCase {
         let params = try XCTUnwrap(message["params"] as? [String: Any])
         XCTAssertEqual(message["method"] as? String, "agent.run")
         XCTAssertEqual(params["model"] as? String, AgentProvider.defaultModel(for: .codex))
+        XCTAssertNotEqual(params["browser"] as? Bool, true, "Codex must not receive Claude in Chrome even if enabled in saved preferences.")
+        XCTAssertTrue(try XCTUnwrap(db.agent(id: codexAgent.id)).browser, "Provider capability filtering must not erase the saved preference.")
     }
 
     func testTaskModelCatalogUsesOnlyAssignedAgentProviderModels() {
