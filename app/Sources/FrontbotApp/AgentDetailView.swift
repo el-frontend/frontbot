@@ -33,15 +33,26 @@ struct AgentDetailView: View {
         }
     }
 
-    private var tab: AgentTab { model.agentTab[agent.id] ?? .general }
+    private var tab: AgentTab {
+        guard agent.provider == .claude else { return .general }
+        return model.agentTab[agent.id] ?? .general
+    }
 
     private var tabPicker: some View {
-        Picker("Sección", selection: Binding(get: { tab }, set: { model.agentTab[agent.id] = $0 })) {
-            Text("General").tag(AgentTab.general)
-            Text("Laboratorio").tag(AgentTab.lab)
+        Group {
+            if agent.provider == .codex {
+                Label("El Laboratorio solo está disponible para agentes Claude.", systemImage: "info.circle")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Picker("Sección", selection: Binding(get: { tab }, set: { model.agentTab[agent.id] = $0 })) {
+                    Text("General").tag(AgentTab.general)
+                    Text("Laboratorio").tag(AgentTab.lab)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .pickerStyle(.segmented).labelsHidden().fixedSize()
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 28).padding(.vertical, 10)
     }
 
@@ -133,9 +144,23 @@ struct AgentDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Configuración").font(.system(size: 14, weight: .semibold))
             HStack(spacing: 12) {
+                SectionLabel("Proveedor")
+                Picker("Proveedor", selection: Binding(get: { agent.provider }, set: { value in
+                    save { draft in
+                        draft.provider = value
+                        draft.model = AgentProvider.defaultModel(for: value)
+                    }
+                })) {
+                    Text("Claude").tag(AgentProvider.claude)
+                    Text("Codex").tag(AgentProvider.codex)
+                }
+                .labelsHidden().fixedSize()
+                Spacer()
+            }
+            HStack(spacing: 12) {
                 SectionLabel("Modelo")
-                Picker("Modelo", selection: Binding(get: { agent.model }, set: { value in save { $0.model = value } })) {
-                    ForEach(AgentModel.all, id: \.id) { Text($0.label).tag($0.id) }
+                Picker("Modelo", selection: Binding(get: { AgentProvider.resolve(agent.model, for: agent.provider) }, set: { value in save { $0.model = value } })) {
+                    ForEach(AgentProvider.models(for: agent.provider), id: \.id) { Text($0.label).tag($0.id) }
                 }
                 .labelsHidden().fixedSize()
                 Spacer()
@@ -148,6 +173,11 @@ struct AgentDetailView: View {
                 }
             }
             .toggleStyle(.switch).controlSize(.small)
+            .disabled(agent.provider == .codex)
+            if agent.provider == .codex {
+                Text("Claude in Chrome no está disponible para Codex. Tu preferencia guardada se conserva si vuelves a Claude.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
             // Con las funciones experimentales apagadas sigue visible si ya está activo, para poder apagarlo.
             if model.experimentalFeatures || agent.trading {
                 Toggle(isOn: Binding(get: { agent.trading }, set: { value in save { $0.trading = value } })) {

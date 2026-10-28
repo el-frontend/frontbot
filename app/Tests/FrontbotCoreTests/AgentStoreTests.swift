@@ -52,6 +52,10 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertEqual(updated.createdAt, a.createdAt)
     }
 
+    func testUnknownProviderIdentifierIsRejected() {
+        XCTAssertNil(AgentProvider(rawValue: "unknown"))
+    }
+
     func testProviderAndModelRoundTripForBothProviders() throws {
         let claude = try db.createAgent(workspaceId: ws.id, draft: AgentDraft(name: "Claude", instructions: "x"), status: .active)
         let codex = try db.createAgent(workspaceId: ws.id,
@@ -73,6 +77,22 @@ final class AgentStoreTests: XCTestCase {
 
         draft.model = "claude-sonnet-5-5"
         XCTAssertEqual(try db.updateAgent(id: agent.id, draft: draft).model, AgentProvider.defaultModel(for: .codex))
+    }
+
+    func testSwitchingProviderNormalizesIncompatibleModelAndKeepsCompatibleModel() throws {
+        let agent = try db.createAgent(workspaceId: ws.id,
+                                       draft: AgentDraft(name: "A", instructions: "x", model: "claude-opus-5-5", browser: true), status: .active)
+        var draft = AgentDraft(agent: agent)
+        draft.provider = .codex
+        let switched = try db.updateAgent(id: agent.id, draft: draft)
+        XCTAssertEqual(switched.provider, .codex)
+        XCTAssertEqual(switched.model, AgentProvider.defaultModel(for: .codex))
+        XCTAssertTrue(switched.browser, "Changing provider must preserve the saved browser preference.")
+
+        draft = AgentDraft(agent: switched)
+        draft.model = "gpt-5"
+        let kept = try db.updateAgent(id: agent.id, draft: draft)
+        XCTAssertEqual(kept.model, "gpt-5")
     }
 
     func testV11AgentsMigrateToClaudeProvider() throws {

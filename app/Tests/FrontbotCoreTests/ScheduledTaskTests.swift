@@ -26,6 +26,36 @@ final class ScheduledTaskTests: XCTestCase {
         XCTAssertEqual(task.model, agent.model)
     }
 
+    func testTaskModelIsNormalizedForAssignedAgentProvider() throws {
+        let codexAgent = try db.createAgent(workspaceId: agent.workspaceId,
+                                            draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex), status: .active)
+        let task = try db.createTask(agentId: codexAgent.id,
+                                     draft: TaskDraft(name: "Codex task", instruction: "x", schedule: .daily(TimeOfDay(9, 0)), model: "claude-opus-5-5"),
+                                     status: .active, createdBy: nil, now: now)
+        XCTAssertEqual(task.model, AgentProvider.defaultModel(for: .codex))
+
+        let codexModelTask = try db.createTask(agentId: codexAgent.id,
+                                               draft: TaskDraft(name: "Codex model", instruction: "x", schedule: .daily(TimeOfDay(9, 0)), model: "gpt-5"),
+                                               status: .active, createdBy: nil, now: now)
+        XCTAssertEqual(codexModelTask.model, "gpt-5")
+
+        var agentDraft = AgentDraft(agent: codexAgent)
+        agentDraft.provider = .claude
+        agentDraft.model = AgentProvider.defaultModel(for: .claude)
+        _ = try db.updateAgent(id: codexAgent.id, draft: agentDraft)
+        let edited = try db.updateTask(id: codexModelTask.id,
+                                       draft: TaskDraft(name: codexModelTask.name, instruction: codexModelTask.instruction,
+                                                       schedule: codexModelTask.schedule, model: codexModelTask.model), now: now)
+        XCTAssertEqual(edited.model, AgentProvider.defaultModel(for: .claude))
+    }
+
+    func testTaskModelCatalogUsesOnlyAssignedAgentProviderModels() {
+        let codexModels = AgentProvider.models(for: .codex).map(\.id)
+        XCTAssertTrue(codexModels.contains("gpt-5-codex"))
+        XCTAssertTrue(codexModels.contains("gpt-5"))
+        XCTAssertFalse(codexModels.contains { $0.hasPrefix("claude-") })
+    }
+
     func testValidation() {
         XCTAssertThrowsError(try db.createTask(agentId: agent.id, draft: TaskDraft(name: " ", instruction: "x", schedule: .daily(TimeOfDay(9, 0))), status: .active, createdBy: nil, now: now))
         XCTAssertThrowsError(try db.createTask(agentId: agent.id, draft: TaskDraft(name: "a", instruction: "", schedule: .daily(TimeOfDay(9, 0))), status: .active, createdBy: nil, now: now))
