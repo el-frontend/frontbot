@@ -963,6 +963,7 @@ final class AppModel {
     func send(prompt: String) {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isRunning else { return }
+        stopRequested = false
         guard let agent = selectedAgent else { return }
         guard agent.status == .active else {
             errorMessage = "\(agent.name) es un borrador: actívalo en su página para hablar con él."
@@ -1004,6 +1005,41 @@ final class AppModel {
                 activeRun = nil
             }
         }
+    }
+
+    // MARK: Cola de mensajes
+
+    /// Mensajes escritos mientras el agente trabaja, por conversación; se envían uno a uno al terminar cada run.
+    var queues: [String: [QueuedMessage]] = [:]
+    /// Si paras el run, la cola no sigue sola: esperas a pulsar "Enviar siguiente".
+    private var stopRequested = false
+
+    var queue: [QueuedMessage] { currentConversationId.flatMap { queues[$0] } ?? [] }
+
+    /// Encola en la conversación que está trabajando ahora mismo (la que estás viendo).
+    func enqueue(_ prompt: String) {
+        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, isRunningHere, let id = currentConversationId else { return }
+        queues[id, default: []].append(QueuedMessage(text: text))
+    }
+
+    func updateQueued(_ messageId: UUID, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let id = currentConversationId, let index = queues[id]?.firstIndex(where: { $0.id == messageId }) else { return }
+        if trimmed.isEmpty { removeQueued(messageId) } else { queues[id]?[index].text = trimmed }
+    }
+
+    func removeQueued(_ messageId: UUID) {
+        guard let id = currentConversationId else { return }
+        queues[id]?.removeAll { $0.id == messageId }
+        if queues[id]?.isEmpty == true { queues[id] = nil }
+    }
+
+    /// Envía el primero de la cola de la conversación abierta; solo sale de la cola si el run arranca.
+    func sendNextQueued() {
+        guard !isRunning, let id = currentConversationId, let next = queues[id]?.first else { return }
+        send(prompt: next.text)
+        if isRunning { removeQueued(next.id) }
     }
 
     private func chatHistory() -> [ChatTurn] {
@@ -1060,6 +1096,7 @@ final class AppModel {
     func deleteConversation(_ conversation: Conversation) {
         guard !(isRunning && conversation.id == runningConversationId) else { return }
         perform { try db.deleteConversation(id: conversation.id) }
+        queues[conversation.id] = nil
         if conversation.id == currentConversationId { messages = []; currentConversationId = nil; loadWorkdir(from: nil); lastAgentReply = nil }
         reloadConversations()
     }
@@ -1080,6 +1117,7 @@ final class AppModel {
     }
 
     func cancel() {
+        stopRequested = true
         denyWorkdirApprovals(runId: currentRunId)
         guard let id = currentRunId else { return }
         Task { await client.cancel(runId: id) }
@@ -1119,12 +1157,16 @@ final class AppModel {
         mascot.runFinished(ok: run.status == .done, at: Date())
         currentRunId = nil
         if run.status == .failed { record(.error, run.resultSummary ?? "Error", in: activeRun?.conversationId) }
+        // La cola sigue sola solo si el run acabó bien, no lo paraste y sigues en esa conversación.
+        let continueQueue = run.status == .done && !stopRequested && activeRun?.conversationId == currentConversationId
+        stopRequested = false
         activeRun = nil
         brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
         reloadAgents()
         reloadSkills()
         reloadTasks() // p. ej. una tarea que el agente dejó en borrador desde el chat
         reloadContent()
+        if continueQueue { sendNextQueued() }
     }
 
     private func listen() async {
@@ -1193,3 +1235,9 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate, @unc
     }
 }
 
+
+/// Un mensaje esperando turno en la cola del chat.
+struct QueuedMessage: Identifiable, Equatable {
+    let id = UUID()
+    var text: String
+}
