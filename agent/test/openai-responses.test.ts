@@ -14,7 +14,7 @@ const request = { model: "gpt-6-astra", input: [{ role: "user", content: "Hola" 
 describe("streamOpenAIResponse", () => {
   it("sends a stateless streamed Responses request with function tools and bearer auth only in the header", async () => {
     const fetch = vi.fn().mockResolvedValue(sseResponse([
-      'data: {"type":"response.completed","response":{"output":[]}}\n\n',
+      'data: {"type":"response.completed","response":{"status":"completed","output":[]}}\n\n',
     ]));
 
     await streamOpenAIResponse(request, { apiKey: "sk-secret", fetch });
@@ -37,7 +37,7 @@ describe("streamOpenAIResponse", () => {
       'data: {"type":"response.function_call_arguments.done","item_id":"fc_1","arguments":"{\\"id\\":1}"}\r\n\r\n',
       'data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","status":"completed","encrypted_content":"complete"}}\r\n\r\n',
       'data: {"type":"response.output_item.done","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"tasks_list","arguments":"{\\"id\\":1}","status":"completed"}}\r\n\r\n',
-      'data: {"type":"response.completed","response":{"id":"resp_1","output":[]}}\r\n\r\n',
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[]}}\r\n\r\n',
     ])) }, (event) => events.push(event));
 
     expect(events).toEqual(expect.arrayContaining([
@@ -61,6 +61,25 @@ describe("streamOpenAIResponse", () => {
     ])) })).rejects.toBeInstanceOf(OpenAIResponsesError);
   });
 
+  it.each([
+    ["error", { code: "rate_limit_exceeded", message: "sk-secret" }, "rate_limit", "OpenAI está limitando las solicitudes. Inténtalo de nuevo en unos minutos."],
+    ["error", { code: "model_not_found", message: "sk-secret" }, "model_unavailable", "El modelo seleccionado no está disponible en este proyecto de OpenAI."],
+    ["error", { code: "context_length_exceeded", message: "sk-secret" }, "request_too_large", "La solicitud es demasiado grande para OpenAI."],
+    ["response.failed", { code: "rate_limit_exceeded", message: "sk-secret" }, "rate_limit", "OpenAI está limitando las solicitudes. Inténtalo de nuevo en unos minutos."],
+    ["response.failed", { code: "model_not_found", message: "sk-secret" }, "model_unavailable", "El modelo seleccionado no está disponible en este proyecto de OpenAI."],
+    ["response.failed", { code: "context_length_exceeded", message: "sk-secret" }, "request_too_large", "La solicitud es demasiado grande para OpenAI."],
+  ] as const)("normalizes streamed %s errors by safe code only", async (type, error, kind, message) => {
+    const payload = type === "error" ? { type, ...error } : { type, response: { error } };
+    await expect(streamOpenAIResponse(request, { apiKey: "sk-secret", fetch: vi.fn().mockResolvedValue(sseResponse([`data: ${JSON.stringify(payload)}\n\n`])) }))
+      .rejects.toMatchObject({ kind, message });
+  });
+
+  it("rejects a completed event whose response did not complete", async () => {
+    await expect(streamOpenAIResponse(request, { apiKey: "sk-secret", fetch: vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.completed","response":{"status":"incomplete","output":[]}}\n\n',
+    ])) })).rejects.toMatchObject({ kind: "api", message: "OpenAI no pudo completar la solicitud." });
+  });
+
   it("ignores unrelated events and reports an abort as cancellation", async () => {
     const controller = new AbortController();
     controller.abort();
@@ -69,8 +88,24 @@ describe("streamOpenAIResponse", () => {
 
     const result = await streamOpenAIResponse(request, { apiKey: "sk-secret", fetch: vi.fn().mockResolvedValue(sseResponse([
       'data: {"type":"response.created"}\n\n',
-      'data: {"type":"response.completed","response":{"output":[{"id":"msg_1","type":"message","status":"completed"}]}}\n\n',
+      'data: {"type":"response.completed","response":{"status":"completed","output":[{"id":"msg_1","type":"message","status":"completed"}]}}\n\n',
     ])) });
     expect(result.output).toEqual([{ id: "msg_1", type: "message", status: "completed" }]);
+  });
+
+  it("cancels an in-flight stream when its signal aborts", async () => {
+    const controller = new AbortController();
+    const response = new Response(new ReadableStream({ start() {} }), { headers: { "content-type": "text/event-stream" } });
+    const running = streamOpenAIResponse(request, { apiKey: "sk-secret", signal: controller.signal, fetch: vi.fn().mockResolvedValue(response) });
+    await Promise.resolve();
+    controller.abort();
+    await expect(running).rejects.toMatchObject({ kind: "cancelled", message: "Cancelado" });
+  });
+
+  it("parses a final SSE data record at EOF without a trailing blank line", async () => {
+    const result = await streamOpenAIResponse(request, { apiKey: "sk-secret", fetch: vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.completed","response":{"status":"completed","output":[]}}',
+    ])) });
+    expect(result.output).toEqual([]);
   });
 });
