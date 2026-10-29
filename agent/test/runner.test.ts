@@ -7,7 +7,7 @@ import { TokenMeter } from "../src/study.js";
 import type { AppCall } from "../src/tools.js";
 import type { SkillPlugin } from "../src/skills.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { buildQueryOptions, ProviderRunner, RealRunner, toolCallText, type RunParams, type Runner } from "../src/runner.js";
+import { buildQueryOptions, createProductionRunner, createCodexAppServer, ProviderRunner, RealRunner, toolCallText, type RunParams, type Runner } from "../src/runner.js";
 
 describe("ProviderRunner", () => {
   it("dispatches provider runs and preserves their event and completion contract", async () => {
@@ -31,12 +31,26 @@ describe("ProviderRunner", () => {
 });
 
 describe("provider child environment", () => {
-  it("includes only the matching provider key and never inherits either key", async () => {
-    const { providerEnvironment } = await import("../src/runner.js");
-    const inherited = { PATH: "/bin", ANTHROPIC_API_KEY: "shell-anthropic", OPENAI_API_KEY: "shell-openai",
-      FRONTBOT_ANTHROPIC_API_KEY: "config-anthropic", FRONTBOT_OPENAI_API_KEY: "config-openai" };
-    expect(providerEnvironment("claude", inherited)).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "config-anthropic" });
-    expect(providerEnvironment("codex", inherited)).toEqual({ PATH: "/bin", OPENAI_API_KEY: "config-openai" });
+  it("production bootstrap scrubs secrets from the sidecar before Claude can use it", () => {
+    const env = { PATH: "/bin", ANTHROPIC_API_KEY: "claude-config", OPENAI_API_KEY: "shell-openai",
+      FRONTBOT_OPENAI_API_KEY: "codex-config", FRONTBOT_CODEX_EXECUTABLE: "/bin/codex" };
+    const runner = createProductionRunner(async () => ({}), env);
+    expect(env).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "claude-config", FRONTBOT_CODEX_EXECUTABLE: "/bin/codex" });
+    expect(runner.claudeEnvironment(env)).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "claude-config" });
+    expect(runner.codexEnvironment(env)).toEqual({ PATH: "/bin", OPENAI_API_KEY: "codex-config" });
+  });
+
+  it("production Codex app-server spawn receives the key in env only", () => {
+    let launch: { executable: string; args: string[]; env: NodeJS.ProcessEnv } | undefined;
+    createCodexAppServer({ executable: "/bin/codex", apiKey: "secret-openai" }, {
+      inherited: { PATH: "/bin", ANTHROPIC_API_KEY: "secret-anthropic", OPENAI_API_KEY: "shell-openai" },
+      spawn: (executable, args, options) => {
+        launch = { executable, args, env: options.env };
+        return {} as never;
+      },
+    });
+    expect(launch).toEqual({ executable: "/bin/codex", args: ["app-server", "--listen", "stdio://"], env: { PATH: "/bin", OPENAI_API_KEY: "secret-openai" } });
+    expect(JSON.stringify(launch?.args)).not.toContain("secret-openai");
   });
 });
 

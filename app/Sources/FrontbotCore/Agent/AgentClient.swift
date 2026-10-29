@@ -372,10 +372,8 @@ public actor AgentClient {
     static func sidecarEnvironment(config: AgentConfig, inherited: [String: String]) -> [String: String] {
         var env = inherited.filter { ["PATH", "HOME", "TMPDIR", "USER"].contains($0.key) }
         env["CLAUDE_AGENT_SDK_CLIENT_APP"] = "frontbot/0.1.0"
-        if let key = CredentialStore.normalizedApiKey(config.apiKey) {
-            env["ANTHROPIC_API_KEY"] = key
-            env["FRONTBOT_ANTHROPIC_API_KEY"] = key
-        }
+        if let key = CredentialStore.normalizedApiKey(config.apiKey) { env["ANTHROPIC_API_KEY"] = key }
+        // Node consumes this bootstrap-only variable at startup and removes it before any runner can execute.
         if let key = CredentialStore.normalizedApiKey(config.openAIAPIKey) { env["FRONTBOT_OPENAI_API_KEY"] = key }
         if let executable = config.codexExecutable, !executable.isEmpty { env["FRONTBOT_CODEX_EXECUTABLE"] = executable }
         if config.fakeAgent { env["FRONTBOT_FAKE_AGENT"] = "1" }
