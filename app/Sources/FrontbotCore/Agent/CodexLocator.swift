@@ -19,9 +19,10 @@ public enum CodexLocator {
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         candidatePaths: [String]? = nil,
+        nvmNodeVersions: [String]? = nil,
         exists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> String? {
-        let candidates = candidatePaths ?? supportedPaths(environment: environment)
+        let candidates = candidatePaths ?? supportedPaths(environment: environment, nvmNodeVersions: nvmNodeVersions)
         let explicit = [environment["FRONTBOT_CODEX"], environment["CODEX_CLI_PATH"]].compactMap { $0 }
         let pathCandidates = (environment["PATH"] ?? "").split(separator: ":").map { "\($0)/codex" }
         return (explicit + pathCandidates + candidates).first(where: exists)
@@ -30,10 +31,12 @@ public enum CodexLocator {
     public static func status(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         candidatePaths: [String]? = nil,
+        nvmNodeVersions: [String]? = nil,
         exists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         loginCheck: ((String) -> CodexLoginCheckResult)? = nil
     ) -> CodexStatus {
-        guard let executable = locate(environment: environment, candidatePaths: candidatePaths, exists: exists) else {
+        guard let executable = locate(environment: environment, candidatePaths: candidatePaths,
+                                      nvmNodeVersions: nvmNodeVersions, exists: exists) else {
             return .notInstalled
         }
         switch (loginCheck ?? defaultLoginCheck)(executable) {
@@ -43,9 +46,11 @@ public enum CodexLocator {
         }
     }
 
-    private static func supportedPaths(environment: [String: String]) -> [String] {
+    private static func supportedPaths(environment: [String: String], nvmNodeVersions: [String]?) -> [String] {
         var paths = ["/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
         if let home = environment["HOME"] {
+            let versions = (nvmNodeVersions ?? installedNVMNodeVersions(home: home)).sorted(by: >)
+            paths += versions.map { "\(home)/.nvm/versions/node/\($0)/bin/codex" }
             paths += [
                 "\(home)/.local/bin/codex",
                 "\(home)/.cargo/bin/codex",
@@ -56,6 +61,11 @@ public enum CodexLocator {
             ]
         }
         return paths
+    }
+
+    private static func installedNVMNodeVersions(home: String) -> [String] {
+        let directory = "\(home)/.nvm/versions/node"
+        return (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
     }
 
     private static func defaultLoginCheck(_ executable: String) -> CodexLoginCheckResult {
