@@ -84,7 +84,7 @@ final class AgentClientRobustnessTests: XCTestCase {
     func testRunSendsAgentProviderAndDefaultsItsModelForThatProvider() async throws {
         let client = try makeClient()
         var draft = AgentDraft(name: "Codex", instructions: "x", provider: .codex)
-        draft.model = "gpt-5-codex"
+        draft.model = "gpt-6-astra"
         let agent = try db.createAgent(workspaceId: ws.id, draft: draft, status: .active)
         let stream = await client.updates()
         let run = try await client.run(prompt: "provider", agent: agent, brand: nil)
@@ -95,7 +95,7 @@ final class AgentClientRobustnessTests: XCTestCase {
             if case .finished(let finished) = update, finished.id == run.id { result = finished; break }
         }
         XCTAssertEqual(result?.status, .done)
-        XCTAssertTrue(texts.contains("Modelo: gpt-5-codex"))
+        XCTAssertTrue(texts.contains("Modelo: gpt-6-astra"))
         await client.stop()
     }
 
