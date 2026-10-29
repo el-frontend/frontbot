@@ -36,12 +36,12 @@ enum Theme {
 
     static func statusLabel(_ status: PostStatus) -> String {
         switch status {
-        case .draft: "Borrador"
-        case .approved: "Aprobado"
-        case .preparing: "Preparando"
-        case .scheduled: "Programado"
-        case .published: "Publicado"
-        case .archived: "Archivado"
+        case .draft: String(localized: "Borrador")
+        case .approved: String(localized: "Aprobado")
+        case .preparing: String(localized: "Preparando")
+        case .scheduled: String(localized: "Programado")
+        case .published: String(localized: "Publicado")
+        case .archived: String(localized: "Archivado")
         }
     }
 
@@ -119,11 +119,14 @@ struct AccentButtonStyle: ButtonStyle {
 }
 
 /// Etiqueta de sección en versalitas pequeñas.
+/// Con un literal (`SectionLabel("Marcas")`) se traduce; con una `String` ya calculada se muestra tal cual.
 struct SectionLabel: View {
-    let text: String
-    init(_ text: String) { self.text = text }
+    private let text: Text
+    init(_ key: LocalizedStringKey) { text = Text(key) }
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ text: S) { self.text = Text(text) }
     var body: some View {
-        Text(text.uppercased()).font(.system(size: 11)).tracking(0.6).foregroundStyle(Theme.muted)
+        text.textCase(.uppercase).font(.system(size: 11)).tracking(0.6).foregroundStyle(Theme.muted)
     }
 }
 

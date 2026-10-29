@@ -110,7 +110,7 @@ public struct ToolHandler: Sendable {
         case "tool.schedule_list":
             let tasks = try db.tasks(agentId: try string(params, "agent_id"))
             return ["tasks": .array(tasks.map { t in
-                ["task_id": .string(t.id), "name": .string(t.name), "instruction": .string(t.instruction), "schedule": .string(t.schedule.summary),
+                ["task_id": .string(t.id), "name": .string(t.name), "instruction": .string(t.instruction), "schedule": .string(t.schedule.agentSummary),
                  "status": .string(t.status.rawValue), "next_run": t.nextRunAt.map { .string(Self.isoString($0)) } ?? .null]
             })]
         case "tool.schedule_create_draft":
@@ -120,7 +120,7 @@ public struct ToolHandler: Sendable {
                                   schedule: try Schedule.parse(schedule), model: params["model"]?.stringValue,
                                   maxRunsPerDay: params["max_runs_per_day"]?.intValue ?? 24)
             let task = try db.createTask(agentId: agentId, draft: draft, status: .draft, createdBy: agentId)
-            return ["task_id": .string(task.id), "status": "draft", "schedule": .string(task.schedule.summary),
+            return ["task_id": .string(task.id), "status": "draft", "schedule": .string(task.schedule.agentSummary),
                     "note": "Quedó en borrador: el usuario debe activarla en la página del agente."]
         case "tool.schedule_update_draft":
             let agentId = try string(params, "agent_id")
@@ -133,7 +133,7 @@ public struct ToolHandler: Sendable {
             if let model = params["model"]?.stringValue { draft.model = model }
             if let max = params["max_runs_per_day"]?.intValue { draft.maxRunsPerDay = max }
             let updated = try db.updateTask(id: task.id, draft: draft)
-            return ["task_id": .string(updated.id), "status": "draft", "schedule": .string(updated.schedule.summary)]
+            return ["task_id": .string(updated.id), "status": "draft", "schedule": .string(updated.schedule.agentSummary)]
         case "tool.agents_create_draft":
             let caller = try string(params, "agent_id")
             guard try db.agent(id: caller)?.isDefault == true else { throw ValidationError("Solo Frontbot puede crear agentes.") }

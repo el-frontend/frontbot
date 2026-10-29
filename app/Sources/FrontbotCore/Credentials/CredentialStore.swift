@@ -25,7 +25,7 @@ public struct CredentialStore: Sendable {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else { throw ValidationError("Error de Keychain \(status).") }
+        guard status == errSecSuccess, let data = item as? Data else { throw ValidationError(String(localized: "Error de Keychain \(String(status)).")) }
         return String(data: data, encoding: .utf8)
     }
 
@@ -36,14 +36,14 @@ public struct CredentialStore: Sendable {
             var add = base(account)
             add[kSecValueData as String] = data
             let addStatus = SecItemAdd(add as CFDictionary, nil)
-            guard addStatus == errSecSuccess else { throw ValidationError("Error de Keychain \(addStatus).") }
+            guard addStatus == errSecSuccess else { throw ValidationError(String(localized: "Error de Keychain \(String(addStatus)).")) }
         } else if status != errSecSuccess {
-            throw ValidationError("Error de Keychain \(status).")
+            throw ValidationError(String(localized: "Error de Keychain \(String(status))."))
         }
     }
 
     public func delete(_ account: String) throws {
         let status = SecItemDelete(base(account) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw ValidationError("Error de Keychain \(status).") }
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw ValidationError(String(localized: "Error de Keychain \(String(status)).")) }
     }
 }

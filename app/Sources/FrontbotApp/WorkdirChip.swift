@@ -8,8 +8,8 @@ struct WorkdirChip: View {
 
     var body: some View {
         Menu {
-            Button("Elegir carpeta de trabajo…") { if let url = Self.pickFolder("Elegir carpeta de trabajo") { model.chooseWorkdir(url) } }
-            Button("Añadir carpeta de lectura…") { if let url = Self.pickFolder("Añadir carpeta de lectura") { model.addReadDir(url) } }
+            Button("Elegir carpeta de trabajo…") { if let url = Self.pickFolder(String(localized: "Elegir carpeta de trabajo")) { model.chooseWorkdir(url) } }
+            Button("Añadir carpeta de lectura…") { if let url = Self.pickFolder(String(localized: "Añadir carpeta de lectura")) { model.addReadDir(url) } }
             Section("Lectura") {
                 Text("~/Downloads")
                 ForEach(model.readDirs, id: \.self) { path in
@@ -23,7 +23,7 @@ struct WorkdirChip: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "folder")
-                Text(model.workdir.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Carpeta").lineLimit(1).truncationMode(.middle)
+                Text(model.workdir.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Carpeta")).lineLimit(1).truncationMode(.middle)
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
             }
             .font(Theme.mono()).foregroundStyle(Theme.muted)
@@ -34,7 +34,7 @@ struct WorkdirChip: View {
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
         .fixedSize()
         .disabled(model.isRunningHere)
-        .help(model.workdir ?? "Carpeta de trabajo")
+        .help(model.workdir ?? String(localized: "Carpeta de trabajo"))
     }
 
     /// Solo directorios; nil si el usuario cancela.

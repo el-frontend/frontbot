@@ -132,14 +132,14 @@ struct OnboardingView: View {
     /// Con marca, los pedidos hablan de ella; con web, el primero es aprender de ella.
     private var suggestions: [String] {
         guard let brandName else {
-            return ["Investiga las tendencias de esta semana en mi sector y resúmelas",
-                    "Recuérdame cada lunes a las 9 revisar mis pendientes",
-                    "Busca 3 oportunidades de negocio en mi ciudad"]
+            return [String(localized: "Investiga las tendencias de esta semana en mi sector y resúmelas"),
+                    String(localized: "Recuérdame cada lunes a las 9 revisar mis pendientes"),
+                    String(localized: "Busca 3 oportunidades de negocio en mi ciudad")]
         }
         var list: [String] = []
-        if let brandWebsite { list.append("Lee \(brandWebsite) y escribe la guía de marca de \(brandName)") }
-        list.append("Propón 3 posts para \(brandName) para esta semana")
-        list.append("Investiga qué publica la competencia de \(brandName) y qué podemos hacer distinto")
+        if let brandWebsite { list.append(String(localized: "Lee \(brandWebsite) y escribe la guía de marca de \(brandName)")) }
+        list.append(String(localized: "Propón 3 posts para \(brandName) para esta semana"))
+        list.append(String(localized: "Investiga qué publica la competencia de \(brandName) y qué podemos hacer distinto"))
         return list
     }
 
@@ -165,7 +165,7 @@ struct OnboardingView: View {
 
     // MARK: Piezas
 
-    private func title(_ text: String, _ subtitle: String) -> some View {
+    private func title(_ text: LocalizedStringKey, _ subtitle: LocalizedStringKey) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(text).font(.system(size: 22, weight: .semibold))
             Text(subtitle).font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
@@ -173,7 +173,7 @@ struct OnboardingView: View {
         }
     }
 
-    private func field(_ label: String, _ placeholder: String, _ text: Binding<String>) -> some View {
+    private func field(_ label: LocalizedStringKey, _ placeholder: LocalizedStringKey, _ text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             SectionLabel(label)
             TextField(placeholder, text: text).textFieldStyle(.plain)

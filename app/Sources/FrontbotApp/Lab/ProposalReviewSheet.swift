@@ -29,7 +29,7 @@ struct ProposalReviewSheet: View {
             }
             .frame(minHeight: 200, maxHeight: 420).panel(radius: 10)
             if stale {
-                Text(model.errorMessage ?? "El skill cambió desde que se propuso.")
+                Text(model.errorMessage ?? String(localized: "El skill cambió desde que se propuso."))
                     .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
             }
             VStack(alignment: .leading, spacing: 6) {
@@ -110,8 +110,8 @@ private struct ProposalFileDiff: View {
         } label: {
             HStack(spacing: 8) {
                 Text(path).font(Theme.mono(12))
-                if old == nil { LabPill(text: "nuevo", color: Theme.approved) }
-                else if old == new { LabPill(text: "sin cambios") }
+                if old == nil { LabPill(text: String(localized: "nuevo"), color: Theme.approved) }
+                else if old == new { LabPill(text: String(localized: "sin cambios")) }
             }
         }
         .task(id: expanded) { if expanded { await compute() } }

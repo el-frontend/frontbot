@@ -100,7 +100,7 @@ private struct IdeaDetail: View {
     /// La idea entera en markdown, para pegarla en otro sitio.
     private var markdown: String {
         var parts = ["# \(idea.title)", idea.summary]
-        if !idea.sources.isEmpty { parts.append("## Fuentes\n" + idea.sources.map { "- \($0)" }.joined(separator: "\n")) }
+        if !idea.sources.isEmpty { parts.append("## " + String(localized: "Fuentes") + "\n" + idea.sources.map { "- \($0)" }.joined(separator: "\n")) }
         if let report = model.ideaReport(idea) { parts.append(report) }
         return parts.joined(separator: "\n\n")
     }

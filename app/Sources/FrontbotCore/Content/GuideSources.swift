@@ -8,9 +8,9 @@ public enum GuideSources {
     static let sections = "## Tono de voz, ## Público, ## Pilares de contenido, ## Palabras sí / palabras no, ## Ejemplos"
 
     public static func text(fromPDF url: URL) throws -> String {
-        guard let doc = PDFDocument(url: url) else { throw ValidationError("No se pudo abrir el PDF.") }
+        guard let doc = PDFDocument(url: url) else { throw ValidationError(String(localized: "No se pudo abrir el PDF.")) }
         let text = (doc.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw ValidationError("Este PDF no tiene texto seleccionable.") }
+        guard !text.isEmpty else { throw ValidationError(String(localized: "Este PDF no tiene texto seleccionable.")) }
         return text
     }
 

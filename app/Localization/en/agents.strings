@@ -1,0 +1,100 @@
+/* agents: AgentDetailView, FilesViews, WorkdirApprovalSheet, WorkdirChip */
+
+/* AgentDetailView */
+"¿Borrar %@?" = "Delete %@?";
+"Borrar agente y sus conversaciones" = "Delete agent and its conversations";
+"Se borran también sus conversaciones. Esto no se puede deshacer." = "Its conversations are deleted too. This can't be undone.";
+"Sección" = "Section";
+"General" = "General";
+"Laboratorio" = "Lab";
+"Borrador" = "Draft";
+"Borrar agente" = "Delete agent";
+"Hablar con %@" = "Talk to %@";
+"Frontbot propuso este agente" = "Frontbot suggested this agent";
+"Revisa sus instrucciones y actívalo para poder hablar con él." = "Review its instructions and activate it to start talking to it.";
+"Descartar" = "Discard";
+"Activar" = "Activate";
+"Instrucciones" = "Instructions";
+"Cancelar" = "Cancel";
+"Guardar" = "Save";
+"Editar" = "Edit";
+"Configuración" = "Settings";
+"Modelo" = "Model";
+"Usar mi Chrome" = "Use my Chrome";
+"Navega con tus sesiones (extensión Claude in Chrome). Puede hacer clic y rellenar formularios; en redes sociales solo lee y nunca publica." = "Browses with your sessions (Claude in Chrome extension). It can click and fill in forms; on social networks it only reads and never posts.";
+"Trading en Hyperliquid" = "Trading on Hyperliquid";
+"Lee el mercado y propone trades con stop loss. Nada se ejecuta fuera de tu aprobación o de su mandato." = "Reads the market and proposes trades with a stop loss. Nothing runs without your approval or outside its mandate.";
+"Skills" = "Skills";
+"%lld activos" = "%lld active";
+"Asignar" = "Assign";
+"No hay más skills en la biblioteca" = "No more skills in the library";
+"Biblioteca" = "Library";
+"Sin skills. Asigna alguno de la biblioteca o pídele a %@ que cree uno a partir de su investigación." = "No skills. Assign one from the library or ask %@ to create one from its research.";
+"Trae scripts" = "Includes scripts";
+"Quitar de este agente" = "Remove from this agent";
+"Tareas programadas" = "Scheduled tasks";
+"%lld activas" = "%lld active";
+"Nueva tarea" = "New task";
+"%@ solo trabaja cuando le hablas. Crea una tarea para que haga algo solo cada cierto tiempo y te avise si encuentra algo." = "%@ only works when you talk to it. Create a task so it does something on its own from time to time and lets you know if it finds anything.";
+"Memoria" = "Memory";
+"Vaciar" = "Clear";
+"%@ aún no recuerda nada. Guarda notas cuando aprende algo y resume cada conversación al cerrarla." = "%@ doesn't remember anything yet. It saves notes when it learns something and summarizes each conversation when it closes.";
+"Olvidar" = "Forget";
+"Olvidar nota" = "Forget note";
+"Nombre" = "Name";
+"Analista de mercado" = "Market analyst";
+"Icono (SF Symbol)" = "Icon (SF Symbol)";
+"Descripción" = "Description";
+"Para qué sirve este agente" = "What this agent is for";
+"Nuevo agente" = "New agent";
+"En blanco" = "Blank";
+"Defines tú su rol y sus reglas." = "You define its role and rules.";
+"También puedes pedirle a Frontbot que te proponga uno." = "You can also ask Frontbot to suggest one.";
+"Crear agente" = "Create agent";
+
+/* FilesViews */
+"Archivos" = "Files";
+"%lld carpetas" = "%lld folders";
+"Añadir carpeta" = "Add folder";
+"%@ no puede tocar tus archivos. Añade una carpeta para que pueda leer en ella; cada vez que quiera escribir te pedirá permiso." = "%@ can't touch your files. Add a folder so it can read in it; each time it wants to write, it will ask for permission.";
+"Lee lo que hay en estas carpetas sin preguntar. Para crear o reemplazar un archivo te pide permiso y te enseña el contenido. En las tareas programadas solo lee." = "Reads what's in these folders without asking. To create or replace a file, it asks for permission and shows you the content. In scheduled tasks it only reads.";
+"Abrir en Finder" = "Open in Finder";
+"Quitar acceso" = "Remove access";
+"Quitar acceso a %@" = "Remove access to %@";
+"Sitios de red" = "Network sites";
+"%lld sitios" = "%lld sites";
+"Restaurar lista base" = "Restore default list";
+"Sitios a los que pueden conectarse sus comandos cuando trabaja en una carpeta." = "Sites its commands can connect to when it works in a folder.";
+"Quitar" = "Remove";
+"Quitar %@" = "Remove %@";
+"ejemplo.com o *.ejemplo.com" = "example.com or *.example.com";
+"Añadir" = "Add";
+"%@ quiere reemplazar un archivo" = "%@ wants to replace a file";
+"%@ quiere crear un archivo" = "%@ wants to create a file";
+"Archivo" = "File";
+"Ya existe%@: su contenido actual se perderá." = "Already exists%@: its current content will be lost.";
+"Contenido · %@" = "Content · %@";
+"Denegar" = "Deny";
+"Reemplazar" = "Replace";
+"Crear archivo" = "Create file";
+"(vacío)" = "(empty)";
+"… (%lld caracteres más)" = "… (%lld more characters)";
+
+/* WorkdirApprovalSheet */
+"¿Escribir fuera de la carpeta?" = "Write outside the folder?";
+"Contenido" = "Content";
+"Permitir en esta conversación" = "Allow in this conversation";
+"Permitir una vez" = "Allow once";
+"¿Ejecutar sin la protección de la carpeta?" = "Run without the folder's protection?";
+"Este comando podrá leer y escribir en todo tu Mac." = "This command will be able to read and write anywhere on your Mac.";
+
+/* WorkdirChip */
+"Elegir carpeta de trabajo…" = "Choose working folder…";
+"Elegir carpeta de trabajo" = "Choose working folder";
+"Añadir carpeta de lectura…" = "Add read folder…";
+"Añadir carpeta de lectura" = "Add read folder";
+"Lectura" = "Read";
+"Mostrar en Finder" = "Show in Finder";
+"Quitar carpeta" = "Remove folder";
+"Carpeta" = "Folder";
+"Carpeta de trabajo" = "Working folder";

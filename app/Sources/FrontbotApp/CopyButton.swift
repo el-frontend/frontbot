@@ -3,8 +3,8 @@ import AppKit
 
 /// Copia texto al portapapeles y confirma con "Copiado" un par de segundos.
 struct CopyButton: View {
-    var label = "Copiar"
-    var help = "Copiar todo el texto"
+    var label: LocalizedStringKey = "Copiar"
+    var help: LocalizedStringKey = "Copiar todo el texto"
     let text: () -> String
     @State private var copied = false
 

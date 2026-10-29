@@ -40,21 +40,21 @@ public struct PublishingService: Sendable {
 
     public func prepare(postId: String) throws -> (Post, PreparationResult) {
         guard let post = try db.posts(brandId: nil, status: nil).first(where: { $0.id == postId }) else {
-            throw ValidationError("No existe post con id \(postId).")
+            throw ValidationError(String(localized: "No existe post con id \(postId)."))
         }
-        guard post.status == .approved else { throw ValidationError("Solo se pueden preparar posts aprobados.") }
-        if post.network == .instagram && post.media.isEmpty { throw ValidationError("Instagram necesita al menos una imagen.") }
+        guard post.status == .approved else { throw ValidationError(String(localized: "Solo se pueden preparar posts aprobados.")) }
+        if post.network == .instagram && post.media.isEmpty { throw ValidationError(String(localized: "Instagram necesita al menos una imagen.")) }
         let paths = try post.media.map { id -> String in
-            guard let asset = try db.asset(id: id) else { throw ValidationError("La imagen \(id) ya no existe.") }
+            guard let asset = try db.asset(id: id) else { throw ValidationError(String(localized: "La imagen \(id) ya no existe.")) }
             return asset.path
         }
         let url = PublishingLinks.composeURL(network: post.network, body: post.body)
         try handoff.handOff(url: url, body: post.body, mediaPaths: paths)
         let preparing = try db.transitionPost(id: post.id, to: .preparing, actor: .user)
-        let images = paths.isEmpty ? "" : " Las imágenes están seleccionadas en el Finder."
+        let images = paths.isEmpty ? "" : String(localized: " Las imágenes están seleccionadas en el Finder.")
         let message = post.network == .linkedin
-            ? "Abrí LinkedIn en tu navegador con el texto escrito (también está en el portapapeles).\(images) Revisa y publica."
-            : "Abrí Instagram en tu navegador. El texto está en el portapapeles.\(images) Pulsa Crear, sube las imágenes, pega el texto y publica."
+            ? String(localized: "Abrí LinkedIn en tu navegador con el texto escrito (también está en el portapapeles).\(images) Revisa y publica.")
+            : String(localized: "Abrí Instagram en tu navegador. El texto está en el portapapeles.\(images) Pulsa Crear, sube las imágenes, pega el texto y publica.")
         return (preparing, PreparationResult(message: message, url: url))
     }
 

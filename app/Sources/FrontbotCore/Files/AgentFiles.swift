@@ -34,9 +34,9 @@ public struct AgentFiles: Sendable {
 
     /// Carpeta que el usuario quiere autorizar: debe existir y no estar dentro de los datos de la app. Devuelve su ruta real.
     public static func validatedFolder(_ path: String, protected: [URL]) throws -> String {
-        guard let real = realPath(path), isDirectory(real) else { throw ValidationError("\(path) no es una carpeta.") }
+        guard let real = realPath(path), isDirectory(real) else { throw ValidationError(String(localized: "\(path) no es una carpeta.")) }
         if protected.contains(where: { Self.path(real, isInside: realPath($0.path) ?? $0.path) }) {
-            throw ValidationError("No se pueden autorizar carpetas dentro de los datos de Frontbot.")
+            throw ValidationError(String(localized: "No se pueden autorizar carpetas dentro de los datos de Frontbot."))
         }
         return real
     }

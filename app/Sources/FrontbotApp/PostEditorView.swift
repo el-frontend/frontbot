@@ -87,7 +87,7 @@ struct PostEditorView: View {
                 .panel(radius: 10)
                 .disabled(!editable)
             HStack {
-                Text(post.network == .instagram ? "\(hashtagCount) hashtags · máx. 30" : "LinkedIn")
+                post.network == .instagram ? Text("\(hashtagCount) hashtags · máx. 30") : Text(verbatim: "LinkedIn")
                 Spacer()
                 Text("\(text.count) / \(PostRules.maxLength(for: post.network))")
                     .foregroundStyle(text.count > PostRules.maxLength(for: post.network) ? Theme.danger : Theme.muted)
@@ -121,7 +121,7 @@ struct PostEditorView: View {
                                 guard editable else { return }
                                 if let index { media.remove(at: index) } else { media.append(asset.id) }
                             }
-                            .accessibilityLabel(index != nil ? "Imagen \(index! + 1), seleccionada" : "Imagen")
+                            .accessibilityLabel(index != nil ? Text("Imagen \(index! + 1), seleccionada") : Text("Imagen"))
                     }
                 }
             }
@@ -156,9 +156,9 @@ struct PostEditorView: View {
                 if dirty { Text("Guarda los cambios antes de preparar la publicación.").font(.system(size: 12)).foregroundStyle(Theme.muted) }
             case .preparing, .scheduled:
                 if let message = model.preparationMessage { Text(message).font(.system(size: 12)) }
-                Text(current.status == .preparing
-                     ? "Publica o programa el post en tu navegador y confírmalo aquí."
-                     : "Programado en la red. Confírmalo cuando se publique.")
+                (current.status == .preparing
+                     ? Text("Publica o programa el post en tu navegador y confírmalo aquí.")
+                     : Text("Programado en la red. Confírmalo cuando se publique."))
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
                 TextField("URL del post publicado (opcional)", text: $publishedUrl)
                     .textFieldStyle(.plain).padding(.horizontal, 10).frame(height: 32).panel(radius: 8)

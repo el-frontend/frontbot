@@ -31,22 +31,22 @@ final class Dictation: ObservableObject {
         // Sin estas claves en Info.plist macOS cierra la app al pedir permiso (pasa con `swift run`).
         guard Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") != nil,
               Bundle.main.object(forInfoDictionaryKey: "NSSpeechRecognitionUsageDescription") != nil else {
-            problem = "El dictado solo funciona en la app empaquetada (scripts/build-app.sh)."
+            problem = String(localized: "El dictado solo funciona en la app empaquetada (scripts/build-app.sh).")
             return
         }
         state = .starting
         guard await Self.speechAuthorized() else {
-            fail("Frontbot no tiene permiso de reconocimiento de voz.", settings: "Privacy_SpeechRecognition"); return
+            fail(String(localized: "Frontbot no tiene permiso de reconocimiento de voz."), settings: "Privacy_SpeechRecognition"); return
         }
         guard await AVCaptureDevice.requestAccess(for: .audio) else {
-            fail("Frontbot no tiene permiso para usar el micrófono.", settings: "Privacy_Microphone"); return
+            fail(String(localized: "Frontbot no tiene permiso para usar el micrófono."), settings: "Privacy_Microphone"); return
         }
         guard state == .starting else { return } // se detuvo mientras pedía permisos
         guard let recognizer = Self.recognizer(), recognizer.isAvailable else {
-            fail("El reconocimiento de voz no está disponible para tu idioma ahora mismo."); return
+            fail(String(localized: "El reconocimiento de voz no está disponible para tu idioma ahora mismo.")); return
         }
         guard recognizer.supportsOnDeviceRecognition else {
-            fail("Tu idioma no tiene dictado dentro del Mac. Descárgalo en Ajustes del Sistema › Teclado › Dictado."); return
+            fail(String(localized: "Tu idioma no tiene dictado dentro del Mac. Descárgalo en Ajustes del Sistema › Teclado › Dictado.")); return
         }
 
         task?.cancel() // la sesión anterior pudo quedar entregando su resultado final
@@ -57,7 +57,7 @@ final class Dictation: ObservableObject {
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { fail("No encuentro ningún micrófono."); return }
+        guard format.sampleRate > 0 else { fail(String(localized: "No encuentro ningún micrófono.")); return }
         let sink = AudioSink(request: request) { [weak self] level in
             Task { @MainActor in self?.level = level }
         }
@@ -65,7 +65,7 @@ final class Dictation: ObservableObject {
         engine.prepare()
         do { try engine.start() } catch {
             input.removeTap(onBus: 0)
-            fail("No pude abrir el micrófono: \(error.localizedDescription)"); return
+            fail(String(localized: "No pude abrir el micrófono: \(error.localizedDescription)")); return
         }
 
         self.request = request

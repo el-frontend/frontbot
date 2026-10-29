@@ -18,7 +18,7 @@ public enum PostStateMachine {
 
     public static func checkTransition(from: PostStatus, to: PostStatus, actor: Actor) throws(ValidationError) {
         guard canTransition(from: from, to: to, actor: actor) else {
-            throw ValidationError("No se puede pasar un post de \(from.rawValue) a \(to.rawValue).")
+            throw ValidationError(String(localized: "No se puede pasar un post de \(from.rawValue) a \(to.rawValue)."))
         }
     }
 }

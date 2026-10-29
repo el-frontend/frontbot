@@ -23,7 +23,7 @@ struct ProposalCard: View {
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
                 GridRow {
                     field("Tamaño", "\(Int(proposal.sizeUsd)) USD")
-                    field("Entrada", proposal.entryType == .market ? "mercado (~\(fmt(proposal.referencePrice)))" : fmt(proposal.entryPrice ?? 0))
+                    field("Entrada", proposal.entryType == .market ? String(localized: "mercado (~\(fmt(proposal.referencePrice)))") : fmt(proposal.entryPrice ?? 0))
                     field("Stop loss", fmt(proposal.stopLoss), color: Theme.danger)
                     field("Take profit", proposal.takeProfit.map(fmt) ?? "—", color: Theme.approved)
                     field("Riesgo", String(format: "%.2f USD", proposal.riskUsd))
@@ -52,13 +52,13 @@ struct ProposalCard: View {
                 Text("Nada se envía sin tu aprobación. La app vuelve a validar con el precio actual.").font(.system(size: 11)).foregroundStyle(Theme.muted)
                 Spacer()
                 Button("Rechazar") { model.rejectProposal(proposal) }.buttonStyle(OutlineButtonStyle()).disabled(busy)
-                Button(busy ? "Enviando…" : "Aprobar y enviar") { model.approveProposal(proposal) }
+                Button(busy ? String(localized: "Enviando…") : String(localized: "Aprobar y enviar")) { model.approveProposal(proposal) }
                     .buttonStyle(AccentButtonStyle()).disabled(model.busyProposalId != nil)
             }
         case .open:
             HStack {
                 Spacer()
-                Button(busy ? "Cerrando…" : "Cerrar posición") { model.closeTrade(proposal) }
+                Button(busy ? String(localized: "Cerrando…") : String(localized: "Cerrar posición")) { model.closeTrade(proposal) }
                     .buttonStyle(OutlineButtonStyle(prominent: true)).foregroundStyle(Theme.danger).disabled(model.busyProposalId != nil)
             }
         default:
@@ -66,9 +66,9 @@ struct ProposalCard: View {
         }
     }
 
-    private func field(_ label: String, _ value: String, color: Color = Theme.text) -> some View {
+    private func field(_ label: LocalizedStringKey, _ value: String, color: Color = Theme.text) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label.uppercased()).font(.system(size: 9)).tracking(0.5).foregroundStyle(Theme.muted)
+            Text(label).textCase(.uppercase).font(.system(size: 9)).tracking(0.5).foregroundStyle(Theme.muted)
             Text(value).font(Theme.mono(12)).foregroundStyle(color)
         }
     }
@@ -90,7 +90,7 @@ struct NetworkBadge: View {
 struct TradeStatusPill: View {
     let status: TradeStatus
     var body: some View {
-        let (label, color): (String, Color) = switch status {
+        let (label, color): (LocalizedStringKey, Color) = switch status {
         case .proposed: ("Por aprobar", Theme.draft)
         case .rejected: ("Rechazada por el mandato", Theme.danger)
         case .sending: ("Enviando", Theme.inFlight)
@@ -150,7 +150,7 @@ struct TradesView: View {
         .task(id: tab) { if tab == 1 { await loadOverviews() } }
     }
 
-    private func list(_ items: [TradeProposal], empty: String) -> some View {
+    private func list(_ items: [TradeProposal], empty: LocalizedStringKey) -> some View {
         Group {
             if items.isEmpty { Text(empty).foregroundStyle(Theme.muted) }
             ForEach(items) { p in
@@ -193,7 +193,7 @@ struct TradesView: View {
         if let error = data?.1 {
             Text(error).font(.system(size: 12)).foregroundStyle(Theme.muted)
         } else if let o = data?.0 {
-            Text(String(format: "Valor de la cuenta: %.2f USD · disponible %.2f USD", o["account_value"]?.doubleValue ?? 0, o["withdrawable"]?.doubleValue ?? 0))
+            Text("Valor de la cuenta: \(String(format: "%.2f", o["account_value"]?.doubleValue ?? 0)) USD · disponible \(String(format: "%.2f", o["withdrawable"]?.doubleValue ?? 0)) USD")
                 .font(Theme.mono(12))
             let positions = o["positions"]?.arrayValue ?? []
             if positions.isEmpty { Text("Sin posiciones abiertas.").font(.system(size: 12)).foregroundStyle(Theme.muted) }
@@ -211,7 +211,8 @@ struct TradesView: View {
             }
             let orders = o["orders"]?.arrayValue ?? []
             if !orders.isEmpty {
-                Text("Órdenes abiertas: " + orders.map { "\($0["coin"]?.stringValue ?? "") \($0["type"]?.stringValue ?? "") \($0["trigger_price"]?.doubleValue?.formatted() ?? $0["limit_price"]?.doubleValue?.formatted() ?? "")" }.joined(separator: " · "))
+                let summary = orders.map { "\($0["coin"]?.stringValue ?? "") \($0["type"]?.stringValue ?? "") \($0["trigger_price"]?.doubleValue?.formatted() ?? $0["limit_price"]?.doubleValue?.formatted() ?? "")" }.joined(separator: " · ")
+                Text("Órdenes abiertas: \(summary)")
                     .font(Theme.mono(10)).foregroundStyle(Theme.muted)
             }
         } else {
@@ -265,7 +266,7 @@ struct TradingSettings: View {
                 }
                 HStack(spacing: 8) {
                     labeled("Clave privada de la API wallet (\(mandate.network.rawValue))") {
-                        SecureField(model.hasTradingKey(agentId: agent.id, network: mandate.network) ? "•••• guardada en el llavero" : "0x…", text: $key)
+                        SecureField(model.hasTradingKey(agentId: agent.id, network: mandate.network) ? String(localized: "•••• guardada en el llavero") : "0x…", text: $key)
                             .font(Theme.mono(12))
                     }
                     Button("Guardar clave") {
@@ -304,9 +305,9 @@ struct TradingSettings: View {
                     labeled("Trades por día") { TextField("3", value: $mandate.maxTradesPerDay, format: .number) }.frame(width: 120)
                     labeled("Monedas") { TextField("BTC, ETH", text: $coins) }
                 }
-                Text(mandate.mode == .auto
-                     ? "Automático: la app envía sola las propuestas que cumplan todo el mandato, con stop loss siempre. Lo demás espera tu aprobación."
-                     : "Aprobación: cada trade espera tu clic en «Aprobar y enviar».")
+                (mandate.mode == .auto
+                     ? Text("Automático: la app envía sola las propuestas que cumplan todo el mandato, con stop loss siempre. Lo demás espera tu aprobación.")
+                     : Text("Aprobación: cada trade espera tu clic en «Aprobar y enviar»."))
                     .font(.system(size: 12)).foregroundStyle(mandate.mode == .auto ? Theme.draft : Theme.muted)
                 HStack {
                     if let error = model.errorMessage { Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger) }
@@ -327,10 +328,10 @@ struct TradingSettings: View {
 
     private func confirmSheet(_ change: PendingChange) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(change == .mainnet ? "Operar con dinero real" : "Modo automático con dinero real").font(.system(size: 16, weight: .semibold))
-            Text(change == .mainnet
-                 ? "En mainnet las órdenes usan fondos reales de tu cuenta de Hyperliquid. Escribe MAINNET para confirmar."
-                 : "La app enviará sin preguntarte las propuestas que cumplan el mandato, con dinero real. Escribe MAINNET para confirmar.")
+            (change == .mainnet ? Text("Operar con dinero real") : Text("Modo automático con dinero real")).font(.system(size: 16, weight: .semibold))
+            (change == .mainnet
+                 ? Text("En mainnet las órdenes usan fondos reales de tu cuenta de Hyperliquid. Escribe MAINNET para confirmar.")
+                 : Text("La app enviará sin preguntarte las propuestas que cumplan el mandato, con dinero real. Escribe MAINNET para confirmar."))
                 .font(.system(size: 13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             TextField("MAINNET", text: $confirmText).font(Theme.mono(13)).textFieldStyle(.plain)
                 .padding(.horizontal, 10).frame(height: 32).panel(radius: 8)
@@ -348,7 +349,7 @@ struct TradingSettings: View {
         .padding(22).frame(width: 440).background(Theme.sidebar)
     }
 
-    private func labeled(_ label: String, @ViewBuilder content: () -> some View) -> some View {
+    private func labeled(_ label: LocalizedStringKey, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label).font(.system(size: 11)).foregroundStyle(Theme.muted)
             content().textFieldStyle(.plain).padding(.horizontal, 10).frame(height: 30).panel(radius: 7, fill: Theme.raised)

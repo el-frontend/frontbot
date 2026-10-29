@@ -22,9 +22,9 @@ struct LabSettingsSection: View {
             if expanded {
                 Toggle("Laboratorio activo", isOn: binding(settings, \.enabled)).toggleStyle(.switch).controlSize(.small)
                 HStack(spacing: 16) {
-                    number("Tokens por sesión", settings.sessionTokenCap, \.sessionTokenCap, settings)
-                    number("Tokens por día", settings.dailyTokenCap, \.dailyTokenCap, settings)
-                    number("Temas abiertos", settings.maxOpenTopics, \.maxOpenTopics, settings)
+                    number(SectionLabel("Tokens por sesión"), settings.sessionTokenCap, \.sessionTokenCap, settings)
+                    number(SectionLabel("Tokens por día"), settings.dailyTokenCap, \.dailyTokenCap, settings)
+                    number(SectionLabel("Temas abiertos"), settings.maxOpenTopics, \.maxOpenTopics, settings)
                     Spacer()
                 }
                 Toggle(isOn: binding(settings, \.allowOpus)) {
@@ -48,9 +48,9 @@ struct LabSettingsSection: View {
         })
     }
 
-    private func number(_ label: String, _ value: Int, _ key: WritableKeyPath<AgentLabSettings, Int>, _ s: AgentLabSettings) -> some View {
+    private func number(_ label: SectionLabel, _ value: Int, _ key: WritableKeyPath<AgentLabSettings, Int>, _ s: AgentLabSettings) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(label)
+            label
             TextField("", value: Binding(get: { value }, set: { v in
                 var next = model.lab.settings(agentId: agent.id)
                 next[keyPath: key] = max(1, v)

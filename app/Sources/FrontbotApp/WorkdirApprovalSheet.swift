@@ -62,8 +62,8 @@ struct WorkdirApprovalSheet: View {
 
     private var preview: String {
         let content = approval.content ?? ""
-        guard content.count > Self.previewLimit else { return content.isEmpty ? "(vacío)" : content }
-        return String(content.prefix(Self.previewLimit)) + "\n… (\(content.count - Self.previewLimit) caracteres más)"
+        guard content.count > Self.previewLimit else { return content.isEmpty ? String(localized: "(vacío)") : content }
+        return String(content.prefix(Self.previewLimit)) + "\n" + String(localized: "… (\(content.count - Self.previewLimit) caracteres más)")
     }
 
     private var unsandboxedBody: some View {

@@ -167,7 +167,7 @@ final class LabController {
     private func notifyNewProposals(agent: Agent, since: Date) {
         for p in versions.pendingProposals(agentId: agent.id) where p.createdAt >= since {
             let evidence = p.evidenceSummary.count > 200 ? String(p.evidenceSummary.prefix(200)) + "…" : p.evidenceSummary
-            model?.deliverNotification(title: "\(agent.name) quiere graduar «\(p.skillName)»", body: evidence,
+            model?.deliverNotification(title: String(localized: "\(agent.name) quiere graduar «\(p.skillName)»"), body: evidence,
                                        conversationId: nil, agentLab: agent.id)
         }
     }
@@ -220,7 +220,7 @@ final class LabController {
     }
 
     func studyNow(_ topic: LabTopic) { change { _ = try db.studyNow(topicId: topic.id, now: Date()) } }
-    func pause(_ topic: LabTopic) { change { _ = try db.setTopicStatus(id: topic.id, .paused, reason: "Pausado por ti", now: Date()) } }
+    func pause(_ topic: LabTopic) { change { _ = try db.setTopicStatus(id: topic.id, .paused, reason: String(localized: "Pausado por ti"), now: Date()) } }
     func resume(_ topic: LabTopic) { change { _ = try db.setTopicStatus(id: topic.id, .studying, reason: nil, now: Date()) } }
     func abandon(_ topic: LabTopic) { change { _ = try db.setTopicStatus(id: topic.id, .abandoned, reason: nil, now: Date()) } }
 

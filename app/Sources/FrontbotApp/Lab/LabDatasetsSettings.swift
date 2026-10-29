@@ -71,8 +71,9 @@ struct LabDatasetsSettings: View {
     }
 
     private func origin(_ meta: DatasetMeta) -> String {
-        guard let id = meta.fetchedByAgentId else { return "añadido por ti" }
-        return "lo trajo " + (model.agent(id: id)?.name ?? "un agente")
+        guard let id = meta.fetchedByAgentId else { return String(localized: "añadido por ti") }
+        let name = model.agent(id: id)?.name ?? String(localized: "un agente")
+        return String(localized: "lo trajo \(name)")
     }
 
     private func pickFolder() {
@@ -80,11 +81,11 @@ struct LabDatasetsSettings: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Elegir"
+        panel.prompt = String(localized: "Elegir")
         if panel.runModal() == .OK { importing = panel.url }
     }
 
-    private func note(_ text: String) -> some View {
+    private func note(_ text: LocalizedStringKey) -> some View {
         Text(text).font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -156,10 +157,10 @@ final class LabPythonEnv {
                 try FileManager.default.createDirectory(at: paths.labsDir, withIntermediateDirectories: true)
                 try await run(python, ["-m", "venv", "--clear", venv.path])
                 try await run(venv.appendingPathComponent("bin/pip").path, ["install", "numpy", "pandas"])
-                result = "Entorno listo."
+                result = String(localized: "Entorno listo.")
             } catch {
                 failed = true
-                result = "No se pudo preparar el entorno: \(error.localizedDescription)"
+                result = String(localized: "No se pudo preparar el entorno: \(error.localizedDescription)")
             }
             running = false
             refresh(paths: paths)
@@ -168,7 +169,7 @@ final class LabPythonEnv {
 
     private struct Failure: LocalizedError {
         let status: Int32
-        var errorDescription: String? { "el comando terminó con código \(status). Revisa el registro." }
+        var errorDescription: String? { String(localized: "el comando terminó con código \(Int(status)). Revisa el registro.") }
     }
 
     private func run(_ executable: String, _ arguments: [String]) async throws {

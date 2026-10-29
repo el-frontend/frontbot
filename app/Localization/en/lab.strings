@@ -1,0 +1,183 @@
+/* Lab: LabFormat */
+"en curso" = "running";
+"terminada" = "done";
+"fallida" = "failed";
+"cortada" = "cut short";
+
+/* Lab: settings section */
+"Ajustes" = "Settings";
+"Laboratorio activo" = "Lab on";
+"Tokens por sesión" = "Tokens per session";
+"Tokens por día" = "Tokens per day";
+"Temas abiertos" = "Open topics";
+"Permitir Opus" = "Allow Opus";
+"Opus gasta mucho más presupuesto: solo para pasos que lo piden." = "Opus uses much more budget: only for steps that need it.";
+
+/* Lab: tab */
+"hoy %@ / %@ tokens" = "today %1$@ / %2$@ tokens";
+"este mes %@" = "this month %@";
+"Listo para graduar" = "Ready to graduate";
+"skill nueva" = "new skill";
+"mejora de %@" = "improves %@";
+"Revisar y aprobar" = "Review and approve";
+"Ver cuaderno" = "View notebook";
+"Temas de estudio" = "Study topics";
+"Nuevo tema" = "New topic";
+"Ya tienes %lld temas abiertos. Abandona o resuelve uno para abrir otro." = "You already have %lld open topics. Drop or resolve one to open another.";
+"%@ aún no estudia nada. Abre un tema y trabajará en él por su cuenta, dentro del presupuesto." = "%@ isn't studying anything yet. Open a topic and it will work on it on its own, within budget.";
+"Aprendido" = "Learned";
+
+/* Lab: topic row */
+"estudiando ahora" = "studying now";
+"Detener" = "Stop";
+"pausado" = "paused";
+"estudiando" = "studying";
+"Estudiar ahora" = "Study now";
+"Reanudar" = "Resume";
+"Pausar" = "Pause";
+"Abandonar" = "Drop";
+"Acciones del tema" = "Topic actions";
+"sesión %lld · %@ tokens" = "session %1$lld · %2$@ tokens";
+"¿Abandonar este tema?" = "Drop this topic?";
+"Deja de estudiarlo. Su cuaderno se conserva." = "Stops studying it. Its notebook is kept.";
+"Pausado por ti" = "Paused by you";
+
+/* Lab: new topic */
+"Nuevo tema de estudio" = "New study topic";
+"Pregunta" = "Question";
+"¿Qué quieres que estudie %@?" = "What do you want %@ to study?";
+"Por qué" = "Why";
+"Para qué te sirve la respuesta" = "What you'll use the answer for";
+"Cancelar" = "Cancel";
+"Abrir tema" = "Open topic";
+
+/* Lab: notebook */
+"Cerrar" = "Close";
+"El cuaderno está vacío: el agente aún no ha estudiado este tema." = "The notebook is empty: the agent hasn't studied this topic yet.";
+"Sin sesión" = "No session";
+"Sin entradas." = "No entries.";
+"Sesión %lld" = "Session %lld";
+"modelos (%@)" = "models (%@)";
+"hipótesis" = "hypothesis";
+"prueba" = "test";
+"resultado" = "result";
+"conclusión" = "conclusion";
+"nota del modelo" = "model note";
+"tu comentario" = "your feedback";
+"nota" = "note";
+"evidencia débil" = "weak evidence";
+"evidencia media" = "medium evidence";
+"evidencia fuerte" = "strong evidence";
+
+/* Lab: notebook files */
+"Archivos del tema" = "Topic files";
+"Subir" = "Up";
+"Aún no hay archivos." = "No files yet.";
+"Vista recortada." = "Preview truncated.";
+
+/* Lab: proposal review */
+"Graduar «%@»" = "Graduate “%@”";
+"Archivos" = "Files";
+"El skill cambió desde que se propuso." = "The skill changed since it was proposed.";
+"Comentario (opcional)" = "Comment (optional)";
+"Por qué lo rechazas o qué cambiarías" = "Why you're rejecting it or what you'd change";
+"Rechazar" = "Reject";
+"Aprobar" = "Approve";
+"Archivo demasiado grande para comparar línea a línea." = "File too large to compare line by line.";
+"nuevo" = "new";
+"sin cambios" = "unchanged";
+"%@ quiere graduar «%@»" = "%1$@ wants to graduate “%2$@”";
+
+/* Lab: datasets settings */
+"Datasets" = "Datasets";
+"Sin datasets. Los agentes los descargan (solo datos públicos) o los añades tú desde una carpeta." = "No datasets. Agents download them (public data only), or you add them from a folder.";
+"%@ · %@" = "%1$@ · %2$@";
+"Borrar" = "Delete";
+"Añadir carpeta como dataset…" = "Add folder as dataset…";
+"Python" = "Python";
+"Preparando el entorno…" = "Setting up the environment…";
+"Entorno listo (numpy, pandas)" = "Environment ready (numpy, pandas)";
+"Reinstalar" = "Reinstall";
+"Los scripts de los laboratorios necesitan numpy y pandas. Se instalan en un entorno propio, con red, solo cuando lo pides." = "Lab scripts need numpy and pandas. They're installed in their own environment, with network access, only when you ask.";
+"Preparar entorno de Python" = "Set up Python environment";
+"¿Borrar %@?" = "Delete %@?";
+"Borrar dataset" = "Delete dataset";
+"Los scripts que lo usen dejarán de encontrarlo." = "Scripts that use it will no longer find it.";
+"añadido por ti" = "added by you";
+"un agente" = "an agent";
+"lo trajo %@" = "brought by %@";
+"Elegir" = "Choose";
+"Añadir dataset" = "Add dataset";
+"Nombre (kebab-case)" = "Name (kebab-case)";
+"Descripción" = "Description";
+"Qué contiene y de dónde viene" = "What it contains and where it comes from";
+"Añadir" = "Add";
+"Entorno listo." = "Environment ready.";
+"No se pudo preparar el entorno: %@" = "Couldn't set up the environment: %@";
+"el comando terminó con código %lld. Revisa el registro." = "the command exited with code %lld. Check the log.";
+
+/* Trades */
+"Tamaño" = "Size";
+"Entrada" = "Entry";
+"mercado (~%@)" = "market (~%@)";
+"Stop loss" = "Stop loss";
+"Take profit" = "Take profit";
+"Riesgo" = "Risk";
+"Ejecutado: %@ %@ a %@" = "Filled: %1$@ %2$@ at %3$@";
+"Nada se envía sin tu aprobación. La app vuelve a validar con el precio actual." = "Nothing is sent without your approval. The app re-checks against the current price.";
+"Enviando…" = "Sending…";
+"Aprobar y enviar" = "Approve and send";
+"Cerrando…" = "Closing…";
+"Cerrar posición" = "Close position";
+"Por aprobar" = "Awaiting approval";
+"Rechazada por el mandato" = "Rejected by mandate";
+"Enviando" = "Sending";
+"Abierta" = "Open";
+"Falló" = "Failed";
+"Cerrada" = "Closed";
+"Descartada" = "Discarded";
+"Trades" = "Trades";
+"Propuestas (%lld)" = "Proposals (%lld)";
+"Abiertas" = "Open";
+"Historial" = "History";
+"Pausar trading" = "Pause trading";
+"Pausa el trading de todos los agentes (también el modo automático)" = "Pauses trading for all agents (including auto mode)";
+"No hay propuestas pendientes. Pídele a tu agente de trading que analice el mercado." = "No pending proposals. Ask your trading agent to analyze the market.";
+"Aún no hay historial." = "No history yet.";
+"¿Pausar el trading de todos los agentes?" = "Pause trading for all agents?";
+"Pausar todo" = "Pause all";
+"Ningún agente podrá enviar órdenes, ni con aprobación ni en automático, hasta que lo reactives en su página. Las posiciones abiertas no se cierran." = "No agent will be able to send orders, with approval or automatically, until you turn it back on from its page. Open positions stay open.";
+"Trades de Frontbot" = "Frontbot trades";
+"Cuenta de %@" = "%@'s account";
+"Actualizar" = "Refresh";
+"Valor de la cuenta: %@ USD · disponible %@ USD" = "Account value: %1$@ USD · available %2$@ USD";
+"Sin posiciones abiertas." = "No open positions.";
+"liq. %@" = "liq. %@";
+"Órdenes abiertas: %@" = "Open orders: %@";
+"Trading en Hyperliquid" = "Trading on Hyperliquid";
+"PAUSADO" = "PAUSED";
+"Conexión" = "Connection";
+"Crea una API wallet en Hyperliquid (More → API, con tu wallet principal conectada) y pega aquí su clave privada. Una API wallet puede operar pero no retirar ni transferir fondos. Nunca pegues la frase semilla ni la clave de tu wallet principal." = "Create an API wallet on Hyperliquid (More → API, with your main wallet connected) and paste its private key here. An API wallet can trade but can't withdraw or transfer funds. Never paste your seed phrase or your main wallet's key.";
+"Dirección de tu wallet principal (0x…)" = "Your main wallet address (0x…)";
+"Clave privada de la API wallet (%@)" = "API wallet private key (%@)";
+"•••• guardada en el llavero" = "•••• saved in Keychain";
+"Guardar clave" = "Save key";
+"Quitar" = "Remove";
+"Mandato" = "Mandate";
+"Red" = "Network";
+"Modo" = "Mode";
+"Aprobación" = "Approval";
+"Automático" = "Automatic";
+"Pausado" = "Paused";
+"Riesgo máx. por trade (%)" = "Max risk per trade (%)";
+"Apalancamiento máx." = "Max leverage";
+"Trades por día" = "Trades per day";
+"Monedas" = "Coins";
+"Automático: la app envía sola las propuestas que cumplan todo el mandato, con stop loss siempre. Lo demás espera tu aprobación." = "Automatic: the app sends proposals that meet the full mandate on its own, always with a stop loss. Everything else waits for your approval.";
+"Aprobación: cada trade espera tu clic en «Aprobar y enviar»." = "Approval: every trade waits for you to click “Approve and send”.";
+"Guardar mandato" = "Save mandate";
+"Operar con dinero real" = "Trade with real money";
+"Modo automático con dinero real" = "Automatic mode with real money";
+"En mainnet las órdenes usan fondos reales de tu cuenta de Hyperliquid. Escribe MAINNET para confirmar." = "On mainnet, orders use real funds from your Hyperliquid account. Type MAINNET to confirm.";
+"La app enviará sin preguntarte las propuestas que cumplan el mandato, con dinero real. Escribe MAINNET para confirmar." = "The app will send proposals that meet the mandate without asking you, with real money. Type MAINNET to confirm.";
+"Confirmar" = "Confirm";

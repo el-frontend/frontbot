@@ -15,10 +15,10 @@ struct LabTopicRow: View {
             HStack(alignment: .top, spacing: 8) {
                 Text(topic.question).font(.system(size: 13, weight: .medium)).frame(maxWidth: .infinity, alignment: .leading)
                 if running {
-                    LabPill(text: "estudiando ahora", color: Theme.inFlight)
+                    LabPill(text: String(localized: "estudiando ahora"), color: Theme.inFlight)
                     Button("Detener") { model.lab.cancelRunning() }.buttonStyle(OutlineButtonStyle())
                 } else {
-                    LabPill(text: topic.status == .paused ? "pausado" : "estudiando",
+                    LabPill(text: topic.status == .paused ? String(localized: "pausado") : String(localized: "estudiando"),
                             color: topic.status == .paused ? Theme.muted : Theme.inFlight)
                 }
                 Menu {

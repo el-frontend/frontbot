@@ -110,7 +110,7 @@ struct BrandsView: View {
                 Divider().overlay(Theme.border).padding(.bottom, 8)
                 HStack(spacing: 8) {
                     StatusDot(color: Theme.approved, size: 7)
-                    Text(model.apiKeyPresent ? "API key de Anthropic" : "Claude Code · conectado")
+                    model.apiKeyPresent ? Text("API key de Anthropic") : Text("Claude Code · conectado")
                 }
                 .foregroundStyle(Theme.textSecondary)
                 .padding(.horizontal, 10).frame(height: 30)
@@ -133,7 +133,7 @@ struct BrandsView: View {
         .sheet(item: $brandToDelete) { brand in DeleteBrandSheet(model: model, brand: brand) }
     }
 
-    private func navRow(_ title: String, icon: String, section: AppModel.Section, count: Int? = nil, countColor: Color = Theme.muted) -> some View {
+    private func navRow(_ title: LocalizedStringKey, icon: String, section: AppModel.Section, count: Int? = nil, countColor: Color = Theme.muted) -> some View {
         let active = model.section == section
         return Button { model.section = section } label: {
             HStack(spacing: 10) {
@@ -219,11 +219,11 @@ struct BrandsView: View {
     static func age(_ date: Date, now: Date = Date()) -> String {
         let minutes = Int(now.timeIntervalSince(date) / 60)
         switch minutes {
-        case ..<1: return "ahora"
+        case ..<1: return String(localized: "ahora")
         case ..<60: return "\(minutes)m"
         case ..<(60 * 24): return "\(minutes / 60)h"
         case ..<(60 * 24 * 7): return "\(minutes / (60 * 24))d"
-        default: return "\(minutes / (60 * 24 * 7))sem"
+        default: return String(localized: "\(minutes / (60 * 24 * 7))sem")
         }
     }
 }

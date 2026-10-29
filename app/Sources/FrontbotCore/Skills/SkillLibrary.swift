@@ -64,11 +64,11 @@ public struct SkillLibrary: Sendable {
     public func importFolder(_ source: URL) throws -> Skill {
         let manifestURL = source.appendingPathComponent("SKILL.md")
         guard let text = try? String(contentsOf: manifestURL, encoding: .utf8) else {
-            throw ValidationError("La carpeta no tiene un SKILL.md.")
+            throw ValidationError(String(localized: "La carpeta no tiene un SKILL.md."))
         }
         let manifest = try SkillManifest.parse(text)
         try Self.rejectSymlinks(in: source)
-        guard try skill(named: manifest.name) == nil else { throw ValidationError("Ya existe un skill llamado \(manifest.name).") }
+        guard try skill(named: manifest.name) == nil else { throw ValidationError(String(localized: "Ya existe un skill llamado \(manifest.name).")) }
         let dest = paths.skillDir(manifest.name)
         try FileManager.default.createDirectory(at: paths.skillsDir, withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: dest)
@@ -97,12 +97,12 @@ public struct SkillLibrary: Sendable {
         p.standardError = FileHandle.nullDevice
         try p.run()
         p.waitUntilExit()
-        guard p.terminationStatus == 0 else { throw ValidationError("No se pudo descomprimir el .zip.") }
+        guard p.terminationStatus == 0 else { throw ValidationError(String(localized: "No se pudo descomprimir el .zip.")) }
         try Self.rejectEscapes(in: tmp)
         if FileManager.default.fileExists(atPath: tmp.appendingPathComponent("SKILL.md").path) { return try importFolder(tmp) }
         let folders = try FileManager.default.contentsOfDirectory(at: tmp, includingPropertiesForKeys: [.isDirectoryKey])
             .filter { $0.lastPathComponent != "__MACOSX" && $0.hasDirectoryPath }
-        guard folders.count == 1 else { throw ValidationError("El .zip debe contener un solo skill (una carpeta con SKILL.md).") }
+        guard folders.count == 1 else { throw ValidationError(String(localized: "El .zip debe contener un solo skill (una carpeta con SKILL.md).")) }
         return try importFolder(folders[0])
     }
 
@@ -141,9 +141,9 @@ public struct SkillLibrary: Sendable {
 
     /// El usuario edita un skill (cualquier estado) reescribiendo su SKILL.md; el nombre no cambia.
     public func saveManifest(id: String, text: String) throws -> Skill {
-        guard var skill = try skill(id: id) else { throw ValidationError("No existe el skill.") }
+        guard var skill = try skill(id: id) else { throw ValidationError(String(localized: "No existe el skill.")) }
         let manifest = try SkillManifest.parse(text)
-        guard manifest.name == skill.name else { throw ValidationError("El name del frontmatter debe seguir siendo \(skill.name).") }
+        guard manifest.name == skill.name else { throw ValidationError(String(localized: "El name del frontmatter debe seguir siendo \(skill.name).")) }
         try SkillVersions(library: self).snapshot(skill, proposalId: nil)
         try text.write(to: directory(for: skill).appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
         skill.description = manifest.description
@@ -157,7 +157,7 @@ public struct SkillLibrary: Sendable {
 
     /// Solo el usuario activa skills: ninguna herramienta llama a esto.
     public func activate(id: String) throws -> Skill {
-        guard var skill = try skill(id: id) else { throw ValidationError("No existe el skill.") }
+        guard var skill = try skill(id: id) else { throw ValidationError(String(localized: "No existe el skill.")) }
         skill.status = .active
         skill.updatedAt = .dbNow()
         try db.writer.write { try skill.update($0) }
@@ -243,7 +243,7 @@ public struct SkillLibrary: Sendable {
     static func rejectSymlinks(in dir: URL) throws {
         guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.isSymbolicLinkKey]) else { return }
         for case let url as URL in e where (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-            throw ValidationError("El skill contiene enlaces simbólicos (\(url.lastPathComponent)); no se importa.")
+            throw ValidationError(String(localized: "El skill contiene enlaces simbólicos (\(url.lastPathComponent)); no se importa."))
         }
     }
 
@@ -252,7 +252,7 @@ public struct SkillLibrary: Sendable {
         let base = dir.resolvingSymlinksInPath().path
         guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else { return }
         for case let url as URL in e where !url.resolvingSymlinksInPath().path.hasPrefix(base + "/") {
-            throw ValidationError("El .zip contiene rutas que salen de su carpeta; no se importa.")
+            throw ValidationError(String(localized: "El .zip contiene rutas que salen de su carpeta; no se importa."))
         }
         try rejectSymlinks(in: dir)
     }

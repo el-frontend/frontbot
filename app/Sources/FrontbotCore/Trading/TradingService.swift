@@ -98,17 +98,17 @@ public struct TradingService: Sendable {
 
     public func reject(id: String) throws -> TradeProposal {
         guard let p = try db.transitionProposal(id: id, from: .proposed, to: .cancelled) else {
-            throw ValidationError("Esa propuesta ya no está pendiente.")
+            throw ValidationError(String(localized: "Esa propuesta ya no está pendiente."))
         }
         return p
     }
 
     /// Cierra la posición de esa moneda a mercado y cancela sus órdenes de stop/take profit.
     public func close(id: String) async throws -> TradeProposal {
-        guard var p = try db.proposal(id: id), p.status == .open else { throw ValidationError("Ese trade no está abierto.") }
+        guard var p = try db.proposal(id: id), p.status == .open else { throw ValidationError(String(localized: "Ese trade no está abierto.")) }
         let mandate = try db.mandate(agentId: p.agentId)
         guard let key = keys.privateKey(agentId: p.agentId, network: p.network), let address = mandate.address else {
-            throw ValidationError("Conecta tu API wallet de Hyperliquid (\(p.network.rawValue)) en la página del agente.")
+            throw ValidationError(String(localized: "Conecta tu API wallet de Hyperliquid (\(p.network.rawValue)) en la página del agente."))
         }
         try await executor.close(network: p.network, privateKey: key, address: address, coin: p.coin)
         p.status = .closed
@@ -118,23 +118,23 @@ public struct TradingService: Sendable {
 
     private func send(id: String, auto: Bool) async throws -> TradeProposal {
         // Se reclama antes de cualquier espera: dos envíos (auto + manual, doble clic) nunca salen a la vez.
-        guard var p = try db.claimProposal(id: id) else { throw ValidationError("Esa propuesta ya no está pendiente.") }
+        guard var p = try db.claimProposal(id: id) else { throw ValidationError(String(localized: "Esa propuesta ya no está pendiente.")) }
         var delivering = false
         do {
             let mandate = try db.mandate(agentId: p.agentId)
-            if auto && mandate.mode != .auto { throw ValidationError("El agente ya no está en modo automático.") }
+            if auto && mandate.mode != .auto { throw ValidationError(String(localized: "El agente ya no está en modo automático.")) }
             guard p.network == mandate.network else {
-                throw ValidationError("La propuesta es de \(p.network.rawValue) y el agente ahora opera en \(mandate.network.rawValue); pídele una nueva.")
+                throw ValidationError(String(localized: "La propuesta es de \(p.network.rawValue) y el agente ahora opera en \(mandate.network.rawValue); pídele una nueva."))
             }
             guard let key = keys.privateKey(agentId: p.agentId, network: p.network), let address = mandate.address else {
-                throw ValidationError("Conecta tu API wallet de Hyperliquid (\(p.network.rawValue)) en la página del agente.")
+                throw ValidationError(String(localized: "Conecta tu API wallet de Hyperliquid (\(p.network.rawValue)) en la página del agente."))
             }
             let snapshot = try await executor.snapshot(network: p.network, coin: p.coin, address: address)
-            guard let account = snapshot.accountValue else { throw ValidationError("No se pudo leer el valor de tu cuenta en Hyperliquid.") }
+            guard let account = snapshot.accountValue else { throw ValidationError(String(localized: "No se pudo leer el valor de tu cuenta en Hyperliquid.")) }
             // Esta propuesta ya cuenta como enviada hoy (executedAt): se descuenta para no contarla dos veces.
             let others = max(0, try db.tradesToday(agentId: p.agentId) - 1)
             let check = TradeRules.check(p.idea, mandate: mandate, accountValue: account, currentPrice: snapshot.price, tradesToday: others)
-            guard check.ok else { throw ValidationError("Ya no cumple el mandato: " + check.problems.joined(separator: "; ") + ".") }
+            guard check.ok else { throw ValidationError(String(localized: "Ya no cumple el mandato: \(check.problems.joined(separator: "; ")).")) }
 
             p.auto = auto
             p.riskUsd = check.riskUsd
@@ -208,7 +208,7 @@ public struct KeychainTradeKeys: TradeKeyStore {
         let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let hex = key.hasPrefix("0x") ? String(key.dropFirst(2)) : key
         guard hex.count == 64, hex.allSatisfy(\.isHexDigit) else {
-            throw ValidationError("La clave de la API wallet debe tener 64 caracteres hexadecimales (con o sin 0x).")
+            throw ValidationError(String(localized: "La clave de la API wallet debe tener 64 caracteres hexadecimales (con o sin 0x)."))
         }
         try store.set(Self.account(agentId, network), value: "0x" + hex.lowercased())
     }

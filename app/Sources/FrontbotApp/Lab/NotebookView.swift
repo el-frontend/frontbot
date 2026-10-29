@@ -56,9 +56,10 @@ struct NotebookView: View {
     }
 
     private func sessionHeader(_ number: Int, _ s: LabSession) -> String {
-        var parts = ["Sesión \(number)", s.startedAt.formatted(.dateTime.day().month(.abbreviated).hour().minute())]
+        var parts = [String(localized: "Sesión \(number)"), s.startedAt.formatted(.dateTime.day().month(.abbreviated).hour().minute())]
         if !s.models.isEmpty {
-            parts.append("modelos (" + s.models.map { "\(LabFormat.modelName($0.model)) \(LabFormat.tokens($0.tokens))" }.joined(separator: ", ") + ")")
+            let list = s.models.map { "\(LabFormat.modelName($0.model)) \(LabFormat.tokens($0.tokens))" }.joined(separator: ", ")
+            parts.append(String(localized: "modelos (\(list))"))
         }
         parts.append(LabFormat.sessionStatus(s.status))
         return parts.joined(separator: " · ")
@@ -89,18 +90,18 @@ private struct EntryRow: View {
 
     private var kindLabel: String {
         switch entry.kind {
-        case .hypothesis: "hipótesis"
-        case .test: "prueba"
-        case .result: "resultado"
-        case .conclusion: "conclusión"
-        case .model_note: "nota del modelo"
-        case .feedback: "tu comentario"
-        case .note: "nota"
+        case .hypothesis: String(localized: "hipótesis")
+        case .test: String(localized: "prueba")
+        case .result: String(localized: "resultado")
+        case .conclusion: String(localized: "conclusión")
+        case .model_note: String(localized: "nota del modelo")
+        case .feedback: String(localized: "tu comentario")
+        case .note: String(localized: "nota")
         }
     }
 
     private func evidenceLabel(_ e: Evidence) -> String {
-        switch e { case .weak: "evidencia débil"; case .medium: "evidencia media"; case .strong: "evidencia fuerte" }
+        switch e { case .weak: String(localized: "evidencia débil"); case .medium: String(localized: "evidencia media"); case .strong: String(localized: "evidencia fuerte") }
     }
 
     private func evidenceColor(_ e: Evidence) -> Color {

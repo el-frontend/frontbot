@@ -11,7 +11,7 @@ public struct SkillVersions: Sendable {
 
     /// El skill cambió (otra versión, o borrado y creado de nuevo con el mismo nombre) desde que se propuso.
     public struct StaleProposal: LocalizedError, Equatable, Sendable {
-        public let message = "El skill cambió desde que se propuso: recházala para que el agente vuelva a proponer."
+        public let message = String(localized: "El skill cambió desde que se propuso: recházala para que el agente vuelva a proponer.")
         public init() {}
         public var errorDescription: String? { message }
     }
@@ -56,10 +56,10 @@ public struct SkillVersions: Sendable {
     }
 
     public func revert(skillId: String, to number: Int) throws -> Skill {
-        guard var skill = try library.skill(id: skillId) else { throw ValidationError("No existe el skill.") }
+        guard var skill = try library.skill(id: skillId) else { throw ValidationError(String(localized: "No existe el skill.")) }
         guard let target = versions(skillId: skillId).first(where: { $0.number == number }),
               FileManager.default.fileExists(atPath: target.snapshotPath) else {
-            throw ValidationError("No existe la versión \(number) de \(skill.name).")
+            throw ValidationError(String(localized: "No existe la versión \(String(number)) de \(skill.name)."))
         }
         try snapshot(skill, proposalId: nil)
         let dir = library.directory(for: skill)
@@ -170,8 +170,8 @@ public struct SkillVersions: Sendable {
     // MARK: Internos
 
     private func pending(_ id: String) throws -> SkillProposal {
-        guard let p = try db.writer.read({ try SkillProposal.fetchOne($0, key: id) }) else { throw ValidationError("No existe la propuesta.") }
-        guard p.status == .pending else { throw ValidationError("La propuesta ya fue decidida.") }
+        guard let p = try db.writer.read({ try SkillProposal.fetchOne($0, key: id) }) else { throw ValidationError(String(localized: "No existe la propuesta.")) }
+        guard p.status == .pending else { throw ValidationError(String(localized: "La propuesta ya fue decidida.")) }
         return p
     }
 

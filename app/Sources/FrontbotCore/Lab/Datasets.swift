@@ -277,11 +277,11 @@ public struct Datasets: Sendable {
                 total += values.fileSize ?? 0
             }
         }
-        guard !files.isEmpty else { throw ValidationError("La carpeta no tiene archivos.") }
-        guard total <= maxDatasetBytes else { throw ValidationError("El dataset supera el límite de \(Self.mb(maxDatasetBytes)) MB.") }
+        guard !files.isEmpty else { throw ValidationError(String(localized: "La carpeta no tiene archivos.")) }
+        guard total <= maxDatasetBytes else { throw ValidationError(String(localized: "El dataset supera el límite de \(String(Self.mb(maxDatasetBytes))) MB.")) }
         let used = try list().reduce(0) { $0 + $1.bytes }
         guard used + total <= maxTotalBytes else {
-            throw ValidationError("Los datasets superarían el máximo total de \(Self.mb(maxTotalBytes)) MB.")
+            throw ValidationError(String(localized: "Los datasets superarían el máximo total de \(String(Self.mb(maxTotalBytes))) MB."))
         }
         try fm.createDirectory(at: paths.datasetsDir, withIntermediateDirectories: true)
         let tmp = paths.datasetsDir.appendingPathComponent(".tmp-\(UUID().uuidString)", isDirectory: true)
@@ -301,7 +301,7 @@ public struct Datasets: Sendable {
     public func delete(name: String) throws {
         try Self.validate(name: name)
         let dir = paths.datasetDir(name)
-        guard FileManager.default.fileExists(atPath: dir.path) else { throw ValidationError("No existe el dataset \(name).") }
+        guard FileManager.default.fileExists(atPath: dir.path) else { throw ValidationError(String(localized: "No existe el dataset \(name).")) }
         try FileManager.default.removeItem(at: dir)
     }
 
@@ -309,13 +309,13 @@ public struct Datasets: Sendable {
 
     private func ensureAvailable(_ name: String) throws {
         if FileManager.default.fileExists(atPath: paths.datasetDir(name).path) {
-            throw ValidationError("Ya existe el dataset \(name): los datasets no se reescriben, usa otro nombre.")
+            throw ValidationError(String(localized: "Ya existe el dataset \(name): los datasets no se reescriben, usa otro nombre."))
         }
     }
 
     static func validate(name: String) throws {
         guard SkillManifest.isValidName(name) else {
-            throw ValidationError("El nombre del dataset debe ser kebab-case (minúsculas, números y guiones; máx. 64).")
+            throw ValidationError(String(localized: "El nombre del dataset debe ser kebab-case (minúsculas, números y guiones; máx. 64)."))
         }
     }
 
