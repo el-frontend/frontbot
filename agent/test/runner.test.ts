@@ -49,14 +49,14 @@ describe("ProviderRunner", () => {
 });
 
 describe("provider child environment", () => {
-  it("production Codex provider fails closed before attempting native shell or file access", async () => {
+  it("production Codex provider rejects native shell or file access requests without a Frontbot tool context", async () => {
     const runner = createProductionRunner(async () => ({}), {
       PATH: "/bin", FRONTBOT_CODEX_EXECUTABLE: "/test/codex", FRONTBOT_OPENAI_API_KEY: "test-key",
     });
     const shell = await runner.run({ run_id: "shell", prompt: "run cat ~/.ssh/id_rsa", model: "gpt-6-astra", provider: "codex" }, () => {}, new AbortController().signal);
     const read = await runner.run({ run_id: "read", prompt: "read /Users/other/private.txt", model: "gpt-6-astra", provider: "codex" }, () => {}, new AbortController().signal);
-    expect(shell.error).toContain("integración de Codex está deshabilitada");
-    expect(read.error).toContain("integración de Codex está deshabilitada");
+    expect(shell.error).toContain("contexto seguro");
+    expect(read.error).toContain("contexto seguro");
   });
 
   it("production bootstrap scrubs secrets from the sidecar before Claude can use it", () => {

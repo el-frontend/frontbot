@@ -562,7 +562,7 @@ public actor AgentClient {
             if let run = try? db.finishRun(id: runId, status: ok ? .done : .failed, summary: summary,
                                            inputTokens: params["input_tokens"]?.intValue ?? 0,
                                            outputTokens: params["output_tokens"]?.intValue ?? 0,
-                                           costUsd: params["cost_usd"]?.doubleValue ?? 0) {
+                                           costUsd: params["cost_usd"]?.doubleValue) {
                 broadcast(.finished(run))
             }
         case .response(let id, let result):
