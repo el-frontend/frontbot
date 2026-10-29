@@ -47,18 +47,29 @@ function safeError(error: unknown, apiKey: string): string {
   return message.split(apiKey).join("[redacted]").replace(/Bearer\s+[^\s]+/gi, "Bearer [redacted]").slice(0, 1000);
 }
 
-function functionCalls(output: OpenAIResponsesResult["output"], allowed: Set<string>): { callId: string; name: string; args: Record<string, unknown> }[] | string {
-  const calls: { callId: string; name: string; args: Record<string, unknown> }[] = [];
+type FunctionCall = { callId: string; name: string; args: Record<string, unknown>; fingerprint: string };
+type FunctionResult = { fingerprint: string; output: string };
+
+function stableJSON(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJSON).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJSON(item)}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function functionCalls(output: OpenAIResponsesResult["output"], allowed: Set<string>): FunctionCall[] | string {
+  const calls: FunctionCall[] = [];
   for (const item of output) {
     if (item.type !== "function_call") continue;
     const callId = typeof item.call_id === "string" ? item.call_id : undefined;
     const name = typeof item.name === "string" ? item.name : undefined;
     if (!callId || !name || !allowed.has(name)) return "La herramienta solicitada no está permitida.";
+    if (item.status !== "completed") return "La llamada de herramienta no está completada.";
     if (typeof item.arguments !== "string") return "Los argumentos de la herramienta no son válidos.";
     let parsed: unknown;
     try { parsed = JSON.parse(item.arguments); } catch { return "Los argumentos de la herramienta no son JSON válido."; }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "Los argumentos de la herramienta no son válidos.";
-    calls.push({ callId, name, args: parsed as Record<string, unknown> });
+    const args = parsed as Record<string, unknown>;
+    calls.push({ callId, name, args, fingerprint: stableJSON([name, args]) });
   }
   return calls;
 }
@@ -94,7 +105,8 @@ export class CodexRunner implements Runner {
       scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined,
       browser: false, web: false,
     });
-    let input: unknown = runPrompt(params);
+    const transcript: unknown[] = [{ role: "user", content: runPrompt(params) }];
+    const priorResults = new Map<string, FunctionResult>();
     let inputTokens = 0;
     let outputTokens = 0;
     let summary = "";
@@ -103,7 +115,7 @@ export class CodexRunner implements Runner {
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
         if (signal.aborted) return cancelled(params.run_id);
-        const result = await this.transport({ model: params.model, input, instructions, tools }, { apiKey, signal }, (event) => {
+        const result = await this.transport({ model: params.model, input: [...transcript], instructions, tools }, { apiKey, signal }, (event) => {
           if (event.type === "text_delta") emit({ run_id: params.run_id, type: "text", text: event.delta });
         });
         const count = usage(result.response);
@@ -121,15 +133,29 @@ export class CodexRunner implements Runner {
           return { run_id: params.run_id, ok: true, summary, input_tokens: inputTokens, output_tokens: outputTokens, cost_usd: null };
         }
         if (round === MAX_TOOL_ROUNDS - 1) return failure(params.run_id, "Codex alcanzó el límite de rondas de herramientas.", inputTokens, outputTokens);
+        const roundCalls = new Map<string, string>();
+        for (const call of calls) {
+          const prior = priorResults.get(call.callId);
+          const seen = roundCalls.get(call.callId);
+          if ((prior && prior.fingerprint !== call.fingerprint) || (seen && seen !== call.fingerprint)) {
+            return failure(params.run_id, "La llamada de herramienta reutiliza un identificador en conflicto.", inputTokens, outputTokens);
+          }
+          roundCalls.set(call.callId, call.fingerprint);
+        }
         const results: Record<string, unknown>[] = [];
         for (const call of calls) {
           if (signal.aborted) return cancelled(params.run_id);
-          emit({ run_id: params.run_id, type: "tool_call", text: call.name });
-          const output = await frontbot.execute(call.name, call.args);
-          if (signal.aborted) return cancelled(params.run_id);
-          results.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
+          let prior = priorResults.get(call.callId);
+          if (!prior) {
+            emit({ run_id: params.run_id, type: "tool_call", text: call.name });
+            const output = await frontbot.execute(call.name, call.args);
+            if (signal.aborted) return cancelled(params.run_id);
+            prior = { fingerprint: call.fingerprint, output: JSON.stringify(output) };
+            priorResults.set(call.callId, prior);
+          }
+          results.push({ type: "function_call_output", call_id: call.callId, output: prior.output });
         }
-        input = [...result.output, ...results];
+        transcript.push(...result.output, ...results);
       }
       return failure(params.run_id, "Codex alcanzó el límite de rondas de herramientas.", inputTokens, outputTokens);
     } catch (error) {
