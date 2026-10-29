@@ -19,7 +19,7 @@ struct AgentDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if model.experimentalFeatures { tabPicker }
+            tabPicker
             switch tab {
             case .general: general
             case .lab: LabTabView(model: model, agent: agent).id(agent.id)
@@ -33,7 +33,7 @@ struct AgentDetailView: View {
         }
     }
 
-    private var tab: AgentTab { model.experimentalFeatures ? model.agentTab[agent.id] ?? .general : .general }
+    private var tab: AgentTab { model.agentTab[agent.id] ?? .general }
 
     private var tabPicker: some View {
         Picker("Sección", selection: Binding(get: { tab }, set: { model.agentTab[agent.id] = $0 })) {

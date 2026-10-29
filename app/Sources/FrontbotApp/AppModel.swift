@@ -185,7 +185,7 @@ final class AppModel {
         send(prompt: prompt)
     }
 
-    /// Laboratorio y trading: muy específicos, ocultos salvo que los actives en Ajustes.
+    /// Trading: muy específico, oculto salvo que lo actives en Ajustes.
     var experimentalFeatures = UserDefaults.standard.bool(forKey: "experimentalFeatures") {
         didSet { UserDefaults.standard.set(experimentalFeatures, forKey: "experimentalFeatures") }
     }

@@ -49,21 +49,19 @@ struct SettingsView: View {
                 note("El modelo y el uso de tu Chrome se configuran en cada agente, desde su página en la barra lateral.")
             }
 
+            section("Laboratorio") {
+                LabDatasetsSettings(model: model)
+            }
+
             section("Funciones experimentales") {
                 Toggle(isOn: $model.experimentalFeatures) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Mostrar Laboratorio y trading").font(.system(size: 13, weight: .medium))
-                        Text("Herramientas avanzadas: el laboratorio de aprendizaje de los agentes y el trading en Hyperliquid.")
+                        Text("Mostrar trading").font(.system(size: 13, weight: .medium))
+                        Text("Permite activar en cada agente el trading en Hyperliquid.")
                             .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .toggleStyle(.switch).controlSize(.small)
-            }
-
-            if model.experimentalFeatures {
-                section("Laboratorio") {
-                    LabDatasetsSettings(model: model)
-                }
             }
 
             section("Redes") {
