@@ -22,6 +22,17 @@ final class CodexLocatorTests: XCTestCase {
         XCTAssertEqual(location, "/usr/local/bin/codex")
     }
 
+    func testFindsCodexFromNVMVersionInstallOutsideGUIPath() {
+        let home = "/Users/example"
+        let location = CodexLocator.locate(
+            environment: ["HOME": home, "PATH": "/usr/bin"],
+            nvmNodeVersions: ["v22.11.0", "v20.18.0"],
+            exists: { $0 == "\(home)/.nvm/versions/node/v22.11.0/bin/codex" }
+        )
+
+        XCTAssertEqual(location, "\(home)/.nvm/versions/node/v22.11.0/bin/codex")
+    }
+
     func testReportsMissingCLIWithoutRunningLoginCheck() {
         let status = CodexLocator.status(
             environment: [:],
