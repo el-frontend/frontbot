@@ -29,7 +29,6 @@ export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promis
 
 export type OpenAIResponsesOptions = {
   apiKey: string;
-  endpoint?: string;
   fetch?: FetchLike;
   signal?: AbortSignal;
 };
@@ -47,10 +46,14 @@ const cancelled = () => new OpenAIResponsesError("cancelled", "Cancelado");
 const malformed = () => new OpenAIResponsesError("malformed_stream", "La respuesta de OpenAI no se pudo interpretar.");
 
 function errorFor(status: number, payload: unknown): OpenAIResponsesError {
-  const error = isObject(payload) && isObject(payload.error) ? payload.error : undefined;
-  const code = typeof error?.code === "string" ? error.code : "";
+  const response = isObject(payload) && isObject(payload.response) ? payload.response : undefined;
+  const error = isObject(payload) && isObject(payload.error)
+    ? payload.error
+    : response && isObject(response.error) ? response.error : undefined;
+  const topLevelCode = isObject(payload) && typeof payload.code === "string" ? payload.code : undefined;
+  const code = typeof error?.code === "string" ? error.code : topLevelCode ?? "";
   if (status === 401 || status === 403) return new OpenAIResponsesError("authentication", "La clave de OpenAI no es válida.");
-  if (status === 429) return new OpenAIResponsesError("rate_limit", "OpenAI está limitando las solicitudes. Inténtalo de nuevo en unos minutos.");
+  if (status === 429 || code === "rate_limit_exceeded") return new OpenAIResponsesError("rate_limit", "OpenAI está limitando las solicitudes. Inténtalo de nuevo en unos minutos.");
   if (status === 413 || code === "context_length_exceeded" || code === "request_too_large") return new OpenAIResponsesError("request_too_large", "La solicitud es demasiado grande para OpenAI.");
   if (status === 404 || code === "model_not_found" || code === "unsupported_model" || code === "model_not_available") return new OpenAIResponsesError("model_unavailable", "El modelo seleccionado no está disponible en este proyecto de OpenAI.");
   return new OpenAIResponsesError("api", "OpenAI no pudo completar la solicitud.");
@@ -63,6 +66,8 @@ async function safeJson(response: Response): Promise<unknown> {
 /** Decode SSE records incrementally. Comments and empty keepalives are ignored. */
 async function* sseData(body: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncGenerator<string> {
   const reader = body.getReader();
+  const abort = () => { void reader.cancel().catch(() => undefined); };
+  signal?.addEventListener("abort", abort, { once: true });
   const decoder = new TextDecoder();
   let buffer = "";
   let data: string[] = [];
@@ -102,6 +107,7 @@ async function* sseData(body: ReadableStream<Uint8Array>, signal?: AbortSignal):
     const event = dispatch();
     if (event) yield event;
   } finally {
+    signal?.removeEventListener("abort", abort);
     reader.releaseLock();
   }
 }
@@ -121,7 +127,7 @@ export async function streamOpenAIResponse(
   if (!apiKey) throw new OpenAIResponsesError("authentication", "Falta la clave de OpenAI.");
   let response: Response;
   try {
-    response = await (options.fetch ?? globalThis.fetch)(options.endpoint ?? "https://api.openai.com/v1/responses", {
+    response = await (options.fetch ?? globalThis.fetch)("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model: request.model, input: request.input, ...(request.instructions ? { instructions: request.instructions } : {}), ...(request.tools ? { tools: request.tools } : {}), stream: true, store: false }),
@@ -160,6 +166,7 @@ export async function streamOpenAIResponse(
         case "response.completed":
           if (!isObject(event.response)) throw malformed();
           completed = event.response as OpenAICompletedResponse;
+          if (completed.status !== "completed") throw errorFor(500, event);
           if (Array.isArray(completed.output)) completed.output.forEach((item, index) => { if (!output.has(index) && isOutputItem(item)) output.set(index, item); });
           onEvent?.({ type: "completed", response: completed });
           break;
