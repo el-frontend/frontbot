@@ -28,7 +28,7 @@ final class AgentProviderTests: XCTestCase {
         let codex = AgentDraft(name: "Codex", instructions: "x", provider: .codex)
         XCTAssertEqual(codex.model, AgentProvider.defaultModel(for: .codex))
 
-        let explicit = AgentDraft(name: "Codex", instructions: "x", provider: .codex, model: "gpt-5.6-terra")
-        XCTAssertEqual(explicit.model, "gpt-5.6-terra")
+        let explicit = AgentDraft(name: "Codex", instructions: "x", provider: .codex, model: "gpt-6.1-terra")
+        XCTAssertEqual(explicit.model, "gpt-6.1-terra")
     }
 }
