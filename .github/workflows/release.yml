@@ -1,0 +1,90 @@
+# Builds Frontbot.app on a macOS runner and publishes Frontbot.zip as a GitHub Release.
+# Release: push a tag like v0.5.0  →  git tag v0.5.0 && git push origin v0.5.0
+# Pull requests that touch the app only build it (no release).
+# The app is ad-hoc signed (no paid Apple Developer account), so users allow it once in
+# System Settings → Privacy & Security → Open Anyway.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: ["app/**", "agent/**", "scripts/**", ".github/workflows/release.yml"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v (e.g. 0.5.0). Builds a test artifact; no release."
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: agent/package-lock.json
+
+      - name: Versions
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            push) VERSION="${GITHUB_REF_NAME#v}" ;;
+            pull_request) VERSION="0.0.$GITHUB_RUN_NUMBER" ;;
+            *) VERSION="$INPUT_VERSION" ;;
+          esac
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "Bad version: $VERSION"; exit 1; fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          swift --version
+          node --version
+
+      - name: Install sidecar dependencies
+        run: npm ci --prefix agent
+
+      - name: Test sidecar
+        run: npm test --prefix agent
+
+      - name: Build Frontbot.app
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: ./scripts/build-app.sh
+
+      - name: Self-check
+        run: build/Frontbot.app/Contents/MacOS/Frontbot --self-check
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Frontbot-${{ steps.v.outputs.version }}
+          path: build/Frontbot.zip
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/Frontbot.zip \
+            --title "Frontbot ${{ steps.v.outputs.version }}" \
+            --generate-notes \
+            --notes "Requires macOS 15 or later on Apple Silicon.
+
+          **First launch:** this build is not notarized by Apple. Open Frontbot once, click **Done** on the warning, then go to **System Settings → Privacy & Security** and click **Open Anyway**."
