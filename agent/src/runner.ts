@@ -14,7 +14,7 @@ export type Brand = { id: string; name: string; guide: string | null };
 export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
 /** mode "summarize": run en segundo plano que solo actualiza la memoria del agente.
  *  mode "scheduled": tarea programada, sin nadie mirando; puede avisar con notify_user. */
-export type RunParams = { run_id: string; prompt: string; model: string; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled" | "study"; study?: RunStudy; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
+export type RunParams = { run_id: string; prompt: string; model: string; provider?: "claude" | "codex"; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled" | "study"; study?: RunStudy; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
   /** Carpetas del usuario autorizadas para este agente (rutas reales). */
   folders?: string[];
   /** Carpeta de trabajo del chat: herramientas de Claude Code dentro de la sandbox. Se ignora fuera de runs de chat. */
@@ -46,6 +46,52 @@ export type RunDone = { run_id: string; ok: boolean; summary: string; input_toke
 
 export interface Runner {
   run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone>;
+}
+
+/** Removes credentials inherited from the app shell and exposes only the selected provider's key. */
+export function providerEnvironment(
+  provider: "claude" | "codex",
+  inherited: NodeJS.ProcessEnv = process.env,
+  anthropicAPIKey = inherited.FRONTBOT_ANTHROPIC_API_KEY,
+  openAIAPIKey = inherited.FRONTBOT_OPENAI_API_KEY,
+): NodeJS.ProcessEnv {
+  const env = Object.fromEntries(Object.entries(inherited).filter(([key]) =>
+    !["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "FRONTBOT_ANTHROPIC_API_KEY", "FRONTBOT_OPENAI_API_KEY"].includes(key)));
+  const key = provider === "claude" ? anthropicAPIKey : openAIAPIKey;
+  if (key?.trim()) env[provider === "claude" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"] = key.trim();
+  return env;
+}
+
+export function redactSecrets(message: string): string {
+  let safe = message;
+  for (const key of [process.env.ANTHROPIC_API_KEY, process.env.FRONTBOT_ANTHROPIC_API_KEY, process.env.FRONTBOT_OPENAI_API_KEY, process.env.OPENAI_API_KEY]) {
+    if (key) safe = safe.split(key).join("[redacted]");
+  }
+  return safe.slice(0, 1000);
+}
+
+/** Selects the existing Claude implementation or the Codex runtime boundary. */
+export class ProviderRunner implements Runner {
+  constructor(private claude: Runner, private codex: Runner = new CodexUnavailableRunner()) {}
+
+  run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
+    if (params.provider !== undefined && params.provider !== "claude" && params.provider !== "codex") {
+      return Promise.resolve({ run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0,
+        error: "Proveedor no compatible." });
+    }
+    return (params.provider ?? "claude") === "codex"
+      ? this.codex.run(params, emit, signal)
+      : this.claude.run(params, emit, signal);
+  }
+}
+
+/** Replaced by the app-server implementation in the next integration step. */
+export class CodexUnavailableRunner implements Runner {
+  async run(params: RunParams, _emit: (event: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
+    if (signal.aborted) return cancelled(params.run_id);
+    return { run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0,
+      error: "El runtime de Codex todavía no está disponible." };
+  }
 }
 
 const cancelled = (run_id: string): RunDone => ({ run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0, error: "Cancelado" });
@@ -261,7 +307,7 @@ export class RealRunner implements Runner {
     } catch (err) {
       if (cut) return cutDone();
       if (signal.aborted) return ended(cancelled(params.run_id));
-      return ended({ ...cancelled(params.run_id), error: (err as Error).message });
+      return ended({ ...cancelled(params.run_id), error: redactSecrets((err as Error).message) });
     } finally {
       clearTimeout(clock);
       plugin?.cleanup();
@@ -275,6 +321,12 @@ export class FakeRunner implements Runner {
 
   async run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (params.prompt === "crash") process.exit(1);
+    if (params.prompt === "provider") {
+      const provider = params.provider ?? "claude";
+      emit({ run_id: params.run_id, type: "text", text: provider });
+      emit({ run_id: params.run_id, type: "text", text: `Modelo: ${params.model}` });
+      return { run_id: params.run_id, ok: true, summary: provider, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+    }
     if (params.prompt.includes("escribir") && params.folders?.length) {
       // Para los tests de la app: escribe un archivo en la primera carpeta (o cuenta por qué no pudo).
       const text = await this.call("tool.files_write", { agent_id: params.agent?.id, run_id: params.run_id, path: `${params.folders[0]}/fake.txt`, content: "hola" })

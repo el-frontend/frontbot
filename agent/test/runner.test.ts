@@ -7,7 +7,38 @@ import { TokenMeter } from "../src/study.js";
 import type { AppCall } from "../src/tools.js";
 import type { SkillPlugin } from "../src/skills.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { buildQueryOptions, RealRunner, toolCallText, type RunParams } from "../src/runner.js";
+import { buildQueryOptions, ProviderRunner, RealRunner, toolCallText, type RunParams, type Runner } from "../src/runner.js";
+
+describe("ProviderRunner", () => {
+  it("dispatches provider runs and preserves their event and completion contract", async () => {
+    const calls: string[] = [];
+    const runner = (name: string): Runner => ({
+      async run(params, emit) {
+        calls.push(`${name}:${params.provider ?? "claude"}`);
+        emit({ run_id: params.run_id, type: "text", text: name });
+        return { run_id: params.run_id, ok: true, summary: name, input_tokens: 1, output_tokens: 2, cost_usd: 0 };
+      },
+    });
+    const router = new ProviderRunner(runner("claude"), runner("codex"));
+    const events: unknown[] = [];
+    const claude = await router.run({ run_id: "c", prompt: "p", model: "claude", provider: "claude" }, (e) => events.push(e), new AbortController().signal);
+    const codex = await router.run({ run_id: "x", prompt: "p", model: "codex", provider: "codex" }, (e) => events.push(e), new AbortController().signal);
+    expect(calls).toEqual(["claude:claude", "codex:codex"]);
+    expect(events).toEqual([{ run_id: "c", type: "text", text: "claude" }, { run_id: "x", type: "text", text: "codex" }]);
+    expect(claude).toMatchObject({ run_id: "c", ok: true, summary: "claude" });
+    expect(codex).toMatchObject({ run_id: "x", ok: true, summary: "codex" });
+  });
+});
+
+describe("provider child environment", () => {
+  it("includes only the matching provider key and never inherits either key", async () => {
+    const { providerEnvironment } = await import("../src/runner.js");
+    const inherited = { PATH: "/bin", ANTHROPIC_API_KEY: "shell-anthropic", OPENAI_API_KEY: "shell-openai",
+      FRONTBOT_ANTHROPIC_API_KEY: "config-anthropic", FRONTBOT_OPENAI_API_KEY: "config-openai" };
+    expect(providerEnvironment("claude", inherited)).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "config-anthropic" });
+    expect(providerEnvironment("codex", inherited)).toEqual({ PATH: "/bin", OPENAI_API_KEY: "config-openai" });
+  });
+});
 
 describe("buildQueryOptions", () => {
   it("does not persist sessions to ~/.claude and keeps the tool lockdown", () => {
