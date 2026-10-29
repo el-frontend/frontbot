@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-ink: #0b0a0d;
+  --color-panel: #110f14;
+  --color-card: #16141a;
+  --color-line: #1f1c24;
+  --color-edge: #2a2630;
+  --color-strong-edge: #3a3540;
+  --color-text: #f4f2f5;
+  --color-muted: #b8b1be;
+  --color-faint: #8f8896;
+  --color-accent: #f08bc3;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-text);
+}
