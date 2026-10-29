@@ -15,6 +15,8 @@ let package = Package(
         .target(name: "FrontbotCore", dependencies: [.product(name: "GRDB", package: "GRDB")]),
         // Los recursos de la mascota los copia build-app.sh (Bundle.module no funciona dentro de un .app).
         .executableTarget(name: "FrontbotApp", dependencies: ["FrontbotCore"], exclude: ["Resources"]),
+        // Rellena una carpeta de datos vacía (FRONTBOT_DATA_DIR) con contenido de demo para capturas.
+        .executableTarget(name: "FrontbotDemoSeed", dependencies: ["FrontbotCore"]),
         .testTarget(name: "FrontbotCoreTests", dependencies: ["FrontbotCore"]),
     ]
 )

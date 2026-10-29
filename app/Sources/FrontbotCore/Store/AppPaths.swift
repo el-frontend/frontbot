@@ -5,7 +5,11 @@ public struct AppPaths: Sendable {
 
     public init(root: URL) { self.root = root }
 
+    /// FRONTBOT_DATA_DIR usa otra carpeta de datos (p. ej. un perfil de demo para capturas).
     public static func standard() -> AppPaths {
+        if let dir = ProcessInfo.processInfo.environment["FRONTBOT_DATA_DIR"], !dir.isEmpty {
+            return AppPaths(root: URL(fileURLWithPath: dir, isDirectory: true))
+        }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return AppPaths(root: support.appendingPathComponent("Frontbot", isDirectory: true))
     }
