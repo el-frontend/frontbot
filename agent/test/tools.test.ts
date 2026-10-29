@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { buildTools, ALLOWED_TOOLS, TOOL_SPECS, allowedToolsFor } from "../src/tools.js";
+import { buildTools, ALLOWED_TOOLS, TOOL_SPECS, allowedToolsFor, frontbotToolSpecs } from "../src/tools.js";
 
 describe("tools", () => {
+  it("exposes the full trading tool set for a trading-enabled direct provider run", () => {
+    const names = frontbotToolSpecs({ isDefault: false, trading: { network: "testnet", mandate: { mode: "approval", max_risk_pct: 1, max_leverage: 2, coins: ["BTC"], max_trades_per_day: 1 } } }).map((tool) => tool.name);
+    expect(names).toEqual(expect.arrayContaining(["market_price", "market_candles", "market_funding", "market_book", "account_state", "trade_propose"]));
+  });
+
   it("allows only web tools plus frontbot tools, never publish/approve", () => {
     expect(ALLOWED_TOOLS).toContain("WebSearch");
     expect(ALLOWED_TOOLS).toContain("WebFetch");
