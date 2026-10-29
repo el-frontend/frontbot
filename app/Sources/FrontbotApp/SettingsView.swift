@@ -112,25 +112,12 @@ struct SettingsView: View {
     @ViewBuilder
     private var codexCredentials: some View {
         HStack(spacing: 8) {
-            StatusDot(color: codexStatusColor, size: 7)
-            Text(codexStatusText).font(.system(size: 13, weight: .medium))
-            Spacer()
-            Button("Revisar") { model.refreshCodexStatus() }
-                .buttonStyle(OutlineButtonStyle())
+            StatusDot(color: model.openAIKeyPresent ? Theme.approved : Theme.draft, size: 7)
+            Text(model.openAIKeyPresent ? "API key guardada" : "API key no guardada")
+                .font(.system(size: 13, weight: .medium))
         }
-        note("Puedes usar tu sesión local de Codex CLI o guardar una API key de OpenAI.")
-        switch model.codexStatus {
-        case .checking:
-            note("Revisando Codex CLI…")
-        case .notInstalled:
-            note("Instala Codex CLI y vuelve a revisar. La API key no requiere iniciar sesión en la CLI, pero Codex CLI sí debe estar instalado.")
-        case .notSignedIn:
-            note("Inicia sesión con `codex login` en Terminal o guarda una API key de OpenAI aquí.")
-        case .unavailable:
-            note("No pude comprobar la sesión. Revisa que Codex CLI funcione en Terminal o usa una API key de OpenAI.")
-        case .available:
-            note("Codex CLI está instalado y la sesión está activa.")
-        }
+        note("Codex usa una API key de OpenAI guardada de forma segura en el llavero.")
+        note("El uso se factura a tu proyecto de API de OpenAI; no se incluye en tu suscripción de ChatGPT o Codex.")
         HStack(spacing: 8) {
             SecureField("API key de OpenAI (opcional)", text: $openAIKey)
                 .textFieldStyle(.plain).font(.system(size: 13))
@@ -144,7 +131,7 @@ struct SettingsView: View {
             .disabled(openAIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         HStack(spacing: 8) {
-            Text(model.openAIKeyPresent ? "API key guardada en el llavero." : "No hay una API key guardada.")
+            Text(model.openAIKeyPresent ? "Guardada en el llavero." : "No hay una API key guardada.")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted)
             Spacer()
             if model.openAIKeyPresent {
@@ -155,22 +142,6 @@ struct SettingsView: View {
         if !saved, let error = model.errorMessage {
             Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger)
         }
-    }
-
-    private var codexStatusText: String {
-        switch model.codexStatus {
-        case .checking: "Comprobando Codex CLI"
-        case .available: "Codex CLI disponible"
-        case .notInstalled: "Codex CLI no está instalado"
-        case .notSignedIn: "Codex CLI no tiene sesión iniciada"
-        case .unavailable: "No se pudo comprobar Codex CLI"
-        }
-    }
-
-    private var codexStatusColor: Color {
-        if case .available = model.codexStatus { return Theme.approved }
-        if case .checking = model.codexStatus { return Theme.draft }
-        return Theme.danger
     }
 
     private func section(_ title: LocalizedStringKey, @ViewBuilder content: () -> some View) -> some View {
