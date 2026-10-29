@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { connect } from "node:net";
 import { describe, expect, it } from "vitest";
-import { createToolBridge, requestToolBridge } from "../src/tool-bridge.js";
+import { createToolBridge, requestToolBridge, TOOL_BRIDGE_REQUEST_TIMEOUT_MS } from "../src/tool-bridge.js";
 
 describe("authenticated Frontbot tool bridge", () => {
   it("forwards a valid allowlisted call through the Swift RPC callback and returns the result", async () => {
@@ -34,13 +35,48 @@ describe("authenticated Frontbot tool bridge", () => {
       const response = await new Promise<{ bridgeError: string }>((resolve, reject) => {
         const socket = connect(bridge.socketPath);
         let buffer = "";
-        socket.on("connect", () => socket.write(`${JSON.stringify({ op: "call", token: "0".repeat(64), name: "brands_list", arguments: {} })}\n`));
+        socket.on("connect", () => socket.write(`${JSON.stringify({ op: "call", token: "0".repeat(64), request_id: randomUUID(), name: "brands_list", arguments: {} })}\n`));
         socket.on("data", (chunk) => { buffer += chunk.toString(); });
         socket.on("end", () => { try { resolve(JSON.parse(buffer)); } catch (error) { reject(error); } });
         socket.on("error", reject);
       });
       expect(response.bridgeError).toBe("Token de puente inválido.");
       expect(calls).toEqual([]);
+    } finally { await bridge.close(); }
+  });
+
+  it("allows delayed approvals beyond the idle timeout and deduplicates identical in-flight retries", async () => {
+    expect(TOOL_BRIDGE_REQUEST_TIMEOUT_MS).toBeGreaterThanOrEqual(120_000);
+    let dispatches = 0;
+    const bridge = await createToolBridge(async (method) => {
+      expect(method).toBe("tool.files_write");
+      dispatches++;
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return { written: "/tmp/a" };
+    }, { isDefault: false, files: true }, { idleMs: 15, requestMs: 250 });
+    try {
+      const request = { op: "call", name: "files_write", arguments: { path: "/tmp/a", content: "approved" } };
+      // Identical calls while approval is pending share one Swift RPC request instead of running twice.
+      const first = requestToolBridge(bridge, request, 250);
+      const retry = requestToolBridge(bridge, request, 250);
+      await expect(first).resolves.toEqual({ content: [{ type: "text", text: '{"written":"/tmp/a"}' }] });
+      await expect(retry).resolves.toEqual({ content: [{ type: "text", text: '{"written":"/tmp/a"}' }] });
+      expect(dispatches).toBe(1);
+    } finally { await bridge.close(); }
+  });
+
+  it("returns a correlated timeout while retaining the pending dispatch to prevent a duplicate", async () => {
+    let dispatches = 0;
+    const bridge = await createToolBridge(async () => {
+      dispatches++;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return { approved: true };
+    }, { isDefault: false, files: true }, { idleMs: 1_000, requestMs: 30 });
+    try {
+      const request = { op: "call", name: "files_write", arguments: { path: "/tmp/a", content: "approved" } };
+      await expect(requestToolBridge(bridge, request, 30)).rejects.toThrow(/superó el plazo.*No repitas esta acción/);
+      await expect(requestToolBridge(bridge, request, 30)).rejects.toThrow(/superó el plazo.*No repitas esta acción/);
+      expect(dispatches).toBe(1);
     } finally { await bridge.close(); }
   });
 
