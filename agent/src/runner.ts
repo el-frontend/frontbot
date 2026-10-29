@@ -1,6 +1,5 @@
 import { homedir } from "node:os";
 import { dirname, relative, isAbsolute } from "node:path";
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { query, createSdkMcpServer, type Options, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { buildTools, allowedToolsFor, executeFrontbotTool, type AppCall, type ToolContext } from "./tools.js";
 import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
@@ -60,43 +59,7 @@ export interface Runner {
   run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal, context?: RunnerContext): Promise<RunDone>;
 }
 
-export type CodexRuntimeConfig = { executable?: string; apiKey?: string };
-
-/** Takes app-provided Codex config once, then removes OpenAI keys from the sidecar environment. */
-export function consumeCodexRuntimeConfig(env: NodeJS.ProcessEnv = process.env): CodexRuntimeConfig {
-  const config = { executable: env.FRONTBOT_CODEX_EXECUTABLE, apiKey: env.FRONTBOT_OPENAI_API_KEY };
-  delete env.FRONTBOT_OPENAI_API_KEY;
-  delete env.OPENAI_API_KEY;
-  return config;
-}
-
-/** Removes credentials inherited from the app shell and exposes only the selected provider's key. */
-export function providerEnvironment(
-  provider: "claude" | "codex",
-  inherited: NodeJS.ProcessEnv = process.env,
-  anthropicAPIKey = inherited.FRONTBOT_ANTHROPIC_API_KEY,
-  openAIAPIKey = inherited.FRONTBOT_OPENAI_API_KEY,
-): NodeJS.ProcessEnv {
-  const env = Object.fromEntries(Object.entries(inherited).filter(([key]) =>
-    !["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "FRONTBOT_ANTHROPIC_API_KEY", "FRONTBOT_OPENAI_API_KEY", "FRONTBOT_CODEX_EXECUTABLE"].includes(key)));
-  const key = provider === "claude" ? anthropicAPIKey : openAIAPIKey;
-  if (key?.trim()) env[provider === "claude" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"] = key.trim();
-  return env;
-}
-
-/** The only process launcher allowed to put the OpenAI credential into a child environment. */
-export function createCodexAppServer(
-  config: CodexRuntimeConfig,
-  options: { inherited?: NodeJS.ProcessEnv; spawn?: (command: string, args: string[], options: SpawnOptions) => ChildProcess } = {},
-): ChildProcess {
-  if (!config.executable) throw new Error("No se encontró el ejecutable de Codex.");
-  const inherited = options.inherited ?? process.env;
-  const childEnv = providerEnvironment("codex", inherited, undefined, config.apiKey);
-  return (options.spawn ?? spawn)(config.executable, ["app-server", "--listen", "stdio://"], {
-    env: childEnv,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-}
+export type OpenAIAPIConfig = { apiKey?: string };
 
 export function redactSecrets(message: string): string {
   let safe = message;
@@ -110,15 +73,6 @@ export function redactSecrets(message: string): string {
 export class ProviderRunner implements Runner {
   constructor(private claude: Runner, private codex: Runner = new CodexUnavailableRunner()) {}
 
-  claudeEnvironment(inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-    return providerEnvironment("claude", inherited, inherited.ANTHROPIC_API_KEY ?? inherited.FRONTBOT_ANTHROPIC_API_KEY, undefined);
-  }
-
-  codexEnvironment(inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-    const config = this.codex instanceof CodexUnavailableRunner || this.codex instanceof CodexRunner ? this.codex.config : {};
-    return providerEnvironment("codex", inherited, undefined, config.apiKey);
-  }
-
   run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal, context?: RunnerContext): Promise<RunDone> {
     if (params.provider !== undefined && params.provider !== "claude" && params.provider !== "codex") {
       return Promise.resolve({ run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0,
@@ -130,10 +84,8 @@ export class ProviderRunner implements Runner {
   }
 }
 
-/** Replaced by the app-server implementation in the next integration step. */
+/** Fallback used only when a caller creates a provider router without a Codex runner. */
 export class CodexUnavailableRunner implements Runner {
-  constructor(public readonly config: CodexRuntimeConfig = {}) {}
-
   async run(params: RunParams, _emit: (event: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
     if (signal.aborted) return cancelled(params.run_id);
     return { run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0,
@@ -449,9 +401,11 @@ export class FakeRunner implements Runner {
   }
 }
 
-/** Production construction scrubs the sidecar's OpenAI environment before any Claude runner can execute. */
+/** Captures the app-provided OpenAI key once and removes inherited OpenAI credentials from the sidecar environment. */
 export function createProductionRunner(call: AppCall, env: NodeJS.ProcessEnv = process.env, fake = false): ProviderRunner {
-  const codexConfig = consumeCodexRuntimeConfig(env);
+  const codexConfig: OpenAIAPIConfig = { apiKey: env.FRONTBOT_OPENAI_API_KEY };
+  delete env.FRONTBOT_OPENAI_API_KEY;
+  delete env.OPENAI_API_KEY;
   return fake
     ? new ProviderRunner(new FakeRunner(call), new FakeRunner(call))
     : new ProviderRunner(new RealRunner(call), new CodexRunner(codexConfig));

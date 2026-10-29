@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { streamOpenAIResponse, type OpenAIResponseEvent, type OpenAIResponsesRequest, type OpenAIResponsesResult } from "./openai-responses.js";
 import { buildSummaryPrompt, buildSystemPrompt, buildUserPrompt, localToday, timeZoneLabel } from "./prompt.js";
-import type { CodexRuntimeConfig, RunDone, RunEvent, RunParams, Runner, RunnerContext } from "./runner.js";
+import type { OpenAIAPIConfig, RunDone, RunEvent, RunParams, Runner, RunnerContext } from "./runner.js";
 import { frontbotToolSpecs } from "./tools.js";
 
 const MAX_TOOL_ROUNDS = 8;
@@ -76,7 +76,7 @@ function functionCalls(output: OpenAIResponsesResult["output"], allowed: Set<str
 
 export class CodexRunner implements Runner {
   constructor(
-    readonly config: CodexRuntimeConfig,
+    readonly config: OpenAIAPIConfig,
     private readonly transport: ResponsesTransport = streamOpenAIResponse,
   ) {}
 
