@@ -71,13 +71,12 @@ final class AgentClientRobustnessTests: XCTestCase {
         XCTAssertEqual(env(nil)["HOME"], "/Users/x")
     }
 
-    func testSidecarConfigurationCarriesCodexCredentialsWithoutExposingOpenAIKeyAsProviderKey() {
+    func testSidecarConfigurationCarriesOpenAICredentialsWithoutInheritingOpenAIKey() {
         let config = AgentConfig(nodePath: "/n", scriptPath: "/s", apiKey: "anthropic", openAIAPIKey: "openai",
-                                 codexExecutable: "/bin/codex", model: "m", fakeAgent: false)
+                                 model: "m", fakeAgent: false)
         let env = AgentClient.sidecarEnvironment(config: config, inherited: ["PATH": "/bin", "OPENAI_API_KEY": "shell-openai"])
         XCTAssertEqual(env["ANTHROPIC_API_KEY"], "anthropic")
         XCTAssertEqual(env["FRONTBOT_OPENAI_API_KEY"], "openai")
-        XCTAssertEqual(env["FRONTBOT_CODEX_EXECUTABLE"], "/bin/codex")
         XCTAssertNil(env["OPENAI_API_KEY"])
     }
 

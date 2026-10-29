@@ -6,14 +6,13 @@ public struct AgentConfig: Sendable {
     public var scriptPath: String
     public var apiKey: String?
     public var openAIAPIKey: String?
-    public var codexExecutable: String?
     public var model: String
     public var fakeAgent: Bool
 
     public init(nodePath: String, scriptPath: String, apiKey: String?, openAIAPIKey: String? = nil,
-                codexExecutable: String? = nil, model: String, fakeAgent: Bool) {
+                model: String, fakeAgent: Bool) {
         self.nodePath = nodePath; self.scriptPath = scriptPath; self.apiKey = apiKey
-        self.openAIAPIKey = openAIAPIKey; self.codexExecutable = codexExecutable
+        self.openAIAPIKey = openAIAPIKey
         self.model = model; self.fakeAgent = fakeAgent
     }
 }
@@ -375,7 +374,6 @@ public actor AgentClient {
         if let key = CredentialStore.normalizedApiKey(config.apiKey) { env["ANTHROPIC_API_KEY"] = key }
         // Node consumes this bootstrap-only variable at startup and removes it before any runner can execute.
         if let key = CredentialStore.normalizedApiKey(config.openAIAPIKey) { env["FRONTBOT_OPENAI_API_KEY"] = key }
-        if let executable = config.codexExecutable, !executable.isEmpty { env["FRONTBOT_CODEX_EXECUTABLE"] = executable }
         if config.fakeAgent { env["FRONTBOT_FAKE_AGENT"] = "1" }
         return env
     }

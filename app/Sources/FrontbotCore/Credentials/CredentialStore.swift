@@ -53,6 +53,16 @@ public struct CredentialStore: Sendable {
         try get("\(workspaceId).\(Self.openAIKey)")
     }
 
+    /// Whether this workspace has a saved OpenAI API key, without exposing it to callers.
+    public func hasOpenAIKey(workspaceId: String) throws -> Bool {
+        var query = base("\(workspaceId).\(Self.openAIKey)")
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        if status == errSecItemNotFound { return false }
+        guard status == errSecSuccess else { throw ValidationError("Error de Keychain \(status).") }
+        return true
+    }
+
     public func setOpenAIKey(_ rawValue: String, workspaceId: String) throws {
         guard let value = Self.normalizedApiKey(rawValue) else { throw ValidationError("La API key está vacía.") }
         try set("\(workspaceId).\(Self.openAIKey)", value: value)

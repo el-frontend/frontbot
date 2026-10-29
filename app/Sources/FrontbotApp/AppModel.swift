@@ -24,7 +24,6 @@ final class AppModel {
     var errorMessage: String?
     var apiKeyPresent = false
     var openAIKeyPresent = false
-    var codexStatus: CodexStatus = .checking
     /// Agentes (Frontbot primero) y con cuál se habla en el chat.
     var agents: [Agent] = []
     var selectedAgentId = ""
@@ -94,7 +93,7 @@ final class AppModel {
         let key = try? credentials.get("\(workspace.id).\(CredentialStore.anthropicKey)")
         apiKeyPresent = CredentialStore.normalizedApiKey(key) != nil
         let openAIKey = try? credentials.openAIKey(workspaceId: workspace.id)
-        openAIKeyPresent = CredentialStore.normalizedApiKey(openAIKey ?? nil) != nil
+        openAIKeyPresent = (try? credentials.hasOpenAIKey(workspaceId: workspace.id)) ?? false
         client = AgentClient(config: Self.makeConfig(apiKey: key, openAIAPIKey: openAIKey ?? nil), db: db, files: BrandFiles(paths: paths), workspaceId: workspace.id)
         lab = LabController(db: db, paths: paths, client: client, workspaceId: workspace.id, model: self)
         let frontbot = try db.ensureDefaultAgent(workspaceId: workspace.id)
@@ -113,7 +112,6 @@ final class AppModel {
         if AgentLocator.locate(environment: ProcessInfo.processInfo.environment, resources: Bundle.main.resourceURL) == nil {
             errorMessage = AgentLocator.notFoundMessage
         }
-        refreshCodexStatus()
         Task { await listen() }
         reloadProposals()
         reloadTasks()
@@ -142,13 +140,11 @@ final class AppModel {
     static func makeConfig(apiKey: String?, openAIAPIKey: String? = nil) -> AgentConfig {
         let env = ProcessInfo.processInfo.environment
         let location = AgentLocator.locate(environment: env, resources: Bundle.main.resourceURL)
-        let codex = CodexLocator.locate(environment: env)
         return AgentConfig(
             nodePath: location?.node ?? "/usr/bin/false",
             scriptPath: location?.script ?? "",
             apiKey: apiKey,
             openAIAPIKey: openAIAPIKey,
-            codexExecutable: codex,
             model: env["FRONTBOT_MODEL"] ?? AgentConfig.defaultModel,
             fakeAgent: env["FRONTBOT_FAKE_AGENT"] == "1")
     }
@@ -1193,15 +1189,6 @@ final class AppModel {
             reconfigureSidecarCredentials()
         }
         return ok
-    }
-
-    func refreshCodexStatus() {
-        codexStatus = .checking
-        let environment = ProcessInfo.processInfo.environment
-        Task { [weak self] in
-            let status = await Task.detached { CodexLocator.status(environment: environment) }.value
-            self?.codexStatus = status
-        }
     }
 
     /// Credential edits refresh the process configuration without retaining key values in view state.
