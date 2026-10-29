@@ -2,14 +2,15 @@ import { describe, it, expect } from "vitest";
 import { PassThrough } from "node:stream";
 import { RpcPeer } from "../src/rpc.js";
 import { startServer } from "../src/main.js";
-import { FakeRunner } from "../src/runner.js";
+import { FakeRunner, ProviderRunner } from "../src/runner.js";
 
 function setup() {
   const appToAgent = new PassThrough();
   const agentToApp = new PassThrough();
   const app = new RpcPeer(agentToApp, appToAgent);
   const agent = new RpcPeer(appToAgent, agentToApp);
-  startServer(agent, new FakeRunner((m, p) => agent.request(m, p)));
+  const fake = () => new FakeRunner((m, p) => agent.request(m, p));
+  startServer(agent, new ProviderRunner(fake(), fake()));
   return app;
 }
 
@@ -30,6 +31,21 @@ describe("agent server with FakeRunner", () => {
     expect(calls).toEqual(["brands_list", "create:b1"]);
     expect(events.map((e) => e.type)).toEqual(["status", "text", "tool_call"]);
     expect(result).toMatchObject({ run_id: "r1", ok: true, summary: "Tienes 1 marca(s)." });
+  });
+
+  it("routes provider runs while retaining the same event and done notifications", async () => {
+    const app = setup();
+    const events: any[] = [];
+    app.onNotification("agent.event", (event) => events.push(event));
+    const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
+
+    await expect(app.request("agent.run", { run_id: "codex-run", prompt: "provider", provider: "codex", model: "gpt-5-codex", agent: { id: "a", name: "A", instructions: "x", is_default: false } }))
+      .resolves.toEqual({ accepted: true });
+    await expect(done).resolves.toMatchObject({ run_id: "codex-run", ok: true, summary: "codex", input_tokens: 0, output_tokens: 0, cost_usd: 0 });
+    expect(events).toEqual([
+      { run_id: "codex-run", type: "text", text: "codex" },
+      { run_id: "codex-run", type: "text", text: "Modelo: gpt-5-codex" },
+    ]);
   });
 
   it("cancel that arrives before the runner starts waiting still cancels", async () => {

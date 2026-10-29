@@ -95,7 +95,7 @@ final class AppModel {
         apiKeyPresent = CredentialStore.normalizedApiKey(key) != nil
         let openAIKey = try? credentials.openAIKey(workspaceId: workspace.id)
         openAIKeyPresent = CredentialStore.normalizedApiKey(openAIKey ?? nil) != nil
-        client = AgentClient(config: Self.makeConfig(apiKey: key), db: db, files: BrandFiles(paths: paths), workspaceId: workspace.id)
+        client = AgentClient(config: Self.makeConfig(apiKey: key, openAIAPIKey: openAIKey ?? nil), db: db, files: BrandFiles(paths: paths), workspaceId: workspace.id)
         lab = LabController(db: db, paths: paths, client: client, workspaceId: workspace.id, model: self)
         let frontbot = try db.ensureDefaultAgent(workspaceId: workspace.id)
         try Self.migrateChatPreferences(db: db, frontbot: frontbot)
@@ -139,13 +139,16 @@ final class AppModel {
         defaults.removeObject(forKey: "model")
     }
 
-    static func makeConfig(apiKey: String?) -> AgentConfig {
+    static func makeConfig(apiKey: String?, openAIAPIKey: String? = nil) -> AgentConfig {
         let env = ProcessInfo.processInfo.environment
         let location = AgentLocator.locate(environment: env, resources: Bundle.main.resourceURL)
+        let codex = CodexLocator.locate(environment: env)
         return AgentConfig(
             nodePath: location?.node ?? "/usr/bin/false",
             scriptPath: location?.script ?? "",
             apiKey: apiKey,
+            openAIAPIKey: openAIAPIKey,
+            codexExecutable: codex,
             model: env["FRONTBOT_MODEL"] ?? AgentConfig.defaultModel,
             fakeAgent: env["FRONTBOT_FAKE_AGENT"] == "1")
     }
@@ -1092,7 +1095,7 @@ final class AppModel {
         try? db.markSummarized(id: id)
         Task {
             _ = try? await client.run(prompt: "", agent: agent, brand: nil, history: history,
-                                      model: "claude-haiku-4-5-20251001", summarize: true)
+                                      model: agent.provider == .claude ? "claude-haiku-4-5-20251001" : AgentProvider.defaultModel(for: agent.provider), summarize: true)
         }
     }
 
@@ -1204,7 +1207,8 @@ final class AppModel {
     /// Credential edits refresh the process configuration without retaining key values in view state.
     private func reconfigureSidecarCredentials() {
         let anthropicKey = try? credentials.get(keyAccount)
-        Task { await client.setConfig(Self.makeConfig(apiKey: anthropicKey ?? nil)) }
+        let openAIKey = try? credentials.openAIKey(workspaceId: workspace.id)
+        Task { await client.setConfig(Self.makeConfig(apiKey: anthropicKey ?? nil, openAIAPIKey: openAIKey ?? nil)) }
     }
 
     @discardableResult
