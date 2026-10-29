@@ -8,8 +8,8 @@ import { executeFrontbotTool, frontbotToolSpecs, type AppCall, type ToolContext 
 
 const MAX_MESSAGE_BYTES = 1024 * 1024;
 const IDLE_TIMEOUT_MS = 10_000;
-/** 120s Swift approval window plus up to 60s for the approved script to finish. */
-export const TOOL_BRIDGE_REQUEST_TIMEOUT_MS = 180_000;
+/** 120s Swift approval window + up to 60s script runtime + 20s for setup/cleanup. */
+export const TOOL_BRIDGE_REQUEST_TIMEOUT_MS = 200_000;
 const CLIENT_RESPONSE_GRACE_MS = 5_000;
 const RequestSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("list"), token: z.string().min(32) }).strict(),

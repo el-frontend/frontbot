@@ -46,7 +46,7 @@ describe("authenticated Frontbot tool bridge", () => {
   });
 
   it("allows delayed approvals beyond the idle timeout and deduplicates identical in-flight retries", async () => {
-    expect(TOOL_BRIDGE_REQUEST_TIMEOUT_MS).toBeGreaterThanOrEqual(120_000);
+    expect(TOOL_BRIDGE_REQUEST_TIMEOUT_MS).toBe(200_000);
     let dispatches = 0;
     const bridge = await createToolBridge(async (method) => {
       expect(method).toBe("tool.files_write");
