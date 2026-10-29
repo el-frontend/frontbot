@@ -16,9 +16,9 @@ struct AgentFoldersSection: View {
                 Spacer()
                 Button("Añadir carpeta") { choosing = true }.buttonStyle(OutlineButtonStyle(prominent: true))
             }
-            Text(folders.isEmpty
-                 ? "\(agent.name) no puede tocar tus archivos. Añade una carpeta para que pueda leer en ella; cada vez que quiera escribir te pedirá permiso."
-                 : "Lee lo que hay en estas carpetas sin preguntar. Para crear o reemplazar un archivo te pide permiso y te enseña el contenido. En las tareas programadas solo lee.")
+            (folders.isEmpty
+                 ? Text("\(agent.name) no puede tocar tus archivos. Añade una carpeta para que pueda leer en ella; cada vez que quiera escribir te pedirá permiso.")
+                 : Text("Lee lo que hay en estas carpetas sin preguntar. Para crear o reemplazar un archivo te pide permiso y te enseña el contenido. En las tareas programadas solo lee."))
                 .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             ForEach(folders, id: \.self) { path in
                 HStack(spacing: 10) {
@@ -114,7 +114,9 @@ struct FileWriteApprovalSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Image(systemName: "doc.badge.plus").foregroundStyle(Theme.accent)
-                Text("\(request.agentName) quiere \(request.replaces ? "reemplazar" : "crear") un archivo").font(.system(size: 15, weight: .semibold))
+                (request.replaces
+                 ? Text("\(request.agentName) quiere reemplazar un archivo")
+                 : Text("\(request.agentName) quiere crear un archivo")).font(.system(size: 15, weight: .semibold))
             }
             VStack(alignment: .leading, spacing: 6) {
                 SectionLabel("Archivo")
@@ -124,7 +126,7 @@ struct FileWriteApprovalSheet: View {
                           systemImage: "exclamationmark.triangle")
                         .font(.system(size: 12)).foregroundStyle(Theme.danger)
                 }
-                SectionLabel("Contenido · \(ByteCountFormatter.string(fromByteCount: Int64(request.content.utf8.count), countStyle: .file))").padding(.top, 6)
+                SectionLabel("\(String(localized: "Contenido · \(ByteCountFormatter.string(fromByteCount: Int64(request.content.utf8.count), countStyle: .file))"))").padding(.top, 6)
                 ScrollView {
                     Text(preview).font(Theme.mono(11)).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(10)
@@ -134,7 +136,7 @@ struct FileWriteApprovalSheet: View {
             HStack {
                 Spacer()
                 Button("Denegar") { model.answerFileWrite(false) }.buttonStyle(OutlineButtonStyle()).keyboardShortcut(.cancelAction)
-                Button(request.replaces ? "Reemplazar" : "Crear archivo") { model.answerFileWrite(true) }
+                Button(request.replaces ? String(localized: "Reemplazar") : String(localized: "Crear archivo")) { model.answerFileWrite(true) }
                     .buttonStyle(AccentButtonStyle(destructive: request.replaces))
             }
         }
@@ -143,7 +145,7 @@ struct FileWriteApprovalSheet: View {
     }
 
     private var preview: String {
-        guard request.content.count > Self.previewLimit else { return request.content.isEmpty ? "(vacío)" : request.content }
-        return String(request.content.prefix(Self.previewLimit)) + "\n… (\(request.content.count - Self.previewLimit) caracteres más)"
+        guard request.content.count > Self.previewLimit else { return request.content.isEmpty ? String(localized: "(vacío)") : request.content }
+        return String(request.content.prefix(Self.previewLimit)) + "\n" + String(localized: "… (\(request.content.count - Self.previewLimit) caracteres más)")
     }
 }

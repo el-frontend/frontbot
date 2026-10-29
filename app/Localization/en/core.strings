@@ -1,0 +1,169 @@
+/* core: AppModel, Theme, FrontbotCore */
+
+/* AppModel */
+"El agente está trabajando con %@: espera a que termine para borrarla." = "The agent is working with %@. Wait for it to finish before deleting it.";
+"Falló «%@»" = "“%@” failed";
+"No se pudo cambiar el inicio automático: %@" = "Couldn’t change Open at Login: %@";
+"Conecta la wallet del agente para ver sus posiciones." = "Connect the agent’s wallet to see its positions.";
+"No se pudo enviar el trade." = "Couldn’t send the trade.";
+"Un agente" = "An agent";
+"%@ propone un trade" = "%@ proposes a trade";
+"Trade automático ejecutado" = "Automatic trade executed";
+"Falló un trade" = "A trade failed";
+"Vas a darle carta blanca sobre toda la carpeta %@. Mejor una subcarpeta del proyecto." = "You’re giving it free rein over the whole %@ folder. A project subfolder is safer.";
+"~/Downloads ya está incluida." = "~/Downloads is already included.";
+"%@ es un borrador: actívalo en su página para hablar con él." = "%@ is a draft. Activate it on its page to chat with it.";
+"La API key está vacía." = "The API key is empty.";
+"No se pudo abrir el navegador." = "Couldn’t open the browser.";
+
+/* Theme: post status */
+"Borrador" = "Draft";
+"Aprobado" = "Approved";
+"Preparando" = "Preparing";
+"Programado" = "Scheduled";
+"Publicado" = "Published";
+"Archivado" = "Archived";
+
+/* Tasks: buckets (TaskBucket raw values) */
+"Atrasadas" = "Overdue";
+"Hoy" = "Today";
+"Próximas" = "Upcoming";
+"Sin fecha" = "No date";
+"Hechas" = "Done";
+
+/* Publishing */
+"No existe post con id %@." = "There’s no post with id %@.";
+"Solo se pueden preparar posts aprobados." = "Only approved posts can be prepared.";
+"Instagram necesita al menos una imagen." = "Instagram needs at least one image.";
+"La imagen %@ ya no existe." = "Image %@ no longer exists.";
+" Las imágenes están seleccionadas en el Finder." = " The images are selected in Finder.";
+"Abrí LinkedIn en tu navegador con el texto escrito (también está en el portapapeles).%@ Revisa y publica." = "I opened LinkedIn in your browser with the text filled in (it’s also on the clipboard).%@ Review it and publish.";
+"Abrí Instagram en tu navegador. El texto está en el portapapeles.%@ Pulsa Crear, sube las imágenes, pega el texto y publica." = "I opened Instagram in your browser. The text is on the clipboard.%@ Click Create, upload the images, paste the text and publish.";
+
+/* Schedules */
+"Hora inválida: %@. Usa HH:MM." = "Invalid time: %@. Use HH:MM.";
+"Hora inválida: %@." = "Invalid time: %@.";
+"El intervalo mínimo es de %@ minutos." = "The minimum interval is %@ minutes.";
+"El intervalo máximo es de una semana." = "The maximum interval is one week.";
+"El horario debe empezar antes de terminar (mismo día)." = "The time window must start before it ends (same day).";
+"Elige al menos un día de la semana." = "Choose at least one day of the week.";
+"dom" = "Sun";
+"lun" = "Mon";
+"mar" = "Tue";
+"mié" = "Wed";
+"jue" = "Thu";
+"vie" = "Fri";
+"sáb" = "Sat";
+"cada %@ h" = "every %@ h";
+"cada %@ min" = "every %@ min";
+"%@ de %@ a %@" = "%1$@ from %2$@ to %3$@";
+"diaria a las %@" = "daily at %@";
+"%@ a las %@" = "%1$@ at %2$@";
+
+/* Lab */
+"El tema necesita una pregunta." = "The topic needs a question.";
+"La pregunta es demasiado larga: máximo %@ caracteres." = "The question is too long: %@ characters max.";
+"El porqué es demasiado largo: máximo %@ caracteres." = "The reason is too long: %@ characters max.";
+"Ya tienes %@ temas abiertos: pausa o abandona uno antes de abrir otro." = "You already have %@ open topics. Pause or drop one before opening another.";
+"No existe tema con id %@." = "There’s no topic with id %@.";
+"La carpeta no tiene archivos." = "The folder has no files.";
+"El dataset supera el límite de %@ MB." = "The dataset exceeds the %@ MB limit.";
+"Los datasets superarían el máximo total de %@ MB." = "Datasets would exceed the %@ MB total limit.";
+"No existe el dataset %@." = "There’s no dataset named %@.";
+"Ya existe el dataset %@: los datasets no se reescriben, usa otro nombre." = "Dataset %@ already exists. Datasets can’t be overwritten, so use another name.";
+"El nombre del dataset debe ser kebab-case (minúsculas, números y guiones; máx. 64)." = "The dataset name must be kebab-case (lowercase letters, numbers and hyphens; 64 max).";
+
+/* Guide sources */
+"No se pudo abrir el PDF." = "Couldn’t open the PDF.";
+"Este PDF no tiene texto seleccionable." = "This PDF has no selectable text.";
+
+/* Agent */
+"No encontré el agente de Frontbot. Reinstala la app o define FRONTBOT_NODE y FRONTBOT_AGENT_SCRIPT." = "Couldn’t find the Frontbot agent. Reinstall the app or set FRONTBOT_NODE and FRONTBOT_AGENT_SCRIPT.";
+"Sonnet 5.5 · día a día" = "Sonnet 5.5 · everyday";
+"Opus 5.5 · investigación a fondo" = "Opus 5.5 · deep research";
+"Haiku 4.5 · rápido y barato" = "Haiku 4.5 · fast and cheap";
+"El agente se reinició demasiadas veces. Revisa los logs y vuelve a intentar en un minuto." = "The agent restarted too many times. Check the logs and try again in a minute.";
+"No se pudo iniciar el agente: %@" = "Couldn’t start the agent: %@";
+"El agente no respondió a tiempo." = "The agent didn’t respond in time.";
+"La carpeta %@ ya no existe: elige otra o quítala." = "The folder %@ no longer exists. Choose another one or remove it.";
+
+/* Post rules */
+"El texto del post está vacío." = "The post text is empty.";
+"El texto de %@ tiene %@ caracteres; el máximo es %@." = "The %1$@ text has %2$@ characters; the maximum is %3$@.";
+"Instagram admite máximo %@ hashtags; el texto tiene %@." = "Instagram allows up to %1$@ hashtags; the text has %2$@.";
+"No se puede pasar un post de %@ a %@." = "A post can’t go from %1$@ to %2$@.";
+
+/* Folders */
+"%@ no es una carpeta." = "%@ isn’t a folder.";
+"No se pueden autorizar carpetas dentro de los datos de Frontbot." = "Folders inside Frontbot’s data can’t be authorized.";
+"Elige una carpeta concreta, no toda tu carpeta personal." = "Choose a specific folder, not your whole home folder.";
+"Esa carpeta contiene datos protegidos (claves, llaveros o datos de Frontbot)." = "That folder contains protected data (keys, keychains or Frontbot data).";
+"\"%@\" no es un sitio válido: usa algo como github.com o *.github.com." = "\"%@\" isn’t a valid site. Use something like github.com or *.github.com.";
+
+/* Skills */
+"El skill cambió desde que se propuso: recházala para que el agente vuelva a proponer." = "The skill changed since this was proposed. Reject it so the agent can propose again.";
+"No existe el skill." = "The skill doesn’t exist.";
+"No existe la versión %@ de %@." = "Version %1$@ of %2$@ doesn’t exist.";
+"No existe la propuesta." = "The proposal doesn’t exist.";
+"La propuesta ya fue decidida." = "The proposal has already been decided.";
+"La carpeta no tiene un SKILL.md." = "The folder has no SKILL.md.";
+"Ya existe un skill llamado %@." = "A skill named %@ already exists.";
+"No se pudo descomprimir el .zip." = "Couldn’t unzip the .zip.";
+"El .zip debe contener un solo skill (una carpeta con SKILL.md)." = "The .zip must contain a single skill (one folder with SKILL.md).";
+"El name del frontmatter debe seguir siendo %@." = "The frontmatter name must stay %@.";
+"El skill contiene enlaces simbólicos (%@); no se importa." = "The skill contains symbolic links (%@), so it wasn’t imported.";
+"El .zip contiene rutas que salen de su carpeta; no se importa." = "The .zip contains paths outside its folder, so it wasn’t imported.";
+"SKILL.md debe empezar con un frontmatter entre líneas ---." = "SKILL.md must start with frontmatter between --- lines.";
+"El name del skill debe ser kebab-case (minúsculas, números y guiones; máx. 64)." = "The skill name must be kebab-case (lowercase letters, numbers and hyphens; 64 max).";
+"El skill %@ necesita una description." = "The skill %@ needs a description.";
+"La description admite hasta 1024 caracteres." = "The description allows up to 1024 characters.";
+
+/* Assets */
+"La imagen pesa %@ MB; el máximo es 8 MB." = "The image is %@ MB; the maximum is 8 MB.";
+"Formato no admitido: solo JPEG o PNG." = "Unsupported format: JPEG or PNG only.";
+"El archivo no es un PDF." = "The file isn’t a PDF.";
+"No existe marca con id %@." = "There’s no brand with id %@.";
+
+/* Trading */
+"Esa propuesta ya no está pendiente." = "That proposal is no longer pending.";
+"Ese trade no está abierto." = "That trade isn’t open.";
+"Conecta tu API wallet de Hyperliquid (%@) en la página del agente." = "Connect your Hyperliquid API wallet (%@) on the agent’s page.";
+"El agente ya no está en modo automático." = "The agent is no longer in automatic mode.";
+"La propuesta es de %@ y el agente ahora opera en %@; pídele una nueva." = "The proposal is for %1$@ but the agent now trades on %2$@. Ask it for a new one.";
+"No se pudo leer el valor de tu cuenta en Hyperliquid." = "Couldn’t read your Hyperliquid account value.";
+"Ya no cumple el mandato: %@." = "It no longer meets the mandate: %@.";
+"La clave de la API wallet debe tener 64 caracteres hexadecimales (con o sin 0x)." = "The API wallet key must be 64 hex characters (with or without 0x).";
+
+/* Store */
+"No existe la conversación." = "The conversation doesn’t exist.";
+"No existe el agente." = "The agent doesn’t exist.";
+"Error de Keychain %@." = "Keychain error %@.";
+"La marca necesita un nombre." = "The brand needs a name.";
+"%@ tiene un post preparándose en el navegador: termina o cancela antes de borrarla." = "%@ has a post being prepared in the browser. Finish or cancel it before deleting the brand.";
+"La marca %@ no tiene %@ configurado." = "The brand %1$@ doesn’t have %2$@ set up.";
+"Solo se pueden editar posts en borrador; este está en %@." = "Only draft posts can be edited; this one is %@.";
+"Un post admite máximo 10 imágenes." = "A post allows up to 10 images.";
+"La imagen %@ no pertenece a esta marca." = "Image %@ doesn’t belong to this brand.";
+"Este post ya no se puede editar (%@)." = "This post can no longer be edited (%@).";
+"La URL debe empezar con https://." = "The URL must start with https://.";
+"La tarea necesita un título." = "The task needs a title.";
+"El puntaje debe estar entre 1 y 5; recibido %@." = "The score must be between 1 and 5; got %@.";
+"La idea necesita un título." = "The idea needs a title.";
+"Frontbot no se puede borrar." = "Frontbot can’t be deleted.";
+"%@ tiene trades abiertos: ciérralos antes de borrarlo." = "%@ has open trades. Close them before deleting it.";
+"El agente necesita un nombre." = "The agent needs a name.";
+"El nombre del agente admite hasta 40 caracteres." = "The agent name allows up to 40 characters.";
+"El agente necesita instrucciones." = "The agent needs instructions.";
+"Las instrucciones admiten hasta 20.000 caracteres." = "Instructions allow up to 20,000 characters.";
+"La nota está vacía." = "The note is empty.";
+"Una nota admite hasta 500 caracteres; tiene %@. Resúmela." = "A note allows up to 500 characters; this one has %@. Shorten it.";
+"No existe la nota %@ en tu memoria." = "There’s no note %@ in your memory.";
+"El riesgo por trade debe estar entre 0 y 10 %." = "Risk per trade must be between 0 and 10%.";
+"El apalancamiento máximo debe estar entre 1x y 50x." = "Max leverage must be between 1x and 50x.";
+"Los trades por día deben estar entre 0 y 50." = "Trades per day must be between 0 and 50.";
+"La dirección debe ser una dirección EVM (0x + 40 caracteres hex)." = "The address must be an EVM address (0x + 40 hex characters).";
+"La tarea necesita un nombre." = "The task needs a name.";
+"El nombre de la tarea admite hasta 80 caracteres." = "The task name allows up to 80 characters.";
+"La tarea necesita una instrucción." = "The task needs an instruction.";
+"La instrucción admite hasta 4.000 caracteres." = "The instruction allows up to 4,000 characters.";
+"El límite diario debe estar entre 1 y 96 ejecuciones." = "The daily limit must be between 1 and 96 runs.";

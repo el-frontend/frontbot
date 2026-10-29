@@ -13,7 +13,7 @@ struct SettingsView: View {
             section("Cuenta de Claude") {
                 HStack(spacing: 8) {
                     StatusDot(color: Theme.approved, size: 7)
-                    Text(model.apiKeyPresent ? "Usando tu API key de Anthropic" : "Usando tu sesión de Claude Code")
+                    (model.apiKeyPresent ? Text("Usando tu API key de Anthropic") : Text("Usando tu sesión de Claude Code"))
                         .font(.system(size: 13, weight: .medium))
                 }
                 note(model.apiKeyPresent
@@ -75,9 +75,9 @@ struct SettingsView: View {
             section("Atajo") {
                 HStack(spacing: 8) {
                     StatusDot(color: model.hotKeyRegistered ? Theme.approved : Theme.draft, size: 7)
-                    Text(model.hotKeyRegistered
-                         ? "⌥⌘ Espacio abre Frontbot en el notch."
-                         : "⌥⌘ Espacio está ocupado por otra app. Abre el panel haciendo clic en el notch.")
+                    (model.hotKeyRegistered
+                         ? Text("⌥⌘ Espacio abre Frontbot en el notch.")
+                         : Text("⌥⌘ Espacio está ocupado por otra app. Abre el panel haciendo clic en el notch."))
                         .font(.system(size: 13))
                 }
             }
@@ -91,7 +91,7 @@ struct SettingsView: View {
         .tint(Theme.accent)
     }
 
-    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+    private func section(_ title: LocalizedStringKey, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(title)
             content()
@@ -101,7 +101,7 @@ struct SettingsView: View {
         .panel(radius: 10)
     }
 
-    private func note(_ text: String) -> some View {
+    private func note(_ text: LocalizedStringKey) -> some View {
         Text(text).font(.system(size: 12)).foregroundStyle(Theme.muted)
             .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
     }

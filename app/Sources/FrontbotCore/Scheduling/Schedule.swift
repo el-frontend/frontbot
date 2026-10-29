@@ -11,7 +11,7 @@ public struct TimeOfDay: Codable, Equatable, Hashable, Sendable {
     /// "09:30" → 9:30.
     public static func parse(_ text: String) throws -> TimeOfDay {
         let parts = text.split(separator: ":").compactMap { Int($0) }
-        guard parts.count == 2 else { throw ValidationError("Hora inválida: \(text). Usa HH:MM.") }
+        guard parts.count == 2 else { throw ValidationError(String(localized: "Hora inválida: \(text). Usa HH:MM.")) }
         return TimeOfDay(parts[0], parts[1])
     }
 }
@@ -30,27 +30,33 @@ public enum Schedule: Codable, Equatable, Hashable, Sendable {
     case weekly(days: [Int], TimeOfDay)
 
     public static let minimumMinutes = 15
-    public static let dayNames = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"]
+    /// Abreviaturas en español (las que entiende el agente).
+    static let spanishDayNames = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"]
+    /// Abreviaturas para la interfaz, en el idioma de la app.
+    public static var dayNames: [String] {
+        [String(localized: "dom"), String(localized: "lun"), String(localized: "mar"), String(localized: "mié"),
+         String(localized: "jue"), String(localized: "vie"), String(localized: "sáb")]
+    }
     static let dayKeys = ["sun": 1, "mon": 2, "tue": 3, "wed": 4, "thu": 5, "fri": 6, "sat": 7,
                           "dom": 1, "lun": 2, "mar": 3, "mie": 4, "mié": 4, "jue": 5, "vie": 6, "sab": 7, "sáb": 7]
 
     public func validated() throws -> Schedule {
         func checkTime(_ t: TimeOfDay) throws {
-            guard (0...23).contains(t.hour), (0...59).contains(t.minute) else { throw ValidationError("Hora inválida: \(t.label).") }
+            guard (0...23).contains(t.hour), (0...59).contains(t.minute) else { throw ValidationError(String(localized: "Hora inválida: \(t.label).")) }
         }
         switch self {
         case .interval(let minutes, let window):
-            guard minutes >= Self.minimumMinutes else { throw ValidationError("El intervalo mínimo es de \(Self.minimumMinutes) minutos.") }
-            guard minutes <= 7 * 24 * 60 else { throw ValidationError("El intervalo máximo es de una semana.") }
+            guard minutes >= Self.minimumMinutes else { throw ValidationError(String(localized: "El intervalo mínimo es de \(String(Self.minimumMinutes)) minutos.")) }
+            guard minutes <= 7 * 24 * 60 else { throw ValidationError(String(localized: "El intervalo máximo es de una semana.")) }
             if let window {
                 try checkTime(window.start); try checkTime(window.end)
-                guard window.start.minutes < window.end.minutes else { throw ValidationError("El horario debe empezar antes de terminar (mismo día).") }
+                guard window.start.minutes < window.end.minutes else { throw ValidationError(String(localized: "El horario debe empezar antes de terminar (mismo día).")) }
             }
         case .daily(let time):
             try checkTime(time)
         case .weekly(let days, let time):
             try checkTime(time)
-            guard !days.isEmpty, days.allSatisfy({ (1...7).contains($0) }) else { throw ValidationError("Elige al menos un día de la semana.") }
+            guard !days.isEmpty, days.allSatisfy({ (1...7).contains($0) }) else { throw ValidationError(String(localized: "Elige al menos un día de la semana.")) }
         }
         return self
     }
@@ -91,7 +97,22 @@ public enum Schedule: Codable, Equatable, Hashable, Sendable {
         return minutes >= window.start.minutes && minutes <= window.end.minutes
     }
 
+    /// Descripción para la interfaz, en el idioma de la app.
     public var summary: String {
+        switch self {
+        case .interval(let minutes, let window):
+            let base = minutes % 60 == 0 ? String(localized: "cada \(String(minutes / 60)) h") : String(localized: "cada \(String(minutes)) min")
+            return window.map { String(localized: "\(base) de \($0.start.label) a \($0.end.label)") } ?? base
+        case .daily(let time):
+            return String(localized: "diaria a las \(time.label)")
+        case .weekly(let days, let time):
+            let names = days.sorted().map { Self.dayNames[$0 - 1] }.joined(separator: ", ")
+            return String(localized: "\(names) a las \(time.label)")
+        }
+    }
+
+    /// Descripción en español para el agente (no se traduce).
+    public var agentSummary: String {
         switch self {
         case .interval(let minutes, let window):
             let base = minutes % 60 == 0 ? "cada \(minutes / 60) h" : "cada \(minutes) min"
@@ -99,7 +120,7 @@ public enum Schedule: Codable, Equatable, Hashable, Sendable {
         case .daily(let time):
             return "diaria a las \(time.label)"
         case .weekly(let days, let time):
-            return days.sorted().map { Self.dayNames[$0 - 1] }.joined(separator: ", ") + " a las \(time.label)"
+            return days.sorted().map { Self.spanishDayNames[$0 - 1] }.joined(separator: ", ") + " a las \(time.label)"
         }
     }
 

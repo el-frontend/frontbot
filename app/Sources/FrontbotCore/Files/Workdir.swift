@@ -25,16 +25,16 @@ public enum Workdir {
     /// Devuelve la ruta real de la carpeta o lanza si no sirve como carpeta de trabajo.
     public static func validated(_ path: String, home: String = NSHomeDirectory(), protected: [URL]) throws -> String {
         guard let resolved = AgentFiles.realPath(path), AgentFiles.isDirectory(resolved) else {
-            throw ValidationError("\(path) no es una carpeta.")
+            throw ValidationError(String(localized: "\(path) no es una carpeta."))
         }
         let realHome = real(home)
         if resolved == "/" || resolved.lowercased() == realHome.lowercased() {
-            throw ValidationError("Elige una carpeta concreta, no toda tu carpeta personal.")
+            throw ValidationError(String(localized: "Elige una carpeta concreta, no toda tu carpeta personal."))
         }
         // Un ancestro de una ruta denegada (p. ej. ~/Library) la dejaría al alcance; una ruta dentro de ella, también.
         let denied = alwaysDenied(home: realHome) + protected.map { real($0.path) }
         if denied.contains(where: { inside($0, resolved) || inside(resolved, $0) }) {
-            throw ValidationError("Esa carpeta contiene datos protegidos (claves, llaveros o datos de Frontbot).")
+            throw ValidationError(String(localized: "Esa carpeta contiene datos protegidos (claves, llaveros o datos de Frontbot)."))
         }
         return resolved
     }
@@ -49,7 +49,7 @@ public enum Workdir {
     public static func validatedDomain(_ raw: String) throws -> String {
         let d = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard d.range(of: #"^(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$"#, options: .regularExpression) != nil else {
-            throw ValidationError("\"\(raw)\" no es un sitio válido: usa algo como github.com o *.github.com.")
+            throw ValidationError(String(localized: "\"\(raw)\" no es un sitio válido: usa algo como github.com o *.github.com."))
         }
         return d
     }

@@ -23,8 +23,8 @@ struct MicButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(dictation.state == .listening ? "Dejar de dictar (Esc)" : "Dictar")
-        .accessibilityLabel(dictation.state == .listening ? "Dejar de dictar" : "Dictar")
+        .help(dictation.state == .listening ? Text("Dejar de dictar (Esc)") : Text("Dictar"))
+        .accessibilityLabel(dictation.state == .listening ? Text("Dejar de dictar") : Text("Dictar"))
     }
 }
 

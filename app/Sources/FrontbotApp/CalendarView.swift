@@ -110,7 +110,7 @@ struct CalendarView: View {
                 ForEach([PostStatus.draft, .approved, .scheduled, .published], id: \.self) { status in
                     HStack(spacing: 6) {
                         StatusDot(color: Theme.statusColor(status))
-                        Text(status == .scheduled ? "Preparando / programado" : Theme.statusLabel(status))
+                        Text(status == .scheduled ? String(localized: "Preparando / programado") : Theme.statusLabel(status))
                     }
                     .font(Theme.mono()).foregroundStyle(Theme.muted)
                 }
@@ -130,7 +130,7 @@ struct CalendarView: View {
 
     private var title: String {
         model.calendarScope == .week
-            ? "Semana del " + content.range(.week, containing: model.calendarDate).start.formatted(.dateTime.day().month(.wide))
+            ? String(localized: "Semana del \(content.range(.week, containing: model.calendarDate).start.formatted(.dateTime.day().month(.wide)))")
             : model.calendarDate.formatted(.dateTime.month(.wide).year())
     }
 }

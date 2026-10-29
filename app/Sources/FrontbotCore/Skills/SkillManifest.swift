@@ -16,16 +16,16 @@ public struct SkillManifest: Equatable, Sendable {
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
         guard lines.first?.trimmingCharacters(in: .whitespaces) == "---",
               let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) else {
-            throw ValidationError("SKILL.md debe empezar con un frontmatter entre líneas ---.")
+            throw ValidationError(String(localized: "SKILL.md debe empezar con un frontmatter entre líneas ---."))
         }
         let fields = parseFields(Array(lines[1..<end]))
         guard let name = fields["name"], isValidName(name) else {
-            throw ValidationError("El name del skill debe ser kebab-case (minúsculas, números y guiones; máx. 64).")
+            throw ValidationError(String(localized: "El name del skill debe ser kebab-case (minúsculas, números y guiones; máx. 64)."))
         }
         guard let description = fields["description"], !description.isEmpty else {
-            throw ValidationError("El skill \(name) necesita una description.")
+            throw ValidationError(String(localized: "El skill \(name) necesita una description."))
         }
-        guard description.count <= 1024 else { throw ValidationError("La description admite hasta 1024 caracteres.") }
+        guard description.count <= 1024 else { throw ValidationError(String(localized: "La description admite hasta 1024 caracteres.")) }
         return SkillManifest(name: name, description: description, body: lines[(end + 1)...].joined(separator: "\n"))
     }
 

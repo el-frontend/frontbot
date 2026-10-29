@@ -29,6 +29,11 @@ for b in "$(dirname "$BIN")"/*.bundle; do [ -e "$b" ] && cp -R "$b" "$APP/Conten
 # Mascota (modelo 3D y logo) e icono de la app.
 cp -R "$ROOT/app/Sources/FrontbotApp/Resources/Mascot" "$APP/Contents/Resources/"
 cp "$ROOT/app/Sources/FrontbotApp/Resources/AppIcon.icns" "$APP/Contents/Resources/"
+# Traducciones: el español es el idioma de desarrollo (las claves); el inglés se une desde app/Localization/en/*.strings.
+mkdir -p "$APP/Contents/Resources/es.lproj" "$APP/Contents/Resources/en.lproj"
+: > "$APP/Contents/Resources/es.lproj/Localizable.strings"
+cat "$ROOT"/app/Localization/en/*.strings > "$APP/Contents/Resources/en.lproj/Localizable.strings"
+plutil -lint "$APP/Contents/Resources/en.lproj/Localizable.strings" >/dev/null
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -38,6 +43,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>Frontbot</string>
   <key>CFBundleDisplayName</key><string>Frontbot</string>
   <key>CFBundleIdentifier</key><string>app.frontbot.Frontbot</string>
+  <key>CFBundleDevelopmentRegion</key><string>es</string>
+  <key>CFBundleLocalizations</key><array><string>es</string><string>en</string></array>
   <key>CFBundleExecutable</key><string>Frontbot</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>

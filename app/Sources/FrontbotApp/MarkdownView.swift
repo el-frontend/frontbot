@@ -138,10 +138,10 @@ struct CodeBlockView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Text(language?.lowercased() ?? "código").font(Theme.mono(11)).foregroundStyle(Theme.muted)
+                Text(language?.lowercased() ?? String(localized: "código")).font(Theme.mono(11)).foregroundStyle(Theme.muted)
                 Spacer()
                 Button(action: copy) {
-                    Label(copied ? "Copiado" : "Copiar", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(copied ? String(localized: "Copiado") : String(localized: "Copiar"), systemImage: copied ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 11))
                         .foregroundStyle(copied ? Theme.approved : hovering ? Theme.text : Theme.muted)
                         .contentTransition(.symbolEffect(.replace))
@@ -149,7 +149,7 @@ struct CodeBlockView: View {
                 .buttonStyle(.plain)
                 .onHover { hovering = $0 }
                 .help("Copiar el código")
-                .accessibilityLabel(copied ? "Código copiado" : "Copiar código")
+                .accessibilityLabel(copied ? Text("Código copiado") : Text("Copiar código"))
             }
             .padding(.horizontal, 12).frame(height: 30)
             .background(Theme.raised)

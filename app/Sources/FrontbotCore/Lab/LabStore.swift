@@ -10,9 +10,9 @@ extension AppDatabase {
     public func openTopic(agentId: String, question: String, why: String, origin: LabOrigin, now: Date) throws -> LabTopic {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         let w = why.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { throw ValidationError("El tema necesita una pregunta.") }
-        guard q.count <= maxQuestion else { throw ValidationError("La pregunta es demasiado larga: máximo \(maxQuestion) caracteres.") }
-        guard w.count <= maxWhy else { throw ValidationError("El porqué es demasiado largo: máximo \(maxWhy) caracteres.") }
+        guard !q.isEmpty else { throw ValidationError(String(localized: "El tema necesita una pregunta.")) }
+        guard q.count <= maxQuestion else { throw ValidationError(String(localized: "La pregunta es demasiado larga: máximo \(String(maxQuestion)) caracteres.")) }
+        guard w.count <= maxWhy else { throw ValidationError(String(localized: "El porqué es demasiado largo: máximo \(String(maxWhy)) caracteres.")) }
         return try writer.write { db in
             try Self.requireRoom(agentId: agentId, db: db)
             let topic = LabTopic(id: UUID().uuidString, agentId: agentId, question: q, why: w, origin: origin, status: .studying,
@@ -29,7 +29,7 @@ extension AppDatabase {
         let open = try LabTopic.filter(Column("agentId") == agentId
             && [LabTopicStatus.studying.rawValue, LabTopicStatus.paused.rawValue].contains(Column("status"))).fetchCount(db)
         if open >= limit {
-            throw ValidationError("Ya tienes \(limit) temas abiertos: pausa o abandona uno antes de abrir otro.")
+            throw ValidationError(String(localized: "Ya tienes \(String(limit)) temas abiertos: pausa o abandona uno antes de abrir otro."))
         }
     }
 
@@ -50,7 +50,7 @@ extension AppDatabase {
     @discardableResult
     public func setTopicStatus(id: String, _ status: LabTopicStatus, reason: String?, now: Date) throws -> LabTopic {
         try writer.write { db in
-            guard var topic = try LabTopic.fetchOne(db, key: id) else { throw ValidationError("No existe tema con id \(id).") }
+            guard var topic = try LabTopic.fetchOne(db, key: id) else { throw ValidationError(String(localized: "No existe tema con id \(id).")) }
             // Un tema pausado ya cuenta como abierto; solo pasar de cerrado a abierto puede superar el límite.
             if !topic.status.isOpen && status.isOpen { try Self.requireRoom(agentId: topic.agentId, db: db) }
             if status == .studying {
@@ -70,7 +70,7 @@ extension AppDatabase {
     @discardableResult
     public func studyNow(topicId: String, now: Date) throws -> LabTopic {
         try writer.write { db in
-            guard var topic = try LabTopic.fetchOne(db, key: topicId) else { throw ValidationError("No existe tema con id \(topicId).") }
+            guard var topic = try LabTopic.fetchOne(db, key: topicId) else { throw ValidationError(String(localized: "No existe tema con id \(topicId).")) }
             topic.nextSessionAfter = now
             topic.updatedAt = now
             try topic.update(db)

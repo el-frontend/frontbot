@@ -82,7 +82,7 @@ struct TaskRow: View {
                 }
                 Menu {
                     Button("Editar…") { editing = true }
-                    Button(expanded ? "Ocultar historial" : "Ver historial") { expanded.toggle() }
+                    Button(expanded ? String(localized: "Ocultar historial") : String(localized: "Ver historial")) { expanded.toggle() }
                     Divider()
                     Button("Borrar", role: .destructive) { confirmingDelete = true }
                 } label: { Image(systemName: "ellipsis") }
@@ -100,7 +100,7 @@ struct TaskRow: View {
             if !expanded, let last = model.taskRuns(task).first, last.status != .running {
                 HStack(alignment: .top, spacing: 8) {
                     Text(last.status == .failed ? "✗" : last.notified ? "🔔" : "✓").foregroundStyle(last.status == .failed ? Theme.danger : Theme.approved)
-                    Text("Último resultado · \(last.startedAt.formatted(.relative(presentation: .named))): \(last.summary ?? "sin resumen")")
+                    Text("Último resultado · \(last.startedAt.formatted(.relative(presentation: .named))): \(last.summary ?? String(localized: "sin resumen"))")
                         .font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(2)
                     Spacer()
                     if let conversationId = last.conversationId {
@@ -122,13 +122,13 @@ struct TaskRow: View {
 
     private var subtitle: String {
         var parts = [task.schedule.summary, AgentModel.shortName(task.model)]
-        if let next = task.nextRunAt, task.status == .active { parts.append("próxima " + next.formatted(date: .abbreviated, time: .shortened)) }
-        if let last = task.lastRunAt { parts.append("última " + last.formatted(.relative(presentation: .named))) }
+        if let next = task.nextRunAt, task.status == .active { parts.append(String(localized: "próxima \(next.formatted(date: .abbreviated, time: .shortened))")) }
+        if let last = task.lastRunAt { parts.append(String(localized: "última \(last.formatted(.relative(presentation: .named)))")) }
         return parts.joined(separator: " · ")
     }
 
     private var statusPill: some View {
-        let (label, color): (String, Color) = switch task.status {
+        let (label, color): (LocalizedStringKey, Color) = switch task.status {
         case .draft: ("Borrador", Theme.draft)
         case .active: ("Activa", Theme.approved)
         case .paused: ("Pausada", Theme.muted)
@@ -148,7 +148,7 @@ struct TaskRow: View {
                         .frame(width: 120, alignment: .leading)
                     Text(run.status == .running ? "…" : run.status == .failed ? "✗" : run.notified ? "🔔" : "✓")
                         .foregroundStyle(run.status == .failed ? Theme.danger : Theme.muted)
-                    Text(run.summary ?? (run.status == .running ? "En curso" : "")).font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                    Text(run.summary ?? (run.status == .running ? String(localized: "En curso") : "")).font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
                         .lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
                     if run.costUsd > 0 { Text(String(format: "$%.3f", run.costUsd)).font(Theme.mono(10)).foregroundStyle(Theme.muted) }
                     if let conversationId = run.conversationId {
@@ -186,7 +186,7 @@ struct TaskEditorSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(task == nil ? "Nueva tarea para \(agent.name)" : "Editar tarea").font(.system(size: 16, weight: .semibold))
+            (task == nil ? Text("Nueva tarea para \(agent.name)") : Text("Editar tarea")).font(.system(size: 16, weight: .semibold))
             labeled("Nombre") { TextField("Revisión de mercado", text: $name).textFieldStyle(.plain).padding(.horizontal, 10).frame(height: 32).panel(radius: 8) }
             labeled("Instrucción (autocontenida: nadie podrá aclararla)") {
                 TextEditor(text: $instruction).font(.system(size: 13)).scrollContentBackground(.hidden)
@@ -238,7 +238,7 @@ struct TaskEditorSheet: View {
             HStack {
                 Spacer()
                 Button("Cancelar") { dismiss() }.buttonStyle(OutlineButtonStyle())
-                Button(task == nil ? "Crear y activar" : "Guardar") {
+                Button(task == nil ? String(localized: "Crear y activar") : String(localized: "Guardar")) {
                     model.errorMessage = nil
                     let draft = TaskDraft(name: name, instruction: instruction, schedule: schedule, model: modelId, maxRunsPerDay: maxRuns)
                     let ok = task.map { model.updateTask($0, draft: draft) } ?? model.createTask(agentId: agent.id, draft: draft)
@@ -290,7 +290,7 @@ struct TaskEditorSheet: View {
         }
     }
 
-    private func labeled(_ label: String, @ViewBuilder content: () -> some View) -> some View {
+    private func labeled(_ label: LocalizedStringKey, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 6) { SectionLabel(label); content() }
     }
 }

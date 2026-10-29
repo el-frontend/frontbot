@@ -334,7 +334,7 @@ public final class AppDatabase: Sendable {
 
     public func setWorkdir(conversationId: String, path: String?) throws {
         try writer.write { db in
-            guard var c = try Conversation.fetchOne(db, key: conversationId) else { throw ValidationError("No existe la conversación.") }
+            guard var c = try Conversation.fetchOne(db, key: conversationId) else { throw ValidationError(String(localized: "No existe la conversación.")) }
             c.workdir = path
             try c.update(db)
         }
@@ -342,7 +342,7 @@ public final class AppDatabase: Sendable {
 
     public func setReadDirs(conversationId: String, _ dirs: [String]) throws {
         try writer.write { db in
-            guard var c = try Conversation.fetchOne(db, key: conversationId) else { throw ValidationError("No existe la conversación.") }
+            guard var c = try Conversation.fetchOne(db, key: conversationId) else { throw ValidationError(String(localized: "No existe la conversación.")) }
             c.readDirs = dirs
             try c.update(db)
         }
@@ -351,7 +351,7 @@ public final class AppDatabase: Sendable {
     /// nil = volver a la lista base.
     public func setNetworkDomains(agentId: String, _ domains: [String]?) throws {
         try writer.write { db in
-            guard var a = try Agent.fetchOne(db, key: agentId) else { throw ValidationError("No existe el agente.") }
+            guard var a = try Agent.fetchOne(db, key: agentId) else { throw ValidationError(String(localized: "No existe el agente.")) }
             a.networkDomains = domains
             try a.update(db)
         }

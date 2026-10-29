@@ -263,10 +263,10 @@ struct AgentFields: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                field("Nombre") { TextField("Analista de mercado", text: $draft.name) }
-                field("Icono (SF Symbol)") { TextField("person.crop.circle", text: $draft.icon) }.frame(width: 200)
+                field(String(localized: "Nombre")) { TextField("Analista de mercado", text: $draft.name) }
+                field(String(localized: "Icono (SF Symbol)")) { TextField("person.crop.circle", text: $draft.icon) }.frame(width: 200)
             }
-            field("Descripción") { TextField("Para qué sirve este agente", text: $draft.description) }
+            field(String(localized: "Descripción")) { TextField("Para qué sirve este agente", text: $draft.description) }
             VStack(alignment: .leading, spacing: 6) {
                 SectionLabel("Instrucciones")
                 TextEditor(text: $draft.instructions)
@@ -278,7 +278,8 @@ struct AgentFields: View {
 
     private func field(_ label: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(label)
+            // Interpolado para compilar tanto si SectionLabel recibe String como LocalizedStringKey.
+            SectionLabel("\(label)")
             content().textFieldStyle(.plain).padding(.horizontal, 10).frame(height: 32).panel(radius: 8)
         }
     }
@@ -295,7 +296,7 @@ struct NewAgentSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Nuevo agente").font(.system(size: 16, weight: .semibold))
             HStack(spacing: 8) {
-                templateButton(nil, title: "En blanco", icon: "plus", summary: "Defines tú su rol y sus reglas.")
+                templateButton(nil, title: String(localized: "En blanco"), icon: "plus", summary: String(localized: "Defines tú su rol y sus reglas."))
                 ForEach(AgentTemplate.all) { t in
                     templateButton(t.id, title: t.draft.name, icon: t.draft.icon, summary: t.summary)
                 }

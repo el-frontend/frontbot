@@ -13,7 +13,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 if let agent = model.selectedAgent { AgentAvatar(agent: agent, size: 20) }
-                Text(model.conversations.first { $0.id == model.currentConversationId }?.title ?? "Nueva conversación")
+                Text(model.conversations.first { $0.id == model.currentConversationId }?.title ?? String(localized: "Nueva conversación"))
                     .font(.system(size: 13, weight: .medium)).lineLimit(1)
                 if let brand = model.selectedBrand {
                     Text(brand.name).font(Theme.mono()).foregroundStyle(Theme.muted)
@@ -74,7 +74,7 @@ struct ChatView: View {
             if let agent = model.selectedAgent, !agent.isDefault {
                 AgentAvatar(agent: agent, size: 36)
                 Text("Hablas con \(agent.name)").font(.system(size: 22, weight: .semibold))
-                Text(agent.description.isEmpty ? "Un agente especializado de Frontbot." : agent.description)
+                Text(agent.description.isEmpty ? String(localized: "Un agente especializado de Frontbot.") : agent.description)
                     .foregroundStyle(Theme.muted).lineSpacing(3)
             } else {
                 TimelineView(.periodic(from: .now, by: 0.25)) { context in
@@ -134,8 +134,8 @@ struct ChatView: View {
             // Return envía; ⌘/⇧/⌥ + Return saltan de línea.
             HStack(alignment: .top, spacing: 8) {
                 ComposerTextView(text: $draft,
-                                 placeholder: dictation.state == .listening ? "Te escucho…"
-                                     : model.selectedBrand.map { "Pídele algo para \($0.name)…" } ?? "Pídele algo a \(model.selectedAgent?.name ?? "Frontbot")…",
+                                 placeholder: dictation.state == .listening ? String(localized: "Te escucho…")
+                                     : model.selectedBrand.map { String(localized: "Pídele algo para \($0.name)…") } ?? String(localized: "Pídele algo a \(model.selectedAgent?.name ?? "Frontbot")…"),
                                  focusToken: AnyHashable(model.currentConversationId),
                                  onSubmit: submit,
                                  onEscape: { guard dictation.isActive else { return false }; dictation.stop(); return true })
@@ -153,7 +153,7 @@ struct ChatView: View {
                     // Etiqueta propia: el estilo borderlessButton de macOS reduce un HStack a su primer elemento.
                     HStack(spacing: 6) {
                         if let brand = model.selectedBrand { BrandAvatar(brand: brand, size: 14) }
-                        Text(model.selectedBrand?.name ?? "Sin marca").lineLimit(1).truncationMode(.tail)
+                        Text(model.selectedBrand?.name ?? String(localized: "Sin marca")).lineLimit(1).truncationMode(.tail)
                         Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.muted)
                     }
                     .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
@@ -211,7 +211,7 @@ struct ChatView: View {
                         .frame(width: 32, height: 32)
                         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent))
                         .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isRunning ? 0.4 : 1)
-                        .help(model.isRunning ? "El agente está respondiendo en otro chat: espera a que termine." : "Enviar")
+                        .help(model.isRunning ? Text("El agente está respondiendo en otro chat: espera a que termine.") : Text("Enviar"))
                         .accessibilityLabel("Enviar")
                 }
             }
@@ -233,7 +233,7 @@ struct ChatView: View {
         } label: {
             HStack(spacing: 6) {
                 if let agent = model.selectedAgent { AgentAvatar(agent: agent, size: 14) }
-                Text(model.selectedAgent?.name ?? "Agente").lineLimit(1)
+                Text(model.selectedAgent?.name ?? String(localized: "Agente")).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.muted)
             }
             .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
@@ -300,7 +300,7 @@ private struct MessageCopyButton: View {
                 withAnimation(.easeOut(duration: 0.2)) { copied = false }
             }
         } label: {
-            Label(copied ? "Copiado" : "Copiar", systemImage: copied ? "checkmark" : "doc.on.doc")
+            Label(copied ? String(localized: "Copiado") : String(localized: "Copiar"), systemImage: copied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 11))
                 .foregroundStyle(copied ? Theme.approved : hovering ? Theme.text : Theme.muted)
                 .contentTransition(.symbolEffect(.replace))
@@ -308,7 +308,7 @@ private struct MessageCopyButton: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help("Copiar el mensaje completo")
-        .accessibilityLabel(copied ? "Mensaje copiado" : "Copiar mensaje")
+        .accessibilityLabel(copied ? Text("Mensaje copiado") : Text("Copiar mensaje"))
     }
 }
 
@@ -322,7 +322,7 @@ private struct MessageQueueView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "list.bullet").font(.system(size: 11))
-                Text(model.isRunningHere ? "En cola · se envían al terminar" : "Cola en pausa")
+                (model.isRunningHere ? Text("En cola · se envían al terminar") : Text("Cola en pausa"))
                     .font(Theme.mono(11))
                 Spacer()
                 if !model.isRunning {

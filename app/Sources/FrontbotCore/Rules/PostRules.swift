@@ -12,17 +12,17 @@ public enum PostRules {
 
     public static func validate(body: String, network: Network) throws(ValidationError) {
         if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw ValidationError("El texto del post está vacío.")
+            throw ValidationError(String(localized: "El texto del post está vacío."))
         }
         let count = body.count
         let max = maxLength(for: network)
         if count > max {
-            throw ValidationError("El texto de \(network.rawValue) tiene \(count) caracteres; el máximo es \(max).")
+            throw ValidationError(String(localized: "El texto de \(network.rawValue) tiene \(String(count)) caracteres; el máximo es \(String(max))."))
         }
         if network == .instagram {
             let hashtags = hashtagCount(in: body)
             if hashtags > instagramMaxHashtags {
-                throw ValidationError("Instagram admite máximo \(instagramMaxHashtags) hashtags; el texto tiene \(hashtags).")
+                throw ValidationError(String(localized: "Instagram admite máximo \(String(instagramMaxHashtags)) hashtags; el texto tiene \(String(hashtags))."))
             }
         }
     }

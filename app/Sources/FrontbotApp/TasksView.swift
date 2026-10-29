@@ -18,7 +18,7 @@ struct TasksView: View {
             }
             List {
                 ForEach(TaskGrouping.group(model.tasks, now: Date()), id: \.0) { bucket, items in
-                    Section(bucket.rawValue) {
+                    Section(LocalizedStringKey(bucket.rawValue)) {
                         ForEach(items) { task in
                             HStack {
                                 Toggle(isOn: Binding(get: { task.done }, set: { model.setTaskDone(task, done: $0) })) {

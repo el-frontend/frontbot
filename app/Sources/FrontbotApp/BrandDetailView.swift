@@ -66,7 +66,7 @@ struct BrandDetailView: View {
                 if !editingGuide {
                     Button("Entrevístame") { model.startInterview() }.buttonStyle(OutlineButtonStyle()).disabled(model.isRunning)
                     Button("Desde un PDF") { importMode = .pdf; importing = true }.buttonStyle(OutlineButtonStyle()).disabled(model.isRunning)
-                    Button(model.guide == nil ? "Escribirla" : "Editar") {
+                    Button(model.guide == nil ? String(localized: "Escribirla") : String(localized: "Editar")) {
                         guideDraft = model.guide ?? ""
                         editingGuide = true
                     }

@@ -7,7 +7,7 @@ public struct AgentLocation: Equatable, Sendable {
 
 /// Dónde están Node y el sidecar: variables de entorno (desarrollo) o dentro del `.app`.
 public enum AgentLocator {
-    public static let notFoundMessage = "No encontré el agente de Frontbot. Reinstala la app o define FRONTBOT_NODE y FRONTBOT_AGENT_SCRIPT."
+    public static let notFoundMessage = String(localized: "No encontré el agente de Frontbot. Reinstala la app o define FRONTBOT_NODE y FRONTBOT_AGENT_SCRIPT.")
 
     public static func locate(environment: [String: String], resources: URL?,
                               exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> AgentLocation? {

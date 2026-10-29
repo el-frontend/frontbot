@@ -1,0 +1,124 @@
+/* brands: BrandsView, BrandDetailView, CalendarView, PostEditorView, IdeasView, TasksView, CopyButton */
+
+/* BrandsView (sidebar) */
+"Nueva conversación" = "New conversation";
+"Chat" = "Chat";
+"Calendario" = "Calendar";
+"Tareas" = "Tasks";
+"Ideas" = "Ideas";
+"Skills" = "Skills";
+"Programadas" = "Scheduled";
+"Agentes" = "Agents";
+"Nuevo agente" = "New agent";
+"borrador" = "draft";
+"Marcas" = "Brands";
+"Nueva marca" = "New brand";
+"Borrar marca…" = "Delete brand…";
+"Crea tu primera marca con +" = "Create your first brand with +";
+"API key de Anthropic" = "Anthropic API key";
+"Claude Code · conectado" = "Claude Code · connected";
+"Ajustes" = "Settings";
+"Recientes" = "Recent";
+"Borrar conversación" = "Delete conversation";
+"Borrar conversación…" = "Delete conversation…";
+"¿Borrar «%@»?" = "Delete “%@”?";
+"Se borran todos sus mensajes. Esto no se puede deshacer." = "All of its messages will be deleted. This can’t be undone.";
+"ahora" = "now";
+"%lldsem" = "%lldw";
+
+/* NewBrandSheet */
+"Nombre" = "Name";
+"Rubro" = "Industry";
+"Cafetería de especialidad" = "Specialty coffee shop";
+"Redes" = "Networks";
+"Cancelar" = "Cancel";
+"Crear marca" = "Create brand";
+
+/* DeleteBrandSheet */
+"¿Borrar %@?" = "Delete %@?";
+"Se borran sus posts, sus imágenes y su guía de marca. Las tareas y conversaciones se quedan, sin marca. Esto no se puede deshacer." = "Its posts, images and brand guide will be deleted. Tasks and conversations stay, without a brand. This can’t be undone.";
+"Escribe **%@** para confirmar" = "Type **%@** to confirm";
+"Borrar marca" = "Delete brand";
+
+/* BrandDetailView */
+"Pedir contenido para esta marca" = "Ask for content for this brand";
+"Guía de marca" = "Brand guide";
+"Entrevístame" = "Interview me";
+"Desde un PDF" = "From a PDF";
+"Escribirla" = "Write it";
+"Editar" = "Edit";
+"Guardar guía" = "Save guide";
+"Esta marca aún no tiene guía. Pídele a Frontbot que te entreviste, súbela en PDF o escríbela tú." = "This brand doesn’t have a guide yet. Ask Frontbot to interview you, upload it as a PDF or write it yourself.";
+"Imágenes" = "Images";
+"Subir imágenes" = "Upload images";
+"Se abren en tu navegador, con tu sesión." = "They open in your browser, with your session.";
+"Abrir %@" = "Open %@";
+
+/* CalendarView */
+"Anterior" = "Previous";
+"Hoy" = "Today";
+"Siguiente" = "Next";
+"Marca" = "Brand";
+"Todas las marcas" = "All brands";
+"Red" = "Network";
+"Todas las redes" = "All networks";
+"Vista" = "View";
+"Semana" = "Week";
+"Mes" = "Month";
+"hoy" = "today";
+"Sin fecha" = "No date";
+"%lld posts" = "%lld posts";
+"Preparando / programado" = "Preparing / scheduled";
+"Semana del %@" = "Week of %@";
+
+/* PostEditorView */
+"Copiar el texto del post" = "Copy the post text";
+"Cerrar" = "Close";
+"Texto" = "Text";
+"%lld hashtags · máx. 30" = "%lld hashtags · max. 30";
+"Imágenes · toca para elegir el orden" = "Images · tap to choose the order";
+"Esta marca no tiene imágenes todavía. Súbelas desde la página de la marca." = "This brand has no images yet. Upload them from the brand page.";
+"Imagen %lld, seleccionada" = "Image %lld, selected";
+"Imagen" = "Image";
+"Fecha" = "Date";
+"Programada" = "On the calendar";
+"Publicación asistida" = "Assisted publishing";
+"Al aprobarlo podrás prepararlo: Frontbot abre %@ en tu navegador con el texto y las imágenes listos, y tú publicas." = "Once approved you can prepare it: Frontbot opens %@ in your browser with the text and images ready, and you publish.";
+"Abrir en %@ para publicar" = "Open in %@ to publish";
+"Guarda los cambios antes de preparar la publicación." = "Save your changes before preparing the post.";
+"Publica o programa el post en tu navegador y confírmalo aquí." = "Publish or schedule the post in your browser and confirm it here.";
+"Programado en la red. Confírmalo cuando se publique." = "Scheduled on the network. Confirm it once it’s published.";
+"URL del post publicado (opcional)" = "Published post URL (optional)";
+"Ya se publicó" = "It’s published";
+"Lo programé en la red" = "I scheduled it on the network";
+"Cancelar preparación" = "Cancel preparation";
+"Ver publicación" = "View post";
+"Publicado." = "Published.";
+"Archivado." = "Archived.";
+"Archivar" = "Archive";
+"Guardar" = "Save";
+"Guardar y aprobar" = "Save and approve";
+
+/* IdeasView */
+"¿Eliminar «%@»?" = "Delete “%@”?";
+"Eliminar" = "Delete";
+"%lld · oportunidades que investigan los agentes" = "%lld · opportunities researched by the agents";
+"Aún no hay ideas" = "No ideas yet";
+"Pídele a un agente: «busca oportunidades de negocio en…». Las ideas que guarde aparecerán aquí con su resumen, fuentes e informe." = "Ask an agent: “find business opportunities in…”. The ideas it saves will show up here with their summary, sources and report.";
+"Puntuación %lld de 5" = "Score %lld of 5";
+"Fuentes" = "Sources";
+"FUENTES" = "SOURCES";
+"Copiar la idea completa (resumen, fuentes e informe) en markdown" = "Copy the whole idea (summary, sources and report) as Markdown";
+
+/* TasksView */
+"Nueva tarea…" = "New task…";
+"Añadir" = "Add";
+"Atrasadas" = "Overdue";
+"Próximas" = "Upcoming";
+"Hechas" = "Done";
+"Sin tareas. También puedes pedírselas al agente: «recuérdame grabar el reel el jueves»." = "No tasks. You can also ask the agent: “remind me to film the reel on Thursday”.";
+
+/* CopyButton */
+"Copiar" = "Copy";
+"Copiado" = "Copied";
+"Copiar todo el texto" = "Copy all the text";

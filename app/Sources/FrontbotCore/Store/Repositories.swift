@@ -9,7 +9,7 @@ extension AppDatabase {
     // MARK: Brands
     public func createBrand(workspaceId: String, name: String, industry: String, networks: [Network]) throws -> Brand {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw ValidationError("La marca necesita un nombre.") }
+        guard !trimmed.isEmpty else { throw ValidationError(String(localized: "La marca necesita un nombre.")) }
         let brand = Brand(id: UUID().uuidString, workspaceId: workspaceId, name: trimmed, industry: industry, networks: networks, createdAt: .dbNow())
         try writer.write { try brand.insert($0) }
         return brand
@@ -30,7 +30,7 @@ extension AppDatabase {
             guard let brand = try Brand.fetchOne(db, key: id) else { return }
             let preparing = try Post.filter(Column("brandId") == id && Column("status") == PostStatus.preparing.rawValue).fetchCount(db)
             if preparing > 0 {
-                throw ValidationError("\(brand.name) tiene un post preparándose en el navegador: termina o cancela antes de borrarla.")
+                throw ValidationError(String(localized: "\(brand.name) tiene un post preparándose en el navegador: termina o cancela antes de borrarla."))
             }
             try brand.delete(db)
         }
@@ -40,7 +40,7 @@ extension AppDatabase {
     public func createDraft(brandId: String, network: Network, body: String, media: [String], scheduledFor: Date?) throws -> Post {
         guard let brand = try brand(id: brandId) else { throw notFound("marca", brandId) }
         guard brand.networks.contains(network) else {
-            throw ValidationError("La marca \(brand.name) no tiene \(network.rawValue) configurado.")
+            throw ValidationError(String(localized: "La marca \(brand.name) no tiene \(network.rawValue) configurado."))
         }
         try PostRules.validate(body: body, network: network)
         let now = Date.dbNow()
@@ -57,7 +57,7 @@ extension AppDatabase {
         try writer.write { db in
             guard var post = try Post.fetchOne(db, key: id) else { throw notFound("post", id) }
             guard post.status == .draft else {
-                throw ValidationError("Solo se pueden editar posts en borrador; este está en \(post.status.rawValue).")
+                throw ValidationError(String(localized: "Solo se pueden editar posts en borrador; este está en \(post.status.rawValue)."))
             }
             try apply(to: &post, body: body, media: media, scheduledFor: scheduledFor.map { .some($0) }, db: db)
             return post
@@ -73,11 +73,11 @@ extension AppDatabase {
             post.body = body
         }
         if let media {
-            guard media.count <= Self.maxMediaPerPost else { throw ValidationError("Un post admite máximo 10 imágenes.") }
+            guard media.count <= Self.maxMediaPerPost else { throw ValidationError(String(localized: "Un post admite máximo 10 imágenes.")) }
             for assetId in media {
                 guard let asset = try BrandAsset.fetchOne(db, key: assetId), asset.brandId == post.brandId,
                       asset.kind == AssetKind.image.rawValue else {
-                    throw ValidationError("La imagen \(assetId) no pertenece a esta marca.")
+                    throw ValidationError(String(localized: "La imagen \(assetId) no pertenece a esta marca."))
                 }
             }
             post.media = media
@@ -91,7 +91,7 @@ extension AppDatabase {
         try writer.write { db in
             guard var post = try Post.fetchOne(db, key: id) else { throw notFound("post", id) }
             guard post.status == .draft || post.status == .approved else {
-                throw ValidationError("Este post ya no se puede editar (\(post.status.rawValue)).")
+                throw ValidationError(String(localized: "Este post ya no se puede editar (\(post.status.rawValue))."))
             }
             try apply(to: &post, body: body, media: media, scheduledFor: scheduledFor, db: db)
             return post
@@ -102,7 +102,7 @@ extension AppDatabase {
         let trimmed = url?.trimmingCharacters(in: .whitespacesAndNewlines)
         let clean = (trimmed?.isEmpty ?? true) ? nil : trimmed
         if let clean, !(clean.hasPrefix("https://") || clean.hasPrefix("http://")) {
-            throw ValidationError("La URL debe empezar con https://.")
+            throw ValidationError(String(localized: "La URL debe empezar con https://."))
         }
         return try writer.write { db in
             guard var post = try Post.fetchOne(db, key: id) else { throw notFound("post", id) }
@@ -138,7 +138,7 @@ extension AppDatabase {
     // MARK: Tasks
     public func createTask(workspaceId: String, title: String, dueDate: Date?, brandId: String?) throws -> TaskItem {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw ValidationError("La tarea necesita un título.") }
+        guard !trimmed.isEmpty else { throw ValidationError(String(localized: "La tarea necesita un título.")) }
         if let brandId, try brand(id: brandId) == nil { throw notFound("marca", brandId) }
         let task = TaskItem(id: UUID().uuidString, workspaceId: workspaceId, title: trimmed, dueDate: dueDate, done: false, brandId: brandId, createdAt: .dbNow())
         try writer.write { try task.insert($0) }
@@ -176,8 +176,8 @@ extension AppDatabase {
 
     // MARK: Ideas
     public func createIdea(workspaceId: String, title: String, summary: String, sources: [String], score: Int) throws -> BusinessIdea {
-        guard (1...5).contains(score) else { throw ValidationError("El puntaje debe estar entre 1 y 5; recibido \(score).") }
-        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ValidationError("La idea necesita un título.") }
+        guard (1...5).contains(score) else { throw ValidationError(String(localized: "El puntaje debe estar entre 1 y 5; recibido \(String(score)).")) }
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ValidationError(String(localized: "La idea necesita un título.")) }
         let idea = BusinessIdea(id: UUID().uuidString, workspaceId: workspaceId, title: title, summary: summary, sources: sources, score: score, reportPath: nil, createdAt: .dbNow())
         try writer.write { try idea.insert($0) }
         return idea
@@ -330,9 +330,9 @@ extension AppDatabase {
     public func deleteAgent(id: String) throws {
         try writer.write { db in
             guard let agent = try Agent.fetchOne(db, key: id) else { return }
-            if agent.isDefault { throw ValidationError("Frontbot no se puede borrar.") }
+            if agent.isDefault { throw ValidationError(String(localized: "Frontbot no se puede borrar.")) }
             let live = try TradeProposal.filter(Column("agentId") == id && ["open", "sending"].contains(Column("status"))).fetchCount(db)
-            if live > 0 { throw ValidationError("\(agent.name) tiene trades abiertos: ciérralos antes de borrarlo.") }
+            if live > 0 { throw ValidationError(String(localized: "\(agent.name) tiene trades abiertos: ciérralos antes de borrarlo.")) }
             try agent.delete(db)
         }
     }
@@ -342,10 +342,10 @@ extension AppDatabase {
         d.name = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
         d.instructions = d.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         d.description = d.description.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !d.name.isEmpty else { throw ValidationError("El agente necesita un nombre.") }
-        guard d.name.count <= 40 else { throw ValidationError("El nombre del agente admite hasta 40 caracteres.") }
-        guard !d.instructions.isEmpty else { throw ValidationError("El agente necesita instrucciones.") }
-        guard d.instructions.count <= 20_000 else { throw ValidationError("Las instrucciones admiten hasta 20.000 caracteres.") }
+        guard !d.name.isEmpty else { throw ValidationError(String(localized: "El agente necesita un nombre.")) }
+        guard d.name.count <= 40 else { throw ValidationError(String(localized: "El nombre del agente admite hasta 40 caracteres.")) }
+        guard !d.instructions.isEmpty else { throw ValidationError(String(localized: "El agente necesita instrucciones.")) }
+        guard d.instructions.count <= 20_000 else { throw ValidationError(String(localized: "Las instrucciones admiten hasta 20.000 caracteres.")) }
         d.model = AgentModel.resolve(d.model)
         if d.icon.isEmpty { d.icon = "person.crop.circle" }
         return d
@@ -358,8 +358,8 @@ extension AppDatabase {
     /// Guarda una nota; con la memoria llena, se borra la más antigua.
     public func remember(agentId: String, text: String) throws -> (memory: AgentMemory, evictedOldest: Bool) {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { throw ValidationError("La nota está vacía.") }
-        guard clean.count <= 500 else { throw ValidationError("Una nota admite hasta 500 caracteres; tiene \(clean.count). Resúmela.") }
+        guard !clean.isEmpty else { throw ValidationError(String(localized: "La nota está vacía.")) }
+        guard clean.count <= 500 else { throw ValidationError(String(localized: "Una nota admite hasta 500 caracteres; tiene \(String(clean.count)). Resúmela.")) }
         return try writer.write { db in
             guard try Agent.fetchOne(db, key: agentId) != nil else { throw notFound("agente", agentId) }
             var memory = AgentMemory(id: nil, agentId: agentId, text: clean, createdAt: .dbNow())
@@ -384,7 +384,7 @@ extension AppDatabase {
     public func forget(agentId: String, memoryId: Int64) throws {
         try writer.write { db in
             guard let memory = try AgentMemory.fetchOne(db, key: memoryId), memory.agentId == agentId else {
-                throw ValidationError("No existe la nota \(memoryId) en tu memoria.")
+                throw ValidationError(String(localized: "No existe la nota \(memoryId) en tu memoria."))
             }
             _ = try memory.delete(db)
         }
@@ -407,12 +407,12 @@ extension AppDatabase {
     }
 
     public func saveMandate(_ mandate: TradingMandate) throws {
-        guard mandate.maxRiskPct > 0, mandate.maxRiskPct <= 10 else { throw ValidationError("El riesgo por trade debe estar entre 0 y 10 %.") }
-        guard (1...50).contains(mandate.maxLeverage) else { throw ValidationError("El apalancamiento máximo debe estar entre 1x y 50x.") }
-        guard (0...50).contains(mandate.maxTradesPerDay) else { throw ValidationError("Los trades por día deben estar entre 0 y 50.") }
+        guard mandate.maxRiskPct > 0, mandate.maxRiskPct <= 10 else { throw ValidationError(String(localized: "El riesgo por trade debe estar entre 0 y 10 %.")) }
+        guard (1...50).contains(mandate.maxLeverage) else { throw ValidationError(String(localized: "El apalancamiento máximo debe estar entre 1x y 50x.")) }
+        guard (0...50).contains(mandate.maxTradesPerDay) else { throw ValidationError(String(localized: "Los trades por día deben estar entre 0 y 50.")) }
         if let address = mandate.address, !address.isEmpty {
             guard address.hasPrefix("0x"), address.count == 42, address.dropFirst(2).allSatisfy(\.isHexDigit) else {
-                throw ValidationError("La dirección debe ser una dirección EVM (0x + 40 caracteres hex).")
+                throw ValidationError(String(localized: "La dirección debe ser una dirección EVM (0x + 40 caracteres hex)."))
             }
         }
         var m = mandate
@@ -648,11 +648,11 @@ extension AppDatabase {
         var d = draft
         d.name = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
         d.instruction = d.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !d.name.isEmpty else { throw ValidationError("La tarea necesita un nombre.") }
-        guard d.name.count <= 80 else { throw ValidationError("El nombre de la tarea admite hasta 80 caracteres.") }
-        guard !d.instruction.isEmpty else { throw ValidationError("La tarea necesita una instrucción.") }
-        guard d.instruction.count <= 4_000 else { throw ValidationError("La instrucción admite hasta 4.000 caracteres.") }
-        guard (1...96).contains(d.maxRunsPerDay) else { throw ValidationError("El límite diario debe estar entre 1 y 96 ejecuciones.") }
+        guard !d.name.isEmpty else { throw ValidationError(String(localized: "La tarea necesita un nombre.")) }
+        guard d.name.count <= 80 else { throw ValidationError(String(localized: "El nombre de la tarea admite hasta 80 caracteres.")) }
+        guard !d.instruction.isEmpty else { throw ValidationError(String(localized: "La tarea necesita una instrucción.")) }
+        guard d.instruction.count <= 4_000 else { throw ValidationError(String(localized: "La instrucción admite hasta 4.000 caracteres.")) }
+        guard (1...96).contains(d.maxRunsPerDay) else { throw ValidationError(String(localized: "El límite diario debe estar entre 1 y 96 ejecuciones.")) }
         d.schedule = try d.schedule.validated()
         return d
     }

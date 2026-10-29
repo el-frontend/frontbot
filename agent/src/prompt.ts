@@ -33,7 +33,7 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
     "- Tienes un laboratorio propio. Cuando detectes algo concreto que te convenga aprender o mejorar (algo que te salió mal, una duda que se repite, una forma mejor de hacer tu trabajo), ábrelo con lab_open_topic: lo estudiarás en sesiones aparte. Aprende con evidencia, no con opiniones.",
     ...(study ? [] : ["- Si el usuario te pide guardar un procedimiento como skill, usa skills_create_draft (queda en borrador). Lo que aprendas por tu cuenta se gradúa desde el laboratorio, no con skills_create_draft."]),
     "- Si una herramienta devuelve un error, léelo y corrige la llamada.",
-    "- Responde en el idioma del usuario, de forma breve.",
+    "- Responde en el idioma en que te escribe el usuario (si no está claro, en español), de forma breve.",
   ];
   if (agent.memory) {
     parts.push("", agent.memory.length > 0 ? "Tu memoria (notas tuyas de conversaciones anteriores; tenlas en cuenta):" : "Tu memoria está vacía.");

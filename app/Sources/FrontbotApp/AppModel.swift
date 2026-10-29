@@ -204,7 +204,7 @@ final class AppModel {
     @discardableResult
     func deleteBrand(_ brand: Brand) -> Bool {
         if isRunning && activeRun?.brandId == brand.id {
-            errorMessage = "El agente está trabajando con \(brand.name): espera a que termine para borrarla."
+            errorMessage = String(localized: "El agente está trabajando con \(brand.name): espera a que termine para borrarla.")
             return false
         }
         guard perform({ try db.deleteBrand(id: brand.id) }) else { return false }
@@ -559,7 +559,7 @@ final class AppModel {
             if let note = log.notification {
                 deliverNotification(title: note.title, body: note.message, conversationId: result?.conversationId)
             } else if run.status == .failed {
-                deliverNotification(title: "Falló «\(log.task.name)»", body: run.resultSummary ?? "Error", conversationId: result?.conversationId)
+                deliverNotification(title: String(localized: "Falló «\(log.task.name)»"), body: run.resultSummary ?? "Error", conversationId: result?.conversationId)
             }
             memoryVersion += 1
             brands = (try? db.brands(workspaceId: workspace.id)) ?? brands
@@ -622,7 +622,7 @@ final class AppModel {
         get { SMAppService.mainApp.status == .enabled }
         set {
             do { newValue ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() }
-            catch { errorMessage = "No se pudo cambiar el inicio automático: \(error.localizedDescription)" }
+            catch { errorMessage = String(localized: "No se pudo cambiar el inicio automático: \(error.localizedDescription)") }
             launchAtLoginVersion += 1
         }
     }
@@ -684,7 +684,7 @@ final class AppModel {
     /// Posiciones y órdenes abiertas en Hyperliquid (lectura bajo demanda).
     func accountOverview(agentId: String) async -> (JSONValue?, String?) {
         let m = mandate(agentId: agentId)
-        guard let address = m.address else { return (nil, "Conecta la wallet del agente para ver sus posiciones.") }
+        guard let address = m.address else { return (nil, String(localized: "Conecta la wallet del agente para ver sus posiciones.")) }
         do { return (try await client.accountOverview(network: m.network, address: address), nil) }
         catch { return (nil, error.localizedDescription) }
     }
@@ -696,7 +696,7 @@ final class AppModel {
             defer { busyProposalId = nil }
             do {
                 let done = try await work(await client.trading)
-                if done.status == .failed { errorMessage = done.error ?? "No se pudo enviar el trade." }
+                if done.status == .failed { errorMessage = done.error ?? String(localized: "No se pudo enviar el trade.") }
             } catch let e as ValidationError {
                 errorMessage = e.message
             } catch {
@@ -707,12 +707,12 @@ final class AppModel {
     }
 
     private func notifyTrade(_ p: TradeProposal) {
-        let agentName = agent(id: p.agentId)?.name ?? "Un agente"
+        let agentName = agent(id: p.agentId)?.name ?? String(localized: "Un agente")
         let title: String
         switch p.status {
-        case .proposed: title = "\(agentName) propone un trade"
-        case .open where p.auto: title = "Trade automático ejecutado"
-        case .failed: title = "Falló un trade"
+        case .proposed: title = String(localized: "\(agentName) propone un trade")
+        case .open where p.auto: title = String(localized: "Trade automático ejecutado")
+        case .failed: title = String(localized: "Falló un trade")
         default: return
         }
         let content = UNMutableNotificationContent()
@@ -818,7 +818,7 @@ final class AppModel {
             workdir = path
             reloadConversations()
             if Workdir.isBroad(path) {
-                warning = "Vas a darle carta blanca sobre toda la carpeta \(URL(fileURLWithPath: path).lastPathComponent). Mejor una subcarpeta del proyecto."
+                warning = String(localized: "Vas a darle carta blanca sobre toda la carpeta \(URL(fileURLWithPath: path).lastPathComponent). Mejor una subcarpeta del proyecto.")
             }
         }
         if ok, let warning { errorMessage = warning } // aviso, no bloquea: la carpeta ya quedó elegida
@@ -838,7 +838,7 @@ final class AppModel {
         perform {
             let path = try Workdir.validated(url.path, protected: [paths.root])
             if path.lowercased() == URL(fileURLWithPath: NSHomeDirectory() + "/Downloads").resolvingSymlinksInPath().path.lowercased() {
-                throw ValidationError("~/Downloads ya está incluida.")
+                throw ValidationError(String(localized: "~/Downloads ya está incluida."))
             }
             guard !readDirs.contains(path) else { return }
             let updated = readDirs + [path]
@@ -992,7 +992,7 @@ final class AppModel {
         stopRequested = false
         guard let agent = selectedAgent else { return }
         guard agent.status == .active else {
-            errorMessage = "\(agent.name) es un borrador: actívalo en su página para hablar con él."
+            errorMessage = String(localized: "\(agent.name) es un borrador: actívalo en su página para hablar con él.")
             return
         }
         let history = chatHistory()
@@ -1152,7 +1152,7 @@ final class AppModel {
     @discardableResult
     func saveApiKey(_ key: String) -> Bool {
         guard let key = CredentialStore.normalizedApiKey(key) else {
-            errorMessage = "La API key está vacía."
+            errorMessage = String(localized: "La API key está vacía.")
             return false
         }
         let ok = perform { try credentials.set(keyAccount, value: key) }
@@ -1238,7 +1238,7 @@ struct BrowserHandoff: PublicationHandoff {
         if !mediaPaths.isEmpty {
             NSWorkspace.shared.activateFileViewerSelecting(mediaPaths.map { URL(fileURLWithPath: $0) })
         }
-        guard NSWorkspace.shared.open(url) else { throw ValidationError("No se pudo abrir el navegador.") }
+        guard NSWorkspace.shared.open(url) else { throw ValidationError(String(localized: "No se pudo abrir el navegador.")) }
     }
 }
 

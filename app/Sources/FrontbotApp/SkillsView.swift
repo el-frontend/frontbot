@@ -88,7 +88,7 @@ struct SkillStatusPill: View {
     let status: SkillStatus
     var body: some View {
         let color = status == .draft ? Theme.draft : Theme.approved
-        Text(status == .draft ? "Borrador" : "Activo").font(.system(size: 10)).foregroundStyle(color)
+        (status == .draft ? Text("Borrador") : Text("Activo")).font(.system(size: 10)).foregroundStyle(color)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.12)))
     }
@@ -103,9 +103,9 @@ private struct SkillDetail: View {
 
     private var source: String {
         switch skill.source {
-        case .imported: "importado"
-        case .user: "escrito por ti"
-        case .agent: "creado por " + (model.agent(id: skill.createdByAgentId)?.name ?? "un agente")
+        case .imported: String(localized: "importado")
+        case .user: String(localized: "escrito por ti")
+        case .agent: String(localized: "creado por \(model.agent(id: skill.createdByAgentId)?.name ?? String(localized: "un agente"))")
         }
     }
 
@@ -119,7 +119,7 @@ private struct SkillDetail: View {
                 Button { NSWorkspace.shared.activateFileViewerSelecting([model.skillDirectory(skill)]) } label: { Image(systemName: "folder") }
                     .buttonStyle(OutlineButtonStyle()).help("Mostrar en Finder")
                 Button { confirmingDelete = true } label: { Image(systemName: "trash") }
-                    .buttonStyle(OutlineButtonStyle()).help(skill.status == .draft ? "Descartar" : "Borrar")
+                    .buttonStyle(OutlineButtonStyle()).help(skill.status == .draft ? Text("Descartar") : Text("Borrar"))
                 if editing {
                     Button("Cancelar") { editing = false }.buttonStyle(OutlineButtonStyle())
                     Button("Guardar") { if model.saveSkillManifest(skill, text: text) { editing = false } }
@@ -217,9 +217,9 @@ private struct SkillHistory: View {
     }
 
     private func label(_ v: SkillVersion) -> String {
-        let date = v.createdAt.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "es")))
-        let origin = v.proposalId == nil ? "antes de un cambio tuyo"
-            : "antes de la propuesta de " + (model.lab.proposalAgentName(v.proposalId) ?? "un agente")
+        let date = v.createdAt.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: Bundle.main.preferredLocalizations.first ?? "es")))
+        let origin = v.proposalId == nil ? String(localized: "antes de un cambio tuyo")
+            : String(localized: "antes de la propuesta de \(model.lab.proposalAgentName(v.proposalId) ?? String(localized: "un agente"))")
         return "v\(v.number) · \(date) · \(origin)"
     }
 }

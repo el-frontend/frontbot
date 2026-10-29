@@ -59,7 +59,7 @@ struct NotchView: View {
             }
 
             if let running = model.lab.runningSession {
-                let line = "\(running.agent.name) estudiando: \(running.topic.question)"
+                let line = String(localized: "\(running.agent.name) estudiando: \(running.topic.question)")
                 HStack(spacing: 6) {
                     Image(systemName: "flask")
                     Text(line.count > 60 ? String(line.prefix(60)) + "…" : line).lineLimit(1)
@@ -103,7 +103,7 @@ struct NotchView: View {
         .onExitCommand { controller.collapse() }
     }
 
-    private func pill(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
+    private func pill(_ title: LocalizedStringKey, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) { StatusDot(color: color); Text(title) }
                 .font(.system(size: 12)).foregroundStyle(color)

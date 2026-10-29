@@ -60,7 +60,7 @@ struct LabTabView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
                         Text(p.skillName).font(Theme.mono(13))
-                        LabPill(text: p.kind == .new ? "skill nueva" : "mejora de \(p.skillName)", color: Theme.accent)
+                        LabPill(text: p.kind == .new ? String(localized: "skill nueva") : String(localized: "mejora de \(p.skillName)"), color: Theme.accent)
                         Spacer()
                     }
                     Text(firstLines(p.evidenceSummary, 2)).font(.system(size: 12)).foregroundStyle(Theme.textSecondary)

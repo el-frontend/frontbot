@@ -15,11 +15,13 @@ public struct AgentConfig: Sendable {
 
 /// Modelos que se pueden elegir en la app.
 public enum AgentModel {
-    public static let all: [(id: String, label: String)] = [
-        (AgentConfig.defaultModel, "Sonnet 5.5 · día a día"),
-        ("claude-opus-5-5", "Opus 5.5 · investigación a fondo"),
-        ("claude-haiku-4-5-20251001", "Haiku 4.5 · rápido y barato"),
-    ]
+    public static var all: [(id: String, label: String)] {
+        [
+            (AgentConfig.defaultModel, String(localized: "Sonnet 5.5 · día a día")),
+            ("claude-opus-5-5", String(localized: "Opus 5.5 · investigación a fondo")),
+            ("claude-haiku-4-5-20251001", String(localized: "Haiku 4.5 · rápido y barato")),
+        ]
+    }
 
     /// El guardado si sigue en el catálogo; si no, el de por defecto.
     public static func resolve(_ stored: String?) -> String {
@@ -66,10 +68,10 @@ public enum AgentClientError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .restartLimit: "El agente se reinició demasiadas veces. Revisa los logs y vuelve a intentar en un minuto."
-        case .launchFailed(let why): "No se pudo iniciar el agente: \(why)"
+        case .restartLimit: String(localized: "El agente se reinició demasiadas veces. Revisa los logs y vuelve a intentar en un minuto.")
+        case .launchFailed(let why): String(localized: "No se pudo iniciar el agente: \(why)")
         case .remote(let why): why
-        case .timeout: "El agente no respondió a tiempo."
+        case .timeout: String(localized: "El agente no respondió a tiempo.")
         }
     }
 }
@@ -240,7 +242,7 @@ public actor AgentClient {
     /// Se revalida en cada run: la carpeta pudo borrarse o moverse desde que se eligió.
     private func workdirParams(path: String, readDirs: [String], agent: Agent?) throws -> [String: JSONValue] {
         guard AgentFiles.realPath(path) != nil else {
-            throw ValidationError("La carpeta \(path) ya no existe: elige otra o quítala.")
+            throw ValidationError(String(localized: "La carpeta \(path) ya no existe: elige otra o quítala."))
         }
         let real = try Workdir.validated(path, protected: [files.paths.root])
         // ~/Downloads siempre se puede leer; si no existe se omite en vez de fallar.
