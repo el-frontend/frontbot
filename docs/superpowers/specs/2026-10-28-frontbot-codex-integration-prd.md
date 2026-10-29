@@ -1,5 +1,7 @@
 # PRD: Integración de Codex en Frontbot
 
+> **Superseded (2026-10-28):** This CLI/app-server proposal is retained as a historical record. The approved [API-key-only design amendment](2026-10-28-frontbot-api-key-only-design.md) replaces its authentication, runtime, tool, and data-handling decisions.
+
 **Fecha:** 2026-10-28  
 **Estado:** Para revisión y aprobación del usuario  
 **Producto:** Frontbot para macOS

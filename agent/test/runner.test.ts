@@ -7,7 +7,7 @@ import { TokenMeter } from "../src/study.js";
 import type { AppCall } from "../src/tools.js";
 import type { SkillPlugin } from "../src/skills.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { buildQueryOptions, createProductionRunner, createCodexAppServer, ProviderRunner, RealRunner, toolCallText, type RunParams, type Runner } from "../src/runner.js";
+import { buildQueryOptions, createProductionRunner, ProviderRunner, RealRunner, toolCallText, type RunParams, type Runner } from "../src/runner.js";
 
 describe("ProviderRunner", () => {
   it("dispatches provider runs and preserves their event and completion contract", async () => {
@@ -51,7 +51,7 @@ describe("ProviderRunner", () => {
 describe("provider child environment", () => {
   it("production Codex provider rejects native shell or file access requests without a Frontbot tool context", async () => {
     const runner = createProductionRunner(async () => ({}), {
-      PATH: "/bin", FRONTBOT_CODEX_EXECUTABLE: "/test/codex", FRONTBOT_OPENAI_API_KEY: "test-key",
+      PATH: "/bin", FRONTBOT_OPENAI_API_KEY: "test-key",
     });
     const shell = await runner.run({ run_id: "shell", prompt: "run cat ~/.ssh/id_rsa", model: "gpt-6-astra", provider: "codex" }, () => {}, new AbortController().signal);
     const read = await runner.run({ run_id: "read", prompt: "read /Users/other/private.txt", model: "gpt-6-astra", provider: "codex" }, () => {}, new AbortController().signal);
@@ -59,26 +59,13 @@ describe("provider child environment", () => {
     expect(read.error).toContain("contexto seguro");
   });
 
-  it("production bootstrap scrubs secrets from the sidecar before Claude can use it", () => {
+  it("production bootstrap captures the OpenAI key privately and removes inherited OpenAI credentials", () => {
     const env = { PATH: "/bin", ANTHROPIC_API_KEY: "claude-config", OPENAI_API_KEY: "shell-openai",
-      FRONTBOT_OPENAI_API_KEY: "codex-config", FRONTBOT_CODEX_EXECUTABLE: "/bin/codex" };
+      FRONTBOT_OPENAI_API_KEY: "codex-config" };
     const runner = createProductionRunner(async () => ({}), env);
-    expect(env).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "claude-config", FRONTBOT_CODEX_EXECUTABLE: "/bin/codex" });
-    expect(runner.claudeEnvironment(env)).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "claude-config" });
-    expect(runner.codexEnvironment(env)).toEqual({ PATH: "/bin", OPENAI_API_KEY: "codex-config" });
-  });
-
-  it("production Codex app-server spawn receives the key in env only", () => {
-    let launch: { executable: string; args: string[]; env: NodeJS.ProcessEnv } | undefined;
-    createCodexAppServer({ executable: "/bin/codex", apiKey: "secret-openai" }, {
-      inherited: { PATH: "/bin", ANTHROPIC_API_KEY: "secret-anthropic", OPENAI_API_KEY: "shell-openai" },
-      spawn: (executable, args, options) => {
-        launch = { executable, args, env: options.env };
-        return {} as never;
-      },
-    });
-    expect(launch).toEqual({ executable: "/bin/codex", args: ["app-server", "--listen", "stdio://"], env: { PATH: "/bin", OPENAI_API_KEY: "secret-openai" } });
-    expect(JSON.stringify(launch?.args)).not.toContain("secret-openai");
+    expect(env).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "claude-config" });
+    expect("claudeEnvironment" in runner).toBe(false);
+    expect("codexEnvironment" in runner).toBe(false);
   });
 });
 
