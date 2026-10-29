@@ -17,7 +17,7 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -27,10 +27,12 @@ jobs:
   build:
     runs-on: macos-26
     timeout-minutes: 45
+    outputs:
+      version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: maxim-lobanov/setup-xcode@v1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: latest-stable
 
@@ -77,13 +79,26 @@ jobs:
           path: build/Frontbot.zip
           retention-days: 14
 
+  # Only this job can write to the repo, and it runs no third-party actions.
+  publish:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Frontbot-${{ needs.build.outputs.version }}
+
       - name: Publish GitHub Release
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" build/Frontbot.zip \
-            --title "Frontbot ${{ steps.v.outputs.version }}" \
+          gh release create "$GITHUB_REF_NAME" Frontbot.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Frontbot $VERSION" \
             --generate-notes \
             --notes "Requires macOS 15 or later on Apple Silicon.
 
