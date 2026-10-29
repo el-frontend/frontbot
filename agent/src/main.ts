@@ -15,8 +15,10 @@ function stableJSON(value: unknown): string {
 }
 
 function boundedAppCall(peer: RpcPeer, method: string, params: Record<string, unknown>, signal: AbortSignal, timeoutMs: number): Promise<unknown> {
+  const cancelled = () => signal.reason instanceof Error ? signal.reason : new Error("Cancelado");
+  if (signal.aborted) return Promise.reject(cancelled());
   const controller = new AbortController();
-  const cancel = () => controller.abort(new Error("Cancelado"));
+  const cancel = () => controller.abort(cancelled());
   const timer = setTimeout(() => controller.abort(new Error(`La solicitud ${method} superó el plazo de ${timeoutMs / 1000}s y puede seguir pendiente en Frontbot. No repitas esta acción.`)), timeoutMs);
   signal.addEventListener("abort", cancel, { once: true });
   return peer.request(method, params, { signal: controller.signal }).finally(() => {
@@ -84,7 +86,7 @@ export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader, opti
   }
 
   peer.onRequest("agent.cancel", async ({ run_id }: { run_id: string }) => {
-    active.get(run_id)?.abort();
+    active.get(run_id)?.abort(new Error("Cancelado"));
     return { ok: true };
   });
 }
