@@ -94,6 +94,8 @@ public actor AgentClient {
     private var nextId = 1
     private var generation = 0
     private var activeRuns: Set<String> = []
+    /// Aprobaciones interactivas asociadas a cada run para cancelarlas junto con él.
+    private var toolApprovalTasks: [String: [UUID: Task<Void, Never>]] = [:]
     /// Runs de tareas programadas: nadie puede aprobar nada en ellos.
     private var unattendedRuns: Set<String> = []
     /// Runs de sesiones de estudio. Un fallo o un `agent.done` cierran la sesión una sola vez.
@@ -295,6 +297,7 @@ public actor AgentClient {
     }
 
     public func cancel(runId: String) async {
+        cancelToolApprovalTasks(runId: runId)
         broadcast(.workdirApprovalCancelled(runId: runId))
         try? send(.request(id: takeId(), method: "agent.cancel", params: ["run_id": .string(runId)]))
         // Si el sidecar no confirma a tiempo (runner colgado), se da por cancelado y se reinicia el proceso.
@@ -318,8 +321,19 @@ public actor AgentClient {
         stop()
     }
 
+    private func cancelToolApprovalTasks(runId: String) {
+        let tasks = toolApprovalTasks.removeValue(forKey: runId) ?? [:]
+        for task in tasks.values { task.cancel() }
+    }
+
+    private func finishToolApprovalTask(runId: String, id: UUID) {
+        toolApprovalTasks[runId]?[id] = nil
+        if toolApprovalTasks[runId]?.isEmpty == true { toolApprovalTasks[runId] = nil }
+    }
+
     /// `labTokens`: lo gastado si se sabe; sin él, una sesión de estudio cobra su presupuesto entero.
     private func fail(runId: String, summary: String, labTokens: Int? = nil) {
+        cancelToolApprovalTasks(runId: runId)
         activeRuns.remove(runId)
         unattendedRuns.remove(runId)
         finishStudy(runId: runId, status: .failed, params: labTokens.map { ["lab_tokens": .number(Double($0))] })
@@ -356,6 +370,7 @@ public actor AgentClient {
     }
 
     public func stop() {
+        for runId in Array(toolApprovalTasks.keys) { cancelToolApprovalTasks(runId: runId) }
         guard let process else { return }
         generation += 1 // ignora el EOF de este proceso
         if process.isRunning { process.terminate() }
@@ -482,19 +497,28 @@ public actor AgentClient {
                 reply(id, .failure(error))
             }
         case .request(let id, "tool.skills_run_script", let params):
+            guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId), !unattendedRuns.contains(runId) else {
+                reply(id, .failure(ValidationError("skills_run_script solo funciona en un chat activo para aprobarlo.")))
+                return
+            }
             let tool = ScriptTool(library: SkillLibrary(db: db, paths: files.paths), sandbox: ScriptSandbox(nodePath: config.nodePath))
             let approver = scriptApprover
-            Task {
+            let taskId = UUID()
+            let task = Task { [weak self] in
+                guard let self else { return }
+                let result: Result<JSONValue, Error>
                 do {
-                    let result = try await tool.run(params: params) { request in
+                    result = .success(try await tool.run(params: params) { request in
                         guard let approver else { return false }
                         return await Self.withTimeout(Self.scriptApprovalTimeout, default: false) { await approver(request) }
-                    }
-                    self.reply(id, .success(result))
+                    })
                 } catch {
-                    self.reply(id, .failure(error))
+                    result = .failure(error)
                 }
+                await self.reply(id, result)
+                await self.finishToolApprovalTask(runId: runId, id: taskId)
             }
+            toolApprovalTasks[runId, default: [:]][taskId] = task
         case .request(let id, let method, let params) where method == "tool.lab_run" || method == "tool.lab_fetch_dataset":
             // Sin aprobación, pero solo dentro de una sesión de estudio que esta app lanzó. El sidecar no manda run_id
             // en estas herramientas: se valida por session_id (debe ser de un run de estudio activo) y, dentro del
@@ -515,17 +539,22 @@ public actor AgentClient {
             }
             let tool = FileWriteTool(db: db, paths: files.paths)
             let approver = fileWriteApprover
-            Task {
+            let taskId = UUID()
+            let task = Task { [weak self] in
+                guard let self else { return }
+                let result: Result<JSONValue, Error>
                 do {
-                    let result = try await tool.run(params: params) { request in
+                    result = .success(try await tool.run(params: params) { request in
                         guard let approver else { return false }
                         return await Self.withTimeout(Self.scriptApprovalTimeout, default: false) { await approver(request) }
-                    }
-                    self.reply(id, .success(result))
+                    })
                 } catch {
-                    self.reply(id, .failure(error))
+                    result = .failure(error)
                 }
+                await self.reply(id, result)
+                await self.finishToolApprovalTask(runId: runId, id: taskId)
             }
+            toolApprovalTasks[runId, default: [:]][taskId] = task
         case .request(let id, "workdir.approve", let params):
             guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId), !unattendedRuns.contains(runId),
                   let approver = workdirApprover else {

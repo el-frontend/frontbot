@@ -32,8 +32,19 @@ public struct ScriptTool: Sendable {
         _ = try ScriptSandbox.resolve(script: script, in: dir, nodePath: sandbox.nodePath) // valida antes de molestar al usuario
         let request = ScriptRequest(agentName: agent.name, skillName: skill.name, command: ([script] + args).joined(separator: " "))
         guard await approve(request) else { throw ValidationError("El usuario denegó la ejecución del script.") }
+        try Task.checkCancellation()
         let sandbox = self.sandbox
-        let result = try await Task.detached { try sandbox.run(script: script, args: args, in: dir) }.value
+        let execution = Task.detached {
+            try Task.checkCancellation()
+            let watch = ScriptSandbox.Watch(interval: 0.1) { Task.isCancelled ? "Ejecución cancelada." : nil }
+            return try sandbox.run(script: script, args: args, in: dir, watch: watch)
+        }
+        let result = try await withTaskCancellationHandler {
+            try await execution.value
+        } onCancel: {
+            execution.cancel()
+        }
+        try Task.checkCancellation()
         return ["exit_code": .number(Double(result.exitCode)), "stdout": .string(result.stdout),
                 "stderr": .string(result.stderr), "timed_out": .bool(result.timedOut)]
     }
