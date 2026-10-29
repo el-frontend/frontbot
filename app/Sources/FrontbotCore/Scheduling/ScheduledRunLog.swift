@@ -37,7 +37,7 @@ extension AppDatabase {
             conversationId = conversation.id
         }
         try finishTaskRun(id: log.taskRunId, status: run.status == .failed ? .failed : .done, summary: run.resultSummary,
-                          notified: surfaced, conversationId: conversationId, costUsd: run.costUsd)
+                          notified: surfaced, conversationId: conversationId, costUsd: run.costAvailable ? run.costUsd : nil)
         return (conversationId, surfaced)
     }
 }

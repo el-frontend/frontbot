@@ -41,35 +41,49 @@ describe("CodexRunner Responses API", () => {
       { run_id: "run-1", type: "text", text: " mundo" },
     ]);
     expect(requests).toHaveLength(1);
-    expect(requests[0]).toMatchObject({ model: "gpt-6-astra", input: "hola" });
+    expect(requests[0]).toMatchObject({ model: "gpt-6-astra", input: [{ role: "user", content: "hola" }] });
     expect(requests[0].instructions).toContain("Escribe claro.");
     expect(requests[0].instructions).not.toContain("WebSearch");
     expect(requests[0].instructions).not.toContain("WebFetch");
     expect(requests[0].tools?.map((tool) => tool.name)).toContain("brands_list");
   });
 
-  it("replays every completed output item in order before correlated tool results", async () => {
+  it("keeps the original user/history input and every completed output across tool rounds", async () => {
     const requests: OpenAIResponsesRequest[] = [];
-    const execute = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "{\"brands\":[]}" }] });
-    const prior = [
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ content: [{ type: "text", text: "{\"brands\":[]}" }] })
+      .mockResolvedValueOnce({ content: [{ type: "text", text: "{\"id\":\"task_1\"}" }] });
+    const first = [
       { type: "reasoning", id: "rs_1", encrypted_content: "opaque" },
-      { type: "function_call", id: "fc_1", call_id: "call_1", name: "brands_list", arguments: "{}" },
+      { type: "function_call", id: "fc_1", call_id: "call_1", name: "brands_list", arguments: "{}", status: "completed" },
+    ];
+    const second = [
+      { type: "reasoning", id: "rs_2", encrypted_content: "opaque-2" },
+      { type: "function_call", id: "fc_2", call_id: "call_2", name: "tasks_create", arguments: "{\"title\":\"Pagar\"}", status: "completed" },
     ];
     const transport: Transport = async (request) => {
       requests.push(request);
       return requests.length === 1
-        ? completed(prior)
-        : completed([{ type: "message", content: [{ type: "output_text", text: "No hay marcas." }] }], 2, 1);
+        ? completed(first)
+        : requests.length === 2
+          ? completed(second)
+          : completed([{ type: "message", content: [{ type: "output_text", text: "No hay marcas." }] }], 2, 1);
     };
 
-    const done = await runner(transport, { frontbot: { context: { isDefault: false }, execute } }).run(base, () => {}, new AbortController().signal);
+    const params = { ...base, prompt: "continúa", history: [{ role: "user" as const, text: "¿qué marcas hay?" }, { role: "agent" as const, text: "Una." }] };
+    const done = await runner(transport, { frontbot: { context: { isDefault: false }, execute } }).run(params, () => {}, new AbortController().signal);
 
-    expect(done).toMatchObject({ ok: true, summary: "No hay marcas.", input_tokens: 9, output_tokens: 4, cost_usd: null });
-    expect(execute).toHaveBeenCalledOnce();
-    expect(execute).toHaveBeenCalledWith("brands_list", {});
+    expect(done).toMatchObject({ ok: true, summary: "No hay marcas.", input_tokens: 16, output_tokens: 7, cost_usd: null });
+    expect(execute.mock.calls).toEqual([["brands_list", {}], ["tasks_create", { title: "Pagar" }]]);
+    const user = { role: "user", content: "Conversación hasta ahora:\nUsuario: ¿qué marcas hay?\nRedactor: Una.\n\nMensaje nuevo del usuario:\ncontinúa" };
+    const firstOutput = { type: "function_call_output", call_id: "call_1", output: "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"brands\\\":[]}\"}]}" };
+    const secondOutput = { type: "function_call_output", call_id: "call_2", output: "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"id\\\":\\\"task_1\\\"}\"}]}" };
+    expect(requests[0].input).toEqual([user]);
     expect(requests[1].input).toEqual([
-      ...prior,
-      { type: "function_call_output", call_id: "call_1", output: "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"brands\\\":[]}\"}]}" },
+      user, ...first, firstOutput,
+    ]);
+    expect(requests[2].input).toEqual([
+      user, ...first, firstOutput, ...second, secondOutput,
     ]);
   });
 
@@ -80,8 +94,8 @@ describe("CodexRunner Responses API", () => {
       round += 1;
       return round === 1
         ? completed([
-          { type: "function_call", call_id: "a", name: "brands_list", arguments: "{}" },
-          { type: "function_call", call_id: "b", name: "tasks_create", arguments: "{\"title\":\"Pagar\"}" },
+          { type: "function_call", call_id: "a", name: "brands_list", arguments: "{}", status: "completed" },
+          { type: "function_call", call_id: "b", name: "tasks_create", arguments: "{\"title\":\"Pagar\"}", status: "completed" },
         ])
         : completed([{ type: "message", content: [{ type: "output_text", text: "Listo" }] }]);
     };
@@ -92,8 +106,8 @@ describe("CodexRunner Responses API", () => {
   });
 
   it.each([
-    ["malformed arguments", { type: "function_call", call_id: "call_1", name: "brands_list", arguments: "{" }, "argumentos"],
-    ["unknown tool", { type: "function_call", call_id: "call_1", name: "shell_exec", arguments: "{}" }, "permitida"],
+    ["malformed arguments", { type: "function_call", call_id: "call_1", name: "brands_list", arguments: "{", status: "completed" }, "argumentos"],
+    ["unknown tool", { type: "function_call", call_id: "call_1", name: "shell_exec", arguments: "{}", status: "completed" }, "permitida"],
   ])("rejects %s without invoking Frontbot", async (_name, call, expected) => {
     const execute = vi.fn();
     const done = await runner(async () => completed([call]), { frontbot: { context: { isDefault: false }, execute } })
@@ -104,7 +118,7 @@ describe("CodexRunner Responses API", () => {
 
   it("stops after a bounded number of tool rounds", async () => {
     const execute = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "ok" }] });
-    const transport: Transport = async () => completed([{ type: "function_call", call_id: crypto.randomUUID(), name: "brands_list", arguments: "{}" }]);
+    const transport: Transport = async () => completed([{ type: "function_call", call_id: crypto.randomUUID(), name: "brands_list", arguments: "{}", status: "completed" }]);
     const done = await runner(transport, { frontbot: { context: { isDefault: false }, execute } }).run(base, () => {}, new AbortController().signal);
     expect(done).toMatchObject({ ok: false, error: expect.stringContaining("límite") });
     expect(execute.mock.calls.length).toBeGreaterThan(0);
@@ -128,6 +142,42 @@ describe("CodexRunner Responses API", () => {
       .resolves.toMatchObject({ ok: false, error: expect.stringContaining("completó") });
   });
 
+  it.each(["in_progress", undefined])("rejects a function call with %s status before executing it", async (status) => {
+    const execute = vi.fn();
+    const call: Record<string, unknown> = { type: "function_call", call_id: "call_1", name: "brands_list", arguments: "{}" };
+    if (status) call.status = status;
+    const done = await runner(async () => completed([call]), { frontbot: { context: { isDefault: false }, execute } })
+      .run(base, () => {}, new AbortController().signal);
+    expect(done).toMatchObject({ ok: false, error: expect.stringContaining("completada") });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("reuses a duplicate call id result without repeating its Frontbot side effect", async () => {
+    const requests: OpenAIResponsesRequest[] = [];
+    const execute = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "ok" }] });
+    const call = { type: "function_call", call_id: "call_1", name: "brands_list", arguments: "{}", status: "completed" };
+    const transport: Transport = async (request) => {
+      requests.push(request);
+      return requests.length < 3 ? completed([call]) : completed([{ type: "message", content: [{ type: "output_text", text: "Listo" }] }]);
+    };
+    await expect(runner(transport, { frontbot: { context: { isDefault: false }, execute } }).run(base, () => {}, new AbortController().signal))
+      .resolves.toMatchObject({ ok: true, summary: "Listo" });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(requests[2].input).toEqual(expect.arrayContaining([
+      { type: "function_call_output", call_id: "call_1", output: "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}" },
+    ]));
+  });
+
+  it("rejects a conflicting duplicate call id before any Frontbot side effect", async () => {
+    const execute = vi.fn();
+    const done = await runner(async () => completed([
+      { type: "function_call", call_id: "call_1", name: "tasks_create", arguments: "{\"title\":\"Uno\"}", status: "completed" },
+      { type: "function_call", call_id: "call_1", name: "tasks_create", arguments: "{\"title\":\"Dos\"}", status: "completed" },
+    ]), { frontbot: { context: { isDefault: false }, execute } }).run(base, () => {}, new AbortController().signal);
+    expect(done).toMatchObject({ ok: false, error: expect.stringContaining("conflicto") });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("fails safely when the API key is missing or the transport fails", async () => {
     const calls = vi.fn<Transport>();
     const noKey = new CodexRunner({ transport: calls } as never);
@@ -142,7 +192,7 @@ describe("CodexRunner Responses API", () => {
     const execute = vi.fn();
     const transport: Transport = async () => {
       controller.abort();
-      return completed([{ type: "function_call", call_id: "call_1", name: "brands_list", arguments: "{}" }]);
+      return completed([{ type: "function_call", call_id: "call_1", name: "brands_list", arguments: "{}", status: "completed" }]);
     };
     const done = await runner(transport, { frontbot: { context: { isDefault: false }, execute } }).run(base, () => {}, controller.signal);
     expect(done).toMatchObject({ ok: false, error: "Cancelado" });
