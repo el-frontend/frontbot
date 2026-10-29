@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { dirname, relative, isAbsolute } from "node:path";
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { query, createSdkMcpServer, type Options, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
-import { buildTools, allowedToolsFor, type AppCall, type ToolContext } from "./tools.js";
+import { buildTools, allowedToolsFor, executeFrontbotTool, type AppCall, type ToolContext } from "./tools.js";
 import { BrowserGuard, BROWSER_ALLOWED_TOOLS } from "./browserGuard.js";
 import { buildTradingTools, buildMarketTools, realMarket, TRADING_TOOL_NAMES, type RunTrading } from "./trading.js";
 import type { RunStudy } from "./lab.js";
@@ -46,8 +46,17 @@ export type RunDone = { run_id: string; ok: boolean; summary: string; input_toke
   /** Solo en estudio: cortada por límite, tokens contados con la métrica del laboratorio y desglose por modelo. */
   cut?: boolean; cut_reason?: "tokens" | "clock"; lab_tokens?: number; models?: { model: string; tokens: number }[] };
 
+/** App-owned capability for a single run. This never crosses the app RPC boundary. */
+export type FrontbotRunContext = {
+  call: AppCall;
+  context: ToolContext;
+  execute: (name: string, args: Record<string, unknown>) => ReturnType<typeof executeFrontbotTool>;
+};
+
+export type RunnerContext = { frontbot?: FrontbotRunContext };
+
 export interface Runner {
-  run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone>;
+  run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal, context?: RunnerContext): Promise<RunDone>;
 }
 
 export type CodexRuntimeConfig = { executable?: string; apiKey?: string };
@@ -109,14 +118,14 @@ export class ProviderRunner implements Runner {
     return providerEnvironment("codex", inherited, undefined, config.apiKey);
   }
 
-  run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
+  run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal, context?: RunnerContext): Promise<RunDone> {
     if (params.provider !== undefined && params.provider !== "claude" && params.provider !== "codex") {
       return Promise.resolve({ run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0,
         error: "Proveedor no compatible." });
     }
     return (params.provider ?? "claude") === "codex"
-      ? this.codex.run(params, emit, signal)
-      : this.claude.run(params, emit, signal);
+      ? this.codex.run(params, emit, signal, context)
+      : this.claude.run(params, emit, signal, context);
   }
 }
 

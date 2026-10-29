@@ -1,5 +1,5 @@
 import type { CodexRuntimeConfig } from "./runner.js";
-import type { RunDone, RunEvent, RunParams, Runner } from "./runner.js";
+import type { RunDone, RunEvent, RunParams, Runner, RunnerContext } from "./runner.js";
 
 /**
  * Codex runtime is fail-closed until the app-server provides a verifiable way to
@@ -9,7 +9,7 @@ import type { RunDone, RunEvent, RunParams, Runner } from "./runner.js";
 export class CodexRunner implements Runner {
   constructor(readonly config: CodexRuntimeConfig) {}
 
-  async run(params: RunParams, _emit: (event: RunEvent) => void, signal: AbortSignal): Promise<RunDone> {
+  async run(params: RunParams, _emit: (event: RunEvent) => void, signal: AbortSignal, _context?: RunnerContext): Promise<RunDone> {
     if (signal.aborted) return { run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0, error: "Cancelado" };
     return {
       run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0,
