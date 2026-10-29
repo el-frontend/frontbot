@@ -1,5 +1,7 @@
 # Frontbot Codex Integration Implementation Plan
 
+> **Superseded (2026-10-28):** This CLI/app-server implementation plan is retained as a historical record. Follow [the API-key-only integration plan](2026-10-28-frontbot-api-key-only-integration.md) and its approved design amendment instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Codex as a selectable provider per Frontbot agent, with Codex CLI account authentication or an OpenAI API key, while retaining Frontbot’s UI, tools, data ownership, streaming and approval controls.

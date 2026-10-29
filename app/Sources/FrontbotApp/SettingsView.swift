@@ -118,6 +118,8 @@ struct SettingsView: View {
         }
         note("Codex usa una API key de OpenAI guardada de forma segura en el llavero.")
         note("El uso se factura a tu proyecto de API de OpenAI; no se incluye en tu suscripción de ChatGPT o Codex.")
+        note("Frontbot conserva el historial de tus conversaciones.")
+        note("Las solicitudes usan store:false: OpenAI no guarda el objeto de respuesta normal. El tratamiento de datos sigue los controles de tu proyecto de API de OpenAI.")
         HStack(spacing: 8) {
             SecureField("API key de OpenAI (opcional)", text: $openAIKey)
                 .textFieldStyle(.plain).font(.system(size: 13))

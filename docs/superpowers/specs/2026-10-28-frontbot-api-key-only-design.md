@@ -4,9 +4,9 @@
 
 ## Context and decision
 
-The approved app-server design was prototyped against the installed Codex CLI `0.158.0-alpha.2.1`. Its generated `SandboxPolicy.readOnly` schema does not expose restricted read roots. The isolated CLI probe could initialize a thread and connect to a local MCP server, but it could not validate a completed authenticated turn or demonstrate that native shell and file-read capabilities can be denied while MCP remains available. Read-only access therefore cannot meet Frontbot's security boundary, and the production Codex runtime is currently disabled.
+The approved app-server design was prototyped against the installed Codex CLI `0.158.0-alpha.2.1`. Its generated `SandboxPolicy.readOnly` schema does not expose restricted read roots. The isolated CLI probe could initialize a thread and connect to a local MCP server, but it could not validate a completed authenticated turn or demonstrate that native shell and file-read capabilities can be denied while MCP remains available. Read-only access therefore cannot meet Frontbot's security boundary, and the CLI runtime is disabled.
 
-The user approved an API-key-only route. Frontbot will call the OpenAI Responses API directly from its Node sidecar. It will expose only Frontbot-owned function tools for each run, and each function call will return to Swift through the existing `tool.*` RPC handling and approval flow. The Codex CLI, local Codex session, app-server process, native shell tools, and the per-run MCP socket are out of scope for this version.
+The user approved an API-key-only route. Frontbot calls the OpenAI Responses API directly from its Node sidecar. It exposes only Frontbot-owned function tools for each run, and each function call returns to Swift through the existing `tool.*` RPC handling and approval flow. The Codex CLI, local Codex session, app-server process, native shell tools, and the per-run MCP socket are out of scope for this version.
 
 The internal persisted provider identifier remains `codex` to preserve the v12 database migration and existing agent assignments. Settings will present this as a Codex/OpenAI API-key connection and will not imply that CLI sign-in is supported.
 
