@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { RpcPeer } from "./rpc.js";
-import { RealRunner, FakeRunner, ProviderRunner, redactSecrets, type Runner, type RunParams } from "./runner.js";
+import { createProductionRunner, redactSecrets, type Runner, type RunParams } from "./runner.js";
 import { HyperliquidTrader, FakeTrader, type Trader } from "./trader.js";
 
 // stdout es solo para JSON-RPC; cualquier log va a stderr.
@@ -42,8 +42,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const peer = new RpcPeer(process.stdin, process.stdout);
   const call = (m: string, p: Record<string, unknown>) => peer.request(m, p);
   const fake = process.env.FRONTBOT_FAKE_AGENT === "1";
-  const runner = fake ? new ProviderRunner(new FakeRunner(call), new FakeRunner(call))
-    : new ProviderRunner(new RealRunner(call));
+  const runner = createProductionRunner(call, process.env, fake);
   startServer(peer, runner, fake ? new FakeTrader() : new HyperliquidTrader());
   process.stdin.on("end", () => process.exit(0));
 }
