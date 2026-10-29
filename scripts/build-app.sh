@@ -4,11 +4,14 @@
 #   DEVELOPER_ID="Developer ID Application: Nombre (TEAMID)"  firma con runtime endurecido
 #   NOTARY_PROFILE=frontbot  además notariza y grapa el ticket; crea el perfil una vez con
 #     xcrun notarytool store-credentials frontbot --apple-id <email> --team-id <TEAMID>
+#   VERSION=1.2.0  versión de la app (por defecto 0.4.0); BUILD_NUMBER=12  número de build (por defecto 4)
 # El resultado para repartir queda en build/Frontbot.zip.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/build/Frontbot.app"
 NODE_BIN="${NODE_BIN:-$(command -v node)}"
+VERSION="${VERSION:-0.4.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-4}"
 
 echo "→ Compilando la app (release)"
 swift build --package-path "$ROOT/app" -c release --product FrontbotApp
@@ -35,7 +38,7 @@ mkdir -p "$APP/Contents/Resources/es.lproj" "$APP/Contents/Resources/en.lproj"
 cat "$ROOT"/app/Localization/en/*.strings > "$APP/Contents/Resources/en.lproj/Localizable.strings"
 plutil -lint "$APP/Contents/Resources/en.lproj/Localizable.strings" >/dev/null
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -48,8 +51,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>Frontbot</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundleShortVersionString</key><string>0.4.0</string>
-  <key>CFBundleVersion</key><string>4</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSMicrophoneUsageDescription</key><string>Frontbot usa el micrófono para dictar mensajes en el chat.</string>
@@ -61,7 +64,10 @@ PLIST
 if [ -z "${DEVELOPER_ID:-}" ]; then
   echo "→ Firmando (ad-hoc)"
   codesign --force --deep -s - "$APP" >/dev/null 2>&1
-  echo "✓ $APP ($(du -sh "$APP" | cut -f1))"
+  ZIP="$ROOT/build/Frontbot.zip"
+  rm -f "$ZIP"
+  ditto -c -k --keepParent "$APP" "$ZIP"
+  echo "✓ $APP ($(du -sh "$APP" | cut -f1)) → $ZIP ($(du -sh "$ZIP" | cut -f1))"
   exit 0
 fi
 
