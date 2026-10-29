@@ -5,11 +5,16 @@ public struct AgentConfig: Sendable {
     public var nodePath: String
     public var scriptPath: String
     public var apiKey: String?
+    public var openAIAPIKey: String?
+    public var codexExecutable: String?
     public var model: String
     public var fakeAgent: Bool
 
-    public init(nodePath: String, scriptPath: String, apiKey: String?, model: String, fakeAgent: Bool) {
-        self.nodePath = nodePath; self.scriptPath = scriptPath; self.apiKey = apiKey; self.model = model; self.fakeAgent = fakeAgent
+    public init(nodePath: String, scriptPath: String, apiKey: String?, openAIAPIKey: String? = nil,
+                codexExecutable: String? = nil, model: String, fakeAgent: Bool) {
+        self.nodePath = nodePath; self.scriptPath = scriptPath; self.apiKey = apiKey
+        self.openAIAPIKey = openAIAPIKey; self.codexExecutable = codexExecutable
+        self.model = model; self.fakeAgent = fakeAgent
     }
 }
 
@@ -184,7 +189,11 @@ public actor AgentClient {
         activeRuns.insert(run.id)
         if let study { studyRuns[run.id] = StudyRun(sessionId: study.session.id, budgetTokens: study.budgetTokens) }
         do {
-            var params: [String: JSONValue] = ["run_id": .string(run.id), "prompt": .string(prompt), "model": .string(model ?? config.model)]
+            let provider = agent?.provider ?? .claude
+            let storedModel = model ?? agent?.model ?? config.model
+            let resolvedModel = agent == nil ? storedModel : AgentProvider.resolve(storedModel, for: provider)
+            var params: [String: JSONValue] = ["run_id": .string(run.id), "prompt": .string(prompt),
+                                               "provider": .string(provider.rawValue), "model": .string(resolvedModel)]
             if let brand {
                 let guide = try files.readGuide(brandId: brand.id)
                 params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
@@ -363,7 +372,12 @@ public actor AgentClient {
     static func sidecarEnvironment(config: AgentConfig, inherited: [String: String]) -> [String: String] {
         var env = inherited.filter { ["PATH", "HOME", "TMPDIR", "USER"].contains($0.key) }
         env["CLAUDE_AGENT_SDK_CLIENT_APP"] = "frontbot/0.1.0"
-        if let key = CredentialStore.normalizedApiKey(config.apiKey) { env["ANTHROPIC_API_KEY"] = key }
+        if let key = CredentialStore.normalizedApiKey(config.apiKey) {
+            env["ANTHROPIC_API_KEY"] = key
+            env["FRONTBOT_ANTHROPIC_API_KEY"] = key
+        }
+        if let key = CredentialStore.normalizedApiKey(config.openAIAPIKey) { env["FRONTBOT_OPENAI_API_KEY"] = key }
+        if let executable = config.codexExecutable, !executable.isEmpty { env["FRONTBOT_CODEX_EXECUTABLE"] = executable }
         if config.fakeAgent { env["FRONTBOT_FAKE_AGENT"] = "1" }
         return env
     }
@@ -624,4 +638,3 @@ extension AgentClient: TradeExecutor {
         try await call("account.overview", params: ["network": .string(network.rawValue), "address": .string(address)], timeout: .seconds(30))
     }
 }
-

@@ -71,6 +71,34 @@ final class AgentClientRobustnessTests: XCTestCase {
         XCTAssertEqual(env(nil)["HOME"], "/Users/x")
     }
 
+    func testSidecarConfigurationCarriesCodexCredentialsWithoutExposingOpenAIKeyAsProviderKey() {
+        let config = AgentConfig(nodePath: "/n", scriptPath: "/s", apiKey: "anthropic", openAIAPIKey: "openai",
+                                 codexExecutable: "/bin/codex", model: "m", fakeAgent: false)
+        let env = AgentClient.sidecarEnvironment(config: config, inherited: ["PATH": "/bin", "OPENAI_API_KEY": "shell-openai"])
+        XCTAssertEqual(env["ANTHROPIC_API_KEY"], "anthropic")
+        XCTAssertEqual(env["FRONTBOT_OPENAI_API_KEY"], "openai")
+        XCTAssertEqual(env["FRONTBOT_CODEX_EXECUTABLE"], "/bin/codex")
+        XCTAssertNil(env["OPENAI_API_KEY"])
+    }
+
+    func testRunSendsAgentProviderAndDefaultsItsModelForThatProvider() async throws {
+        let client = try makeClient()
+        var draft = AgentDraft(name: "Codex", instructions: "x", provider: .codex)
+        draft.model = "gpt-5-codex"
+        let agent = try db.createAgent(workspaceId: ws.id, draft: draft, status: .active)
+        let stream = await client.updates()
+        let run = try await client.run(prompt: "provider", agent: agent, brand: nil)
+        var result: AgentRun?
+        var texts: [String] = []
+        for await update in stream {
+            if case .event(let runId, _, let text) = update, runId == run.id { texts.append(text) }
+            if case .finished(let finished) = update, finished.id == run.id { result = finished; break }
+        }
+        XCTAssertEqual(result?.status, .done)
+        XCTAssertTrue(texts.contains("Modelo: gpt-5-codex"))
+        await client.stop()
+    }
+
     // 4. Un run que nunca termina se puede detener
     func testCancelOnHungRunFailsItAfterGracePeriod() async throws {
         let client = try makeClient(cancelGrace: .milliseconds(500))
