@@ -6,7 +6,7 @@ export class RpcError extends Error {
   }
 }
 
-type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
+type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; signal?: AbortSignal; onAbort?: () => void };
 
 /** JSON-RPC 2.0 bidireccional, un mensaje JSON por línea. */
 export class RpcPeer {
@@ -20,7 +20,10 @@ export class RpcPeer {
     input.setEncoding("utf8");
     input.on("data", (chunk: string) => this.onData(chunk));
     input.on("end", () => {
-      for (const p of this.pending.values()) p.reject(new RpcError("Conexión cerrada", -32001));
+      for (const p of this.pending.values()) {
+        p.signal?.removeEventListener("abort", p.onAbort!);
+        p.reject(new RpcError("Conexión cerrada", -32001));
+      }
       this.pending.clear();
     });
   }
@@ -33,10 +36,19 @@ export class RpcPeer {
     this.notificationHandlers.set(method, handler);
   }
 
-  request<T = unknown>(method: string, params: unknown): Promise<T> {
+  request<T = unknown>(method: string, params: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      if (options.signal?.aborted) {
+        reject(options.signal.reason instanceof Error ? options.signal.reason : new Error("Cancelado"));
+        return;
+      }
+      const onAbort = () => {
+        this.pending.delete(id);
+        reject(options.signal!.reason instanceof Error ? options.signal!.reason : new Error("Cancelado"));
+      };
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, signal: options.signal, onAbort });
+      options.signal?.addEventListener("abort", onAbort, { once: true });
       this.send({ jsonrpc: "2.0", id, method, params });
     });
   }
@@ -85,6 +97,7 @@ export class RpcPeer {
     const pending = this.pending.get(msg.id);
     if (!pending) return;
     this.pending.delete(msg.id);
+    pending.signal?.removeEventListener("abort", pending.onAbort!);
     if (msg.error) pending.reject(new RpcError(msg.error.message, msg.error.code));
     else pending.resolve(msg.result);
   }

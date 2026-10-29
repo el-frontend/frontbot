@@ -29,16 +29,22 @@ describe("ProviderRunner", () => {
     expect(codex).toMatchObject({ run_id: "x", ok: true, summary: "codex" });
   });
 
-  it("forwards internal Frontbot tool context only to the selected provider", async () => {
+  it("forwards internal Frontbot tool context to Codex but not Claude", async () => {
     let received: unknown;
+    let claudeContext: unknown;
     const codex: Runner = { async run(_params, _emit, _signal, context) {
       received = context;
       return { run_id: "x", ok: true, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0 };
     } };
-    const router = new ProviderRunner({ async run() { throw new Error("unexpected"); } }, codex);
+    const router = new ProviderRunner({ async run(_params, _emit, _signal, context) {
+      claudeContext = context;
+      return { run_id: "c", ok: true, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+    } }, codex);
     const context = { frontbot: { context: { isDefault: true }, execute: async () => ({ content: [{ type: "text" as const, text: "{}" }] }) } };
     await router.run({ run_id: "x", prompt: "p", model: "codex", provider: "codex" }, () => {}, new AbortController().signal, context);
     expect(received).toBe(context);
+    await router.run({ run_id: "c", prompt: "p", model: "claude", provider: "claude" }, () => {}, new AbortController().signal, context);
+    expect(claudeContext).toBeUndefined();
   });
 });
 

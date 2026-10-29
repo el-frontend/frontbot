@@ -30,6 +30,7 @@ const MARKET_TOOL_NAMES = ["market_price", "market_candles", "market_funding", "
 export const toolContext = (params: RunParams): ToolContext => ({
   agentId: params.agent?.id, isDefault: params.agent?.is_default ?? true, memoryOnly: params.mode === "summarize",
   runId: params.run_id, scheduled: params.mode === "scheduled", files: (params.folders?.length ?? 0) > 0,
+  trading: params.trading,
   // Cerrado por defecto: en estudio la lista de estudio rige aunque falte el tema (RealRunner lo rechaza antes).
   study: params.mode === "study" ? { topicId: params.study?.topic_id ?? "", sessionId: params.study?.session_id ?? "" } : undefined,
 });
@@ -125,7 +126,7 @@ export class ProviderRunner implements Runner {
     }
     return (params.provider ?? "claude") === "codex"
       ? this.codex.run(params, emit, signal, context)
-      : this.claude.run(params, emit, signal, context);
+      : this.claude.run(params, emit, signal);
   }
 }
 
@@ -309,7 +310,7 @@ export class RealRunner implements Runner {
     signal.addEventListener("abort", () => abortController.abort(), { once: true });
     const plugin = params.skills?.length && params.mode !== "study" ? prepareSkillPlugin(params.skills) : undefined;
     const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [
-      ...buildTools(this.call, { ...toolContext(params), skillPlugin: plugin }),
+      ...buildTools(this.call, { ...toolContext(params), trading: undefined, skillPlugin: plugin }),
       ...(params.trading && params.mode === "study" ? buildMarketTools(realMarket, "mainnet") : []),
       ...(params.trading && params.mode !== "summarize" && params.mode !== "study" ? buildTradingTools(this.call, { agentId: params.agent?.id, trading: params.trading }) : []),
     ] });

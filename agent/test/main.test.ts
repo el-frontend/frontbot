@@ -58,17 +58,19 @@ describe("agent server with FakeRunner", () => {
     const agent = new RpcPeer(appToAgent, agentToApp);
     let routedParams: any;
     let context: any;
+    let proposals = 0;
     const runner = {
       async run(params: any, _emit: any, _signal: any, runContext: any) {
         routedParams = params;
         context = runContext;
-        const result = await runContext.frontbot.execute("trade_propose", {
+        const args = {
           coin: "btc", side: "long", size_usd: 10, leverage: 2, entry_type: "market", stop_loss: 1, rationale: "test",
-        });
+        };
+        const [result] = await Promise.all([runContext.frontbot.execute("trade_propose", args), runContext.frontbot.execute("trade_propose", args)]);
         return { run_id: params.run_id, ok: true, summary: JSON.stringify(result), input_tokens: 0, output_tokens: 0, cost_usd: 0 };
       },
     };
-    app.onRequest("tool.trade_propose", async (params) => params);
+    app.onRequest("tool.trade_propose", async (params) => { proposals++; return params; });
     startServer(agent, runner);
     const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
     await expect(app.request("agent.run", {
@@ -80,7 +82,8 @@ describe("agent server with FakeRunner", () => {
     expect(result).toMatchObject({ run_id: "codex-direct-run", ok: true });
     expect(JSON.parse(result.summary)).toEqual({ content: [{ type: "text", text: expect.stringContaining('"network":"testnet"') }] });
     expect(routedParams).not.toHaveProperty("frontbot_mcp");
-    expect(context.frontbot.context).toMatchObject({ agentId: "agent-1", isDefault: false, trading: true });
+    expect(context.frontbot.context).toMatchObject({ agentId: "agent-1", isDefault: false, trading: { network: "testnet" } });
+    expect(proposals).toBe(1);
     vi.restoreAllMocks();
   });
 
@@ -103,6 +106,41 @@ describe("agent server with FakeRunner", () => {
     expect(receivedContext.frontbot).toBeDefined();
     expect(JSON.stringify(receivedContext)).not.toContain("socketPath");
     expect(JSON.stringify(receivedContext)).not.toContain("token");
+  });
+
+  it("cancels a pending direct Frontbot tool call", async () => {
+    const appToAgent = new PassThrough();
+    const agentToApp = new PassThrough();
+    const app = new RpcPeer(agentToApp, appToAgent);
+    const agent = new RpcPeer(appToAgent, agentToApp);
+    app.onRequest("tool.brands_list", () => new Promise(() => undefined));
+    startServer(agent, {
+      async run(params: any, _emit: any, _signal: any, context: any) {
+        const result = await context.frontbot.execute("brands_list", {});
+        return { run_id: params.run_id, ok: true, summary: result.content[0].text, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+      },
+    });
+    const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
+    await app.request("agent.run", { run_id: "cancel-tool", provider: "codex", prompt: "hola", model: "gpt-6-astra" });
+    await app.request("agent.cancel", { run_id: "cancel-tool" });
+    await expect(done).resolves.toMatchObject({ run_id: "cancel-tool", summary: "Cancelado" });
+  });
+
+  it("bounds a pending direct Frontbot tool call", async () => {
+    const appToAgent = new PassThrough();
+    const agentToApp = new PassThrough();
+    const app = new RpcPeer(agentToApp, appToAgent);
+    const agent = new RpcPeer(appToAgent, agentToApp);
+    app.onRequest("tool.brands_list", () => new Promise(() => undefined));
+    startServer(agent, {
+      async run(params: any, _emit: any, _signal: any, context: any) {
+        const result = await context.frontbot.execute("brands_list", {});
+        return { run_id: params.run_id, ok: true, summary: result.content[0].text, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+      },
+    }, undefined, { appCallTimeoutMs: 10 });
+    const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
+    await app.request("agent.run", { run_id: "timeout-tool", provider: "codex", prompt: "hola", model: "gpt-6-astra" });
+    await expect(done).resolves.toMatchObject({ run_id: "timeout-tool", summary: expect.stringContaining("superó el plazo") });
   });
 
   it("cancel that arrives before the runner starts waiting still cancels", async () => {

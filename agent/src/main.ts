@@ -5,9 +5,29 @@ import { HyperliquidTrader, FakeTrader, type Trader } from "./trader.js";
 import { realMarket } from "./trading.js";
 import { executeFrontbotTool, type AppCall } from "./tools.js";
 
+/** Matches the former bridge's approval/runtime budget. */
+export const APP_CALL_TIMEOUT_MS = 200_000;
+
+function stableJSON(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJSON).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJSON(item)}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function boundedAppCall(peer: RpcPeer, method: string, params: Record<string, unknown>, signal: AbortSignal, timeoutMs: number): Promise<unknown> {
+  const controller = new AbortController();
+  const cancel = () => controller.abort(new Error("Cancelado"));
+  const timer = setTimeout(() => controller.abort(new Error(`La solicitud ${method} superó el plazo de ${timeoutMs / 1000}s y puede seguir pendiente en Frontbot. No repitas esta acción.`)), timeoutMs);
+  signal.addEventListener("abort", cancel, { once: true });
+  return peer.request(method, params, { signal: controller.signal }).finally(() => {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", cancel);
+  });
+}
+
 // stdout es solo para JSON-RPC; cualquier log va a stderr.
 
-export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader) {
+export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader, options: { appCallTimeoutMs?: number } = {}) {
   const active = new Map<string, AbortController>();
 
   peer.onRequest("agent.run", async (params: RunParams) => {
@@ -23,12 +43,23 @@ export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader) {
               realMarket.marketPrice(params.trading.network, coin),
               params.trading.address ? realMarket.accountState(params.trading.network, params.trading.address) : Promise.resolve(null),
             ]);
-            return peer.request(method, { ...toolParams, snapshot: { price, account_value: account?.account_value ?? null, network: params.trading.network } });
+            return boundedAppCall(peer, method, { ...toolParams, snapshot: { price, account_value: account?.account_value ?? null, network: params.trading.network } }, controller.signal, options.appCallTimeoutMs ?? APP_CALL_TIMEOUT_MS);
           }
-          return peer.request(method, toolParams);
+          return boundedAppCall(peer, method, toolParams, controller.signal, options.appCallTimeoutMs ?? APP_CALL_TIMEOUT_MS);
         };
-        const tools = { ...toolContext(params), trading: Boolean(params.trading) };
-        context = { frontbot: { call, context: tools, execute: (name, args) => executeFrontbotTool(name, args, call, tools) } };
+        const tools = toolContext(params);
+        const inFlight = new Map<string, ReturnType<typeof executeFrontbotTool>>();
+        const execute = (name: string, args: Record<string, unknown>) => {
+          const fingerprint = stableJSON([name, args]);
+          let execution = inFlight.get(fingerprint);
+          if (!execution) {
+            execution = executeFrontbotTool(name, args, call, tools);
+            inFlight.set(fingerprint, execution);
+            void execution.finally(() => { if (inFlight.get(fingerprint) === execution) inFlight.delete(fingerprint); }).catch(() => undefined);
+          }
+          return execution;
+        };
+        context = { frontbot: { call, context: tools, execute } };
       }
       void runner
         .run(params, (e) => peer.notify("agent.event", e), controller.signal, context)
