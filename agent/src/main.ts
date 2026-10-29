@@ -35,7 +35,7 @@ export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader) {
       void runner
         .run(routedParams, (e) => peer.notify("agent.event", e), controller.signal)
         .then((done) => peer.notify("agent.done", done))
-        .catch((err: Error) => peer.notify("agent.done", { run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0, error: safeError(err) }))
+        .catch((err: Error) => peer.notify("agent.done", { run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0, error: safeError(err, bridge?.token) }))
         .finally(async () => {
           await bridge?.close();
           active.delete(params.run_id);
@@ -43,7 +43,7 @@ export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader) {
     } catch (err) {
       await bridge?.close();
       active.delete(params.run_id);
-      throw err;
+      throw new Error(safeError(err as Error, bridge?.token));
     }
     return { accepted: true };
   });
@@ -63,8 +63,9 @@ export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader) {
 }
 
 /** Never reflect configured credentials in the stable JSON-RPC error contract. */
-function safeError(error: Error): string {
-  return redactSecrets(error?.message || "Error desconocido");
+function safeError(error: Error, bridgeToken?: string): string {
+  const message = error?.message || "Error desconocido";
+  return redactSecrets(bridgeToken ? message.split(bridgeToken).join("[redacted]") : message);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
