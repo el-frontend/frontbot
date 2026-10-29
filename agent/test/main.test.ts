@@ -40,12 +40,12 @@ describe("agent server with FakeRunner", () => {
     app.onNotification("agent.event", (event) => events.push(event));
     const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
 
-    await expect(app.request("agent.run", { run_id: "codex-run", prompt: "provider", provider: "codex", model: "gpt-5-codex", agent: { id: "a", name: "A", instructions: "x", is_default: false } }))
+    await expect(app.request("agent.run", { run_id: "codex-run", prompt: "provider", provider: "codex", model: "gpt-6-astra", agent: { id: "a", name: "A", instructions: "x", is_default: false } }))
       .resolves.toEqual({ accepted: true });
     await expect(done).resolves.toMatchObject({ run_id: "codex-run", ok: true, summary: "codex", input_tokens: 0, output_tokens: 0, cost_usd: 0 });
     expect(events).toEqual([
       { run_id: "codex-run", type: "text", text: "codex" },
-      { run_id: "codex-run", type: "text", text: "Modelo: gpt-5-codex" },
+      { run_id: "codex-run", type: "text", text: "Modelo: gpt-6-astra" },
     ]);
   });
 
@@ -67,7 +67,7 @@ describe("agent server with FakeRunner", () => {
     startServer(agent, runner);
     const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
     await expect(app.request("agent.run", {
-      run_id: "codex-bridge-run", provider: "codex", prompt: "list brands", model: "gpt-5-codex",
+      run_id: "codex-bridge-run", provider: "codex", prompt: "list brands", model: "gpt-6-astra",
       agent: { id: "agent-1", name: "A", instructions: "", is_default: false },
     })).resolves.toEqual({ accepted: true });
     const result = await done;

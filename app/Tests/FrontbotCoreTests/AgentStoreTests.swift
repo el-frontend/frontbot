@@ -59,21 +59,21 @@ final class AgentStoreTests: XCTestCase {
     func testProviderAndModelRoundTripForBothProviders() throws {
         let claude = try db.createAgent(workspaceId: ws.id, draft: AgentDraft(name: "Claude", instructions: "x"), status: .active)
         let codex = try db.createAgent(workspaceId: ws.id,
-                                      draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex, model: "gpt-5"), status: .active)
+                                      draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex, model: "gpt-5.6-terra"), status: .active)
         XCTAssertEqual(try db.agent(id: claude.id)?.provider, .claude)
         XCTAssertEqual(try db.agent(id: claude.id)?.model, AgentConfig.defaultModel)
         XCTAssertEqual(try db.agent(id: codex.id)?.provider, .codex)
-        XCTAssertEqual(try db.agent(id: codex.id)?.model, "gpt-5")
+        XCTAssertEqual(try db.agent(id: codex.id)?.model, "gpt-5.6-terra")
     }
 
     func testUpdatingAgentPreservesProviderAndNormalizesIncompatibleModel() throws {
         let agent = try db.createAgent(workspaceId: ws.id,
-                                       draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex, model: "gpt-5"), status: .active)
+                                       draft: AgentDraft(name: "Codex", instructions: "x", provider: .codex, model: "gpt-5.6-terra"), status: .active)
         var draft = AgentDraft(agent: agent)
         draft.instructions = "updated"
         let updated = try db.updateAgent(id: agent.id, draft: draft)
         XCTAssertEqual(updated.provider, .codex)
-        XCTAssertEqual(updated.model, "gpt-5")
+        XCTAssertEqual(updated.model, "gpt-5.6-terra")
 
         draft.model = "claude-sonnet-5-5"
         XCTAssertEqual(try db.updateAgent(id: agent.id, draft: draft).model, AgentProvider.defaultModel(for: .codex))
@@ -90,9 +90,9 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertTrue(switched.browser, "Changing provider must preserve the saved browser preference.")
 
         draft = AgentDraft(agent: switched)
-        draft.model = "gpt-5"
+        draft.model = "gpt-5.6-terra"
         let kept = try db.updateAgent(id: agent.id, draft: draft)
-        XCTAssertEqual(kept.model, "gpt-5")
+        XCTAssertEqual(kept.model, "gpt-5.6-terra")
     }
 
     func testV11AgentsMigrateToClaudeProvider() throws {

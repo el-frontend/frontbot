@@ -8,7 +8,7 @@ public enum AgentProvider: String, Codable, CaseIterable, Sendable {
     public static func defaultModel(for provider: AgentProvider) -> String {
         switch provider {
         case .claude: AgentConfig.defaultModel
-        case .codex: "gpt-5-codex"
+        case .codex: "gpt-6-astra"
         }
     }
 
@@ -16,8 +16,13 @@ public enum AgentProvider: String, Codable, CaseIterable, Sendable {
         switch provider {
         case .claude: AgentModel.all
         case .codex: [
-            ("gpt-5-codex", "GPT-5 Codex · programación"),
-            ("gpt-5", "GPT-5 · general"),
+            ("gpt-6-astra", "GPT-6 Astra · general y programación"),
+            ("gpt-6-sol", "GPT-6 Sol"),
+            ("gpt-6-luna", "GPT-6 Luna"),
+            ("gpt-5.6-sol", "GPT-5.6 Sol"),
+            ("gpt-5.6-terra", "GPT-5.6 Terra"),
+            ("gpt-5.6-luna", "GPT-5.6 Luna"),
+            ("gpt-5.5", "GPT-5.5"),
         ]
         }
     }
