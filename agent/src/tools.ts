@@ -2,6 +2,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { LAB_TOOL_SPECS, LAB_ANYWHERE, LAB_CURRENT_TOPIC } from "./lab.js";
 import { unaliasSkillPaths, type SkillPlugin } from "./skills.js";
+import { buildTradingTools, TRADING_TOOL_NAMES, type RunTrading } from "./trading.js";
 
 export type AppCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
@@ -56,7 +57,13 @@ export const DEFAULT_AGENT_TOOL_SPECS = [
 ] as const;
 
 /** Only available when the run has an app-validated trading mandate. */
-export const TRADING_PROPOSAL_TOOL_SPECS = [
+const tradingCoin = z.string().describe("Símbolo en Hyperliquid, p. ej. BTC o ETH");
+export const TRADING_TOOL_SPECS = [
+  { name: "market_price", description: "Precio medio actual de una moneda en Hyperliquid.", shape: { coin: tradingCoin } },
+  { name: "market_candles", description: "Velas OHLCV recientes.", shape: { coin: tradingCoin, interval: z.string(), count: z.number().int().min(1).max(500) } },
+  { name: "market_funding", description: "Funding por hora, open interest y precio mark/oráculo.", shape: { coin: tradingCoin } },
+  { name: "market_book", description: "Libro de órdenes de Hyperliquid.", shape: { coin: tradingCoin } },
+  { name: "account_state", description: "Valor de cuenta, margen disponible y posiciones.", shape: {} },
   { name: "trade_propose", description: "Propone un trade. La app valida el mandato y conserva el flujo de aprobación. La cotización y el valor de cuenta los agrega Frontbot; no inventes esos datos.", shape: {
     coin: z.string(), side: z.enum(["long", "short"]), size_usd: z.number().positive(), leverage: z.number().int().min(1),
     entry_type: z.enum(["market", "limit"]), entry_price: z.number().positive().optional(), stop_loss: z.number().positive(),
@@ -67,7 +74,7 @@ export const TRADING_PROPOSAL_TOOL_SPECS = [
 export const ALLOWED_TOOLS = ["WebSearch", "WebFetch", ...TOOL_SPECS.map((t) => `mcp__frontbot__${t.name}`)];
 
 /** Contexto del run: lo pone el sidecar, nunca el modelo. */
-export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean; trading?: boolean; skillPlugin?: SkillPlugin;
+export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean; trading?: RunTrading; skillPlugin?: SkillPlugin;
   /** Sesión de estudio del laboratorio: lista cerrada de herramientas, sin nada que publique, opere o escriba fuera. */
   study?: { topicId: string; sessionId: string } };
 
@@ -89,7 +96,7 @@ const specsFor = (ctx: ToolContext) => {
   // Tampoco hay nadie para aprobar una escritura: en una tarea programada solo se lee.
   const files = !ctx.files ? [] : ctx.scheduled ? FILE_TOOL_SPECS.filter((t) => t.name !== "files_write") : [...FILE_TOOL_SPECS];
   const lab = LAB_TOOL_SPECS.filter((t) => (LAB_ANYWHERE as readonly string[]).includes(t.name));
-  return [...base, ...files, ...MEMORY_TOOL_SPECS, ...lab, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : []), ...(ctx.trading ? TRADING_PROPOSAL_TOOL_SPECS : [])];
+  return [...base, ...files, ...MEMORY_TOOL_SPECS, ...lab, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : []), ...(ctx.trading ? TRADING_TOOL_SPECS : [])];
 };
 
 /** Nombres exactos (sin prefijo mcp) de la lista cerrada del modo estudio. */
@@ -114,6 +121,11 @@ export async function executeFrontbotTool(
   // Match the Claude SDK's normal Zod parsing: unknown model-supplied fields are stripped.
   const schema = z.object(spec.shape);
   const parsed = schema.parse(args);
+  if (ctx.trading && (TRADING_TOOL_NAMES as readonly string[]).includes(name)) {
+    const tradingTool = buildTradingTools(call, { agentId: ctx.agentId, trading: ctx.trading }).find((candidate) => candidate.name === name);
+    if (!tradingTool) throw new Error(`Herramienta no permitida: ${name}`);
+    return await tradingTool.handler(parsed as never, {} as never) as unknown as Awaited<ReturnType<typeof executeFrontbotTool>>;
+  }
   const params: Record<string, unknown> = ctx.agentId ? { ...parsed, agent_id: ctx.agentId } : { ...parsed };
   if (ctx.study) {
     if ((LAB_CURRENT_TOPIC as readonly string[]).includes(spec.name)) {
