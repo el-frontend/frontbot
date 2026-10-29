@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import { RpcPeer } from "../src/rpc.js";
 import { startServer } from "../src/main.js";
 import { FakeRunner, ProviderRunner } from "../src/runner.js";
+import { requestToolBridge } from "../src/tool-bridge.js";
 
 function setup() {
   const appToAgent = new PassThrough();
@@ -46,6 +47,34 @@ describe("agent server with FakeRunner", () => {
       { run_id: "codex-run", type: "text", text: "codex" },
       { run_id: "codex-run", type: "text", text: "Modelo: gpt-5-codex" },
     ]);
+  });
+
+  it("creates a private per-run MCP bridge for the Codex runner and forwards calls to Swift", async () => {
+    const appToAgent = new PassThrough();
+    const agentToApp = new PassThrough();
+    const app = new RpcPeer(agentToApp, appToAgent);
+    const agent = new RpcPeer(appToAgent, agentToApp);
+    let routedParams: any;
+    const runner = {
+      async run(params: any) {
+        routedParams = params;
+        const bridge = params.frontbot_mcp;
+        const result = await requestToolBridge(bridge, { op: "call", name: "brands_list", arguments: {} });
+        return { run_id: params.run_id, ok: true, summary: JSON.stringify(result), input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+      },
+    };
+    app.onRequest("tool.brands_list", async () => ({ brands: [{ id: "brand-1" }] }));
+    startServer(agent, runner);
+    const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
+    await expect(app.request("agent.run", {
+      run_id: "codex-bridge-run", provider: "codex", prompt: "list brands", model: "gpt-5-codex",
+      agent: { id: "agent-1", name: "A", instructions: "", is_default: false },
+    })).resolves.toEqual({ accepted: true });
+    const result = await done;
+    expect(result).toMatchObject({ run_id: "codex-bridge-run", ok: true });
+    expect(JSON.parse(result.summary)).toEqual({ content: [{ type: "text", text: '{"brands":[{"id":"brand-1"}]}' }] });
+    expect(routedParams.frontbot_mcp.socketPath).toContain("frontbot-mcp-");
+    expect(routedParams.frontbot_mcp.token).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("cancel that arrives before the runner starts waiting still cancels", async () => {

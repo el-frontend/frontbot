@@ -55,10 +55,19 @@ export const DEFAULT_AGENT_TOOL_SPECS = [
   { name: "agents_create_draft", description: "Propone un agente especializado nuevo. Queda en borrador: el usuario lo revisa y lo activa. model: claude-sonnet-5-5, claude-opus-5-5 o claude-haiku-4-5-20251001.", shape: { name: z.string(), description: z.string(), instructions: z.string(), model: z.string().optional(), browser: z.boolean().optional(), icon: z.string().optional().describe("Nombre de un SF Symbol") } },
 ] as const;
 
+/** Only available when the run has an app-validated trading mandate. */
+export const TRADING_PROPOSAL_TOOL_SPECS = [
+  { name: "trade_propose", description: "Propone un trade. La app valida el mandato y conserva el flujo de aprobación. La cotización y el valor de cuenta los agrega Frontbot; no inventes esos datos.", shape: {
+    coin: z.string(), side: z.enum(["long", "short"]), size_usd: z.number().positive(), leverage: z.number().int().min(1),
+    entry_type: z.enum(["market", "limit"]), entry_price: z.number().positive().optional(), stop_loss: z.number().positive(),
+    take_profit: z.number().positive().optional(), rationale: z.string(),
+  } },
+] as const;
+
 export const ALLOWED_TOOLS = ["WebSearch", "WebFetch", ...TOOL_SPECS.map((t) => `mcp__frontbot__${t.name}`)];
 
 /** Contexto del run: lo pone el sidecar, nunca el modelo. */
-export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean; skillPlugin?: SkillPlugin;
+export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean; trading?: boolean; skillPlugin?: SkillPlugin;
   /** Sesión de estudio del laboratorio: lista cerrada de herramientas, sin nada que publique, opere o escriba fuera. */
   study?: { topicId: string; sessionId: string } };
 
@@ -80,7 +89,7 @@ const specsFor = (ctx: ToolContext) => {
   // Tampoco hay nadie para aprobar una escritura: en una tarea programada solo se lee.
   const files = !ctx.files ? [] : ctx.scheduled ? FILE_TOOL_SPECS.filter((t) => t.name !== "files_write") : [...FILE_TOOL_SPECS];
   const lab = LAB_TOOL_SPECS.filter((t) => (LAB_ANYWHERE as readonly string[]).includes(t.name));
-  return [...base, ...files, ...MEMORY_TOOL_SPECS, ...lab, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : [])];
+  return [...base, ...files, ...MEMORY_TOOL_SPECS, ...lab, ...(ctx.isDefault ? DEFAULT_AGENT_TOOL_SPECS : []), ...(ctx.scheduled ? SCHEDULED_TOOL_SPECS : []), ...(ctx.trading ? TRADING_PROPOSAL_TOOL_SPECS : [])];
 };
 
 /** Nombres exactos (sin prefijo mcp) de la lista cerrada del modo estudio. */
@@ -88,26 +97,49 @@ export const STUDY_TOOL_NAMES: string[] = specsFor({ isDefault: false, study: { 
 
 export const allowedToolsFor = (ctx: ToolContext) => [...(ctx.memoryOnly ? [] : ["WebSearch", "WebFetch"]), ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];
 
+/** Provider-independent Frontbot tool contract shared by Claude and Codex. */
+export function frontbotToolSpecs(ctx: ToolContext = { isDefault: true }) {
+  return specsFor(ctx);
+}
+
+/** Invoke one tool through the app-owned handler, including trusted run context. */
+export async function executeFrontbotTool(
+  name: string,
+  args: Record<string, unknown>,
+  call: AppCall,
+  ctx: ToolContext = { isDefault: true },
+): Promise<{ content: [{ type: "text"; text: string }]; isError?: true }> {
+  const spec = specsFor(ctx).find((candidate) => candidate.name === name);
+  if (!spec) throw new Error(`Herramienta no permitida: ${name}`);
+  // Match the Claude SDK's normal Zod parsing: unknown model-supplied fields are stripped.
+  const schema = z.object(spec.shape);
+  const parsed = schema.parse(args);
+  const params: Record<string, unknown> = ctx.agentId ? { ...parsed, agent_id: ctx.agentId } : { ...parsed };
+  if (ctx.study) {
+    if ((LAB_CURRENT_TOPIC as readonly string[]).includes(spec.name)) {
+      params.topic_id = ctx.study.topicId;
+      params.session_id = ctx.study.sessionId;
+    } else if (spec.name === "lab_read_notebook" && typeof parsed.topic_id !== "string") {
+      params.topic_id = ctx.study.topicId;
+    }
+  }
+  if (spec.name === "notify_user" || spec.name === "files_write") params.run_id = ctx.runId;
+  if (spec.name === "skills_run_script" && ctx.skillPlugin && Array.isArray(params.args)) {
+    params.args = params.args.map((arg) => (typeof arg === "string" ? unaliasSkillPaths(arg, ctx.skillPlugin!) : arg));
+  }
+  try {
+    const result = await call(`tool.${spec.name}`, params);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  } catch (err) {
+    return { isError: true, content: [{ type: "text", text: (err as Error).message }] };
+  }
+}
+
 export function buildTools(call: AppCall, ctx: ToolContext = { isDefault: true }) {
-  return specsFor(ctx).map((spec) =>
+  return frontbotToolSpecs(ctx).map((spec) =>
     tool(spec.name, spec.description, spec.shape, async (args: Record<string, unknown>) => {
       try {
-        const params: Record<string, unknown> = ctx.agentId ? { ...args, agent_id: ctx.agentId } : { ...args };
-        if (ctx.study) {
-          // El tema y la sesión los pone el sidecar, nunca el modelo.
-          if ((LAB_CURRENT_TOPIC as readonly string[]).includes(spec.name)) {
-            params.topic_id = ctx.study.topicId;
-            params.session_id = ctx.study.sessionId;
-          } else if (spec.name === "lab_read_notebook" && typeof args.topic_id !== "string") {
-            params.topic_id = ctx.study.topicId;
-          }
-        }
-        if (spec.name === "notify_user" || spec.name === "files_write") params.run_id = ctx.runId; // el run lo identifica el sidecar, no el modelo
-        if (spec.name === "skills_run_script" && ctx.skillPlugin && Array.isArray(params.args)) {
-          params.args = params.args.map((a) => (typeof a === "string" ? unaliasSkillPaths(a, ctx.skillPlugin!) : a));
-        }
-        const result = await call(`tool.${spec.name}`, params);
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+        return await executeFrontbotTool(spec.name, args, call, ctx);
       } catch (err) {
         return { isError: true, content: [{ type: "text" as const, text: (err as Error).message }] };
       }
