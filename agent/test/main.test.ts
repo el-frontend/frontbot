@@ -77,6 +77,27 @@ describe("agent server with FakeRunner", () => {
     expect(routedParams.frontbot_mcp.token).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("removes the private bridge after a failed Codex run and never returns its token to the app", async () => {
+    const appToAgent = new PassThrough();
+    const agentToApp = new PassThrough();
+    const app = new RpcPeer(agentToApp, appToAgent);
+    const agent = new RpcPeer(appToAgent, agentToApp);
+    let bridge: any;
+    startServer(agent, {
+      async run(params: any) {
+        bridge = params.frontbot_mcp;
+        throw new Error(`Codex failed while starting MCP ${bridge.token}`);
+      },
+    });
+    const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
+    await app.request("agent.run", { run_id: "failed-codex", provider: "codex", prompt: "hola", model: "gpt-6-astra" });
+    const result = await done;
+    expect(result.error).toContain("Codex failed while starting MCP");
+    expect(result.error).not.toContain(bridge.token);
+    expect(JSON.stringify(result)).not.toContain(bridge.token);
+    await expect(requestToolBridge(bridge, { op: "list" }, 20)).rejects.toThrow();
+  });
+
   it("cancel that arrives before the runner starts waiting still cancels", async () => {
     const app = setup();
     let releaseBrands!: () => void;

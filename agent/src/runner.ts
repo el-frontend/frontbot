@@ -10,6 +10,7 @@ import { TokenMeter, buildStudyPrompt, studyAgents, STUDY_WARNING } from "./stud
 import { prepareSkillPlugin, readGuard, type RunSkill, type SkillPlugin } from "./skills.js";
 import { WORKDIR_TOOLS, isProtectedPath, sandboxSettings, workdirEnv, validateWorkdir, workdirDecision, type RunWorkdir } from "./workdir.js";
 import { buildSystemPrompt, buildUserPrompt, buildSummaryPrompt, type MemoryNote, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
+import { CodexRunner } from "./codex-runner.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
 export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
@@ -104,7 +105,7 @@ export class ProviderRunner implements Runner {
   }
 
   codexEnvironment(inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-    const config = this.codex instanceof CodexUnavailableRunner ? this.codex.config : {};
+    const config = this.codex instanceof CodexUnavailableRunner || this.codex instanceof CodexRunner ? this.codex.config : {};
     return providerEnvironment("codex", inherited, undefined, config.apiKey);
   }
 
@@ -443,5 +444,5 @@ export function createProductionRunner(call: AppCall, env: NodeJS.ProcessEnv = p
   const codexConfig = consumeCodexRuntimeConfig(env);
   return fake
     ? new ProviderRunner(new FakeRunner(call), new FakeRunner(call))
-    : new ProviderRunner(new RealRunner(call), new CodexUnavailableRunner(codexConfig));
+    : new ProviderRunner(new RealRunner(call), new CodexRunner(codexConfig));
 }
