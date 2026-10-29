@@ -19,12 +19,16 @@ final class CredentialStoreTests: XCTestCase {
         let secondWorkspace = UUID().uuidString
 
         XCTAssertNil(try store.openAIKey(workspaceId: firstWorkspace))
+        XCTAssertFalse(try store.hasOpenAIKey(workspaceId: firstWorkspace))
         try store.setOpenAIKey("  sk-openai-secret\n", workspaceId: firstWorkspace)
 
         XCTAssertEqual(try store.openAIKey(workspaceId: firstWorkspace), "sk-openai-secret")
+        XCTAssertTrue(try store.hasOpenAIKey(workspaceId: firstWorkspace))
         XCTAssertNil(try store.openAIKey(workspaceId: secondWorkspace))
+        XCTAssertFalse(try store.hasOpenAIKey(workspaceId: secondWorkspace))
         try store.deleteOpenAIKey(workspaceId: firstWorkspace)
         XCTAssertNil(try store.openAIKey(workspaceId: firstWorkspace))
+        XCTAssertFalse(try store.hasOpenAIKey(workspaceId: firstWorkspace))
     }
 
     func testOpenAIKeyRejectsWhitespaceOnlyValue() throws {

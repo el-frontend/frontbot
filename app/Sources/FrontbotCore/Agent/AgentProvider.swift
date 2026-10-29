@@ -17,12 +17,9 @@ public enum AgentProvider: String, Codable, CaseIterable, Sendable {
         case .claude: AgentModel.all
         case .codex: [
             ("gpt-6-astra", "GPT-6 Astra · general y programación"),
-            ("gpt-6-sol", "GPT-6 Sol"),
+            ("gpt-6.1-sol", "GPT-6.1 Sol"),
+            ("gpt-6.1-terra", "GPT-6.1 Terra"),
             ("gpt-6-luna", "GPT-6 Luna"),
-            ("gpt-5.6-sol", "GPT-5.6 Sol"),
-            ("gpt-5.6-terra", "GPT-5.6 Terra"),
-            ("gpt-5.6-luna", "GPT-5.6 Luna"),
-            ("gpt-5.5", "GPT-5.5"),
         ]
         }
     }
