@@ -1,9 +1,9 @@
 import { fileURLToPath } from "node:url";
 import { RpcPeer } from "./rpc.js";
-import { createProductionRunner, redactSecrets, toolContext, type Runner, type RunParams } from "./runner.js";
+import { createProductionRunner, redactSecrets, toolContext, type Runner, type RunParams, type RunnerContext } from "./runner.js";
 import { HyperliquidTrader, FakeTrader, type Trader } from "./trader.js";
-import { createToolBridge } from "./tool-bridge.js";
 import { realMarket } from "./trading.js";
+import { executeFrontbotTool, type AppCall } from "./tools.js";
 
 // stdout es solo para JSON-RPC; cualquier log va a stderr.
 
@@ -13,11 +13,10 @@ export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader) {
   peer.onRequest("agent.run", async (params: RunParams) => {
     const controller = new AbortController();
     active.set(params.run_id, controller);
-    let bridge: Awaited<ReturnType<typeof createToolBridge>> | undefined;
     try {
-      let routedParams = params;
+      let context: RunnerContext | undefined;
       if (params.provider === "codex") {
-        const call = async (method: string, toolParams: Record<string, unknown>) => {
+        const call: AppCall = async (method, toolParams) => {
           if (method === "tool.trade_propose" && params.trading) {
             const coin = String(toolParams.coin ?? "").toUpperCase();
             const [price, account] = await Promise.all([
@@ -28,22 +27,19 @@ export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader) {
           }
           return peer.request(method, toolParams);
         };
-        bridge = await createToolBridge(call, { ...toolContext(params), trading: Boolean(params.trading) });
-        // Private sidecar-only handoff consumed by CodexRunner. Never sent to Swift or logged.
-        routedParams = { ...params, frontbot_mcp: { socketPath: bridge.socketPath, token: bridge.token } } as RunParams;
+        const tools = { ...toolContext(params), trading: Boolean(params.trading) };
+        context = { frontbot: { call, context: tools, execute: (name, args) => executeFrontbotTool(name, args, call, tools) } };
       }
       void runner
-        .run(routedParams, (e) => peer.notify("agent.event", e), controller.signal)
+        .run(params, (e) => peer.notify("agent.event", e), controller.signal, context)
         .then((done) => peer.notify("agent.done", done))
-        .catch((err: Error) => peer.notify("agent.done", { run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0, error: safeError(err, bridge?.token) }))
-        .finally(async () => {
-          await bridge?.close();
+        .catch((err: Error) => peer.notify("agent.done", { run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0, error: safeError(err) }))
+        .finally(() => {
           active.delete(params.run_id);
         });
     } catch (err) {
-      await bridge?.close();
       active.delete(params.run_id);
-      throw new Error(safeError(err as Error, bridge?.token));
+      throw new Error(safeError(err as Error));
     }
     return { accepted: true };
   });

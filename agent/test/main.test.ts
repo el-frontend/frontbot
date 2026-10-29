@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { PassThrough } from "node:stream";
 import { RpcPeer } from "../src/rpc.js";
 import { startServer } from "../src/main.js";
 import { FakeRunner, ProviderRunner } from "../src/runner.js";
-import { requestToolBridge } from "../src/tool-bridge.js";
+import { realMarket } from "../src/trading.js";
 
 function setup() {
   const appToAgent = new PassThrough();
@@ -49,53 +49,60 @@ describe("agent server with FakeRunner", () => {
     ]);
   });
 
-  it("creates a private per-run MCP bridge for the Codex runner and forwards calls to Swift", async () => {
+  it("gives Codex a run-scoped Frontbot callback with its trusted trading snapshot", async () => {
+    vi.spyOn(realMarket, "marketPrice").mockResolvedValue(60_000);
+    vi.spyOn(realMarket, "accountState").mockResolvedValue({ account_value: 1_000 });
     const appToAgent = new PassThrough();
     const agentToApp = new PassThrough();
     const app = new RpcPeer(agentToApp, appToAgent);
     const agent = new RpcPeer(appToAgent, agentToApp);
     let routedParams: any;
+    let context: any;
     const runner = {
-      async run(params: any) {
+      async run(params: any, _emit: any, _signal: any, runContext: any) {
         routedParams = params;
-        const bridge = params.frontbot_mcp;
-        const result = await requestToolBridge(bridge, { op: "call", name: "brands_list", arguments: {} });
+        context = runContext;
+        const result = await runContext.frontbot.execute("trade_propose", {
+          coin: "btc", side: "long", size_usd: 10, leverage: 2, entry_type: "market", stop_loss: 1, rationale: "test",
+        });
         return { run_id: params.run_id, ok: true, summary: JSON.stringify(result), input_tokens: 0, output_tokens: 0, cost_usd: 0 };
       },
     };
-    app.onRequest("tool.brands_list", async () => ({ brands: [{ id: "brand-1" }] }));
+    app.onRequest("tool.trade_propose", async (params) => params);
     startServer(agent, runner);
     const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
     await expect(app.request("agent.run", {
-      run_id: "codex-bridge-run", provider: "codex", prompt: "list brands", model: "gpt-6-astra",
+      run_id: "codex-direct-run", provider: "codex", prompt: "propose trade", model: "gpt-6-astra",
       agent: { id: "agent-1", name: "A", instructions: "", is_default: false },
+      trading: { network: "testnet", address: "0x0000000000000000000000000000000000000000" },
     })).resolves.toEqual({ accepted: true });
     const result = await done;
-    expect(result).toMatchObject({ run_id: "codex-bridge-run", ok: true });
-    expect(JSON.parse(result.summary)).toEqual({ content: [{ type: "text", text: '{"brands":[{"id":"brand-1"}]}' }] });
-    expect(routedParams.frontbot_mcp.socketPath).toContain("frontbot-mcp-");
-    expect(routedParams.frontbot_mcp.token).toMatch(/^[a-f0-9]{64}$/);
+    expect(result).toMatchObject({ run_id: "codex-direct-run", ok: true });
+    expect(JSON.parse(result.summary)).toEqual({ content: [{ type: "text", text: expect.stringContaining('"network":"testnet"') }] });
+    expect(routedParams).not.toHaveProperty("frontbot_mcp");
+    expect(context.frontbot.context).toMatchObject({ agentId: "agent-1", isDefault: false, trading: true });
+    vi.restoreAllMocks();
   });
 
-  it("removes the private bridge after a failed Codex run and never returns its token to the app", async () => {
+  it("does not start a private MCP bridge for Codex runs", async () => {
     const appToAgent = new PassThrough();
     const agentToApp = new PassThrough();
     const app = new RpcPeer(agentToApp, appToAgent);
     const agent = new RpcPeer(appToAgent, agentToApp);
-    let bridge: any;
+    let receivedContext: any;
     startServer(agent, {
-      async run(params: any) {
-        bridge = params.frontbot_mcp;
-        throw new Error(`Codex failed while starting MCP ${bridge.token}`);
+      async run(_params: any, _emit: any, _signal: any, context: any) {
+        receivedContext = context;
+        return { run_id: "failed-codex", ok: true, summary: "done", input_tokens: 0, output_tokens: 0, cost_usd: 0 };
       },
     });
     const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
     await app.request("agent.run", { run_id: "failed-codex", provider: "codex", prompt: "hola", model: "gpt-6-astra" });
     const result = await done;
-    expect(result.error).toContain("Codex failed while starting MCP");
-    expect(result.error).not.toContain(bridge.token);
-    expect(JSON.stringify(result)).not.toContain(bridge.token);
-    await expect(requestToolBridge(bridge, { op: "list" }, 20)).rejects.toThrow();
+    expect(result).toMatchObject({ ok: true, summary: "done" });
+    expect(receivedContext.frontbot).toBeDefined();
+    expect(JSON.stringify(receivedContext)).not.toContain("socketPath");
+    expect(JSON.stringify(receivedContext)).not.toContain("token");
   });
 
   it("cancel that arrives before the runner starts waiting still cancels", async () => {
