@@ -126,6 +126,27 @@ describe("agent server with FakeRunner", () => {
     await expect(done).resolves.toMatchObject({ run_id: "cancel-tool", summary: "Cancelado" });
   });
 
+  it("does not send a tool RPC when cancellation happens before execution starts", async () => {
+    const appToAgent = new PassThrough();
+    const agentToApp = new PassThrough();
+    const app = new RpcPeer(agentToApp, appToAgent);
+    const agent = new RpcPeer(appToAgent, agentToApp);
+    const calls: string[] = [];
+    app.onRequest("tool.brands_list", async () => { calls.push("brands_list"); return {}; });
+    startServer(agent, {
+      async run(params: any, _emit: any, _signal: any, context: any) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const result = await context.frontbot.execute("brands_list", {});
+        return { run_id: params.run_id, ok: true, summary: result.content[0].text, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+      },
+    });
+    const done = new Promise<any>((resolve) => app.onNotification("agent.done", resolve));
+    await app.request("agent.run", { run_id: "cancel-before-tool", provider: "codex", prompt: "hola", model: "gpt-6-astra" });
+    await app.request("agent.cancel", { run_id: "cancel-before-tool" });
+    await expect(done).resolves.toMatchObject({ run_id: "cancel-before-tool", summary: "Cancelado" });
+    expect(calls).toEqual([]);
+  });
+
   it("bounds a pending direct Frontbot tool call", async () => {
     const appToAgent = new PassThrough();
     const agentToApp = new PassThrough();
