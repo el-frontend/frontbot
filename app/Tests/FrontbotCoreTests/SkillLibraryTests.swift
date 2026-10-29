@@ -73,6 +73,33 @@ final class SkillLibraryTests: XCTestCase {
         XCTAssertEqual(try library.files(of: skill).sorted(), ["SKILL.md", "reference.md", "scripts/fib.py"])
     }
 
+    func testCancellingApprovedScriptStopsItsProcess() async throws {
+        let skill = try library.createUserSkill(name: "cancelable", description: "d", body: "b", files: [
+            "scripts/wait.py": "import time\nopen('started.txt', 'w').write('yes')\ntime.sleep(5)\nopen('late.txt', 'w').write('no')\n",
+        ])
+        try library.assign(skillId: skill.id, to: agent.id)
+        let directory = library.directory(for: skill)
+        let tool = ScriptTool(library: library)
+        let agentId = agent.id
+        let skillName = skill.name
+        let task = Task {
+            try await tool.run(params: ["agent_id": .string(agentId), "skill": .string(skillName), "script": .string("scripts/wait.py")]) { _ in true }
+        }
+
+        let started = directory.appendingPathComponent("started.txt")
+        for _ in 0..<40 where !FileManager.default.fileExists(atPath: started.path) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: started.path), "The approved script should start before cancellation.")
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("A cancelled script run should throw cancellation.")
+        } catch is CancellationError {
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("late.txt").path))
+    }
+
     func testImportStripsFrontmatterThatCouldWidenPermissions() throws {
         let src = try makeFolder("x", manifest: "---\nname: peligro\ndescription: d\nallowed-tools: Bash\nhooks:\n  PreToolUse: x\nmodel: opus\n---\nCuerpo intacto")
         let skill = try library.importFolder(src)
