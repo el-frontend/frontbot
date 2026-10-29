@@ -31,6 +31,7 @@ public struct TaskRun: Codable, FetchableRecord, PersistableRecord, Identifiable
     public var notified: Bool
     public var conversationId: String?
     public var costUsd: Double
+    public var costAvailable: Bool = true
     public var startedAt: Date
     public var finishedAt: Date?
 }

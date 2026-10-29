@@ -122,4 +122,11 @@ final class StoreTests: XCTestCase {
         let done = try db.finishRun(id: run2.id, status: .done, summary: "ok", inputTokens: 10, outputTokens: 5, costUsd: 0.01)
         XCTAssertEqual(done.costUsd, 0.01)
     }
+
+    func testRunPersistsAnUnavailableProviderCostSeparatelyFromZero() throws {
+        let run = try db.startRun(workspaceId: ws.id, brandId: nil, prompt: "hola")
+        let done = try db.finishRun(id: run.id, status: .done, summary: "ok", inputTokens: 1, outputTokens: 2, costUsd: nil)
+        XCTAssertEqual(done.costUsd, 0)
+        XCTAssertFalse(done.costAvailable)
+    }
 }

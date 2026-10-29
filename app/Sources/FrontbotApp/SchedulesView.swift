@@ -150,7 +150,7 @@ struct TaskRow: View {
                         .foregroundStyle(run.status == .failed ? Theme.danger : Theme.muted)
                     Text(run.summary ?? (run.status == .running ? String(localized: "En curso") : "")).font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
                         .lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
-                    if run.costUsd > 0 { Text(String(format: "$%.3f", run.costUsd)).font(Theme.mono(10)).foregroundStyle(Theme.muted) }
+                    if run.costAvailable && run.costUsd > 0 { Text(String(format: "$%.3f", run.costUsd)).font(Theme.mono(10)).foregroundStyle(Theme.muted) }
                     if let conversationId = run.conversationId {
                         Button("Abrir") { model.openConversation(id: conversationId) }.buttonStyle(OutlineButtonStyle())
                     }

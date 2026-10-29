@@ -74,6 +74,8 @@ public struct AgentRun: Codable, FetchableRecord, PersistableRecord, Identifiabl
     public var inputTokens: Int
     public var outputTokens: Int
     public var costUsd: Double
+    /// false when the provider reports tokens but no comparable USD cost.
+    public var costAvailable: Bool = true
     public var logPath: String?
     public var createdAt: Date
 }
