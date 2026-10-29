@@ -76,6 +76,32 @@ func XCTAssertThrowsErrorAsync<T>(_ expression: @autoclosure () async throws -> 
 
 /// Con el sidecar real (agente falso): la escritura pasa por la aprobación y no existe en tareas programadas.
 final class FileWriteThroughSidecarTests: XCTestCase {
+    func testCancelWhileFileWriteApprovalIsOpenCannotWriteAfterwards() async throws {
+        let db = try AppDatabase.inMemory()
+        let ws = try db.ensureDefaultWorkspace()
+        let node = ProcessInfo.processInfo.environment["FRONTBOT_NODE"] ?? "/opt/homebrew/bin/node"
+        let script = AgentClientTests.repoRoot.appendingPathComponent("agent/dist/main.js").path
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: node), "usa FRONTBOT_NODE=$(which node)")
+        let base = URL(fileURLWithPath: ScriptSandbox.realPath(FileManager.default.temporaryDirectory)).appendingPathComponent(UUID().uuidString)
+        let folder = base.appendingPathComponent("marcas")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let client = AgentClient(config: AgentConfig(nodePath: node, scriptPath: script, apiKey: nil, model: "m", fakeAgent: true),
+                                 db: db, files: BrandFiles(paths: AppPaths(root: base.appendingPathComponent("Frontbot"))), workspaceId: ws.id)
+        let agent = try db.ensureDefaultAgent(workspaceId: ws.id)
+        try db.addFolder(agentId: agent.id, path: folder.path)
+        let gate = CancellationApprovalGate()
+        await client.setFileWriteApprover { _ in await gate.waitForCancellation() }
+
+        let run = try await client.run(prompt: "escribir", agent: agent, brand: nil)
+        await gate.waitUntilRequested()
+        await client.cancel(runId: run.id)
+        await gate.waitUntilCancelled()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("fake.txt").path))
+        await client.stop()
+    }
+
     func testChatWritesAfterApprovalAndScheduledRunsCannot() async throws {
         let db = try AppDatabase.inMemory()
         let ws = try db.ensureDefaultWorkspace()
@@ -114,6 +140,45 @@ final class FileWriteThroughSidecarTests: XCTestCase {
         let askedInChat = await asked.value
         XCTAssertEqual(askedInChat, 1)
         await client.stop()
+    }
+}
+
+private actor CancellationApprovalGate {
+    private var approval: CheckedContinuation<Bool, Never>?
+    private var requested: CheckedContinuation<Void, Never>?
+    private var cancelled: CheckedContinuation<Void, Never>?
+    private var wasRequested = false
+    private var wasCancelled = false
+
+    func waitForCancellation() async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                approval = continuation
+                wasRequested = true
+                requested?.resume()
+                requested = nil
+            }
+        } onCancel: {
+            Task { await self.cancel() }
+        }
+    }
+
+    func waitUntilRequested() async {
+        guard !wasRequested else { return }
+        await withCheckedContinuation { requested = $0 }
+    }
+
+    func waitUntilCancelled() async {
+        guard !wasCancelled else { return }
+        await withCheckedContinuation { cancelled = $0 }
+    }
+
+    private func cancel() {
+        wasCancelled = true
+        approval?.resume(returning: true) // Even a late allow must not pass the tool's cancellation check.
+        approval = nil
+        cancelled?.resume()
+        cancelled = nil
     }
 }
 

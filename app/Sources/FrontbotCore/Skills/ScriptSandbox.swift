@@ -99,9 +99,9 @@ public struct ScriptSandbox: Sendable {
         """
     }
 
-    public func run(script: String, args: [String], in skillDir: URL) throws -> Result {
+    public func run(script: String, args: [String], in skillDir: URL, watch: Watch? = nil) throws -> Result {
         let (url, interpreter) = try Self.resolve(script: script, in: skillDir, nodePath: nodePath)
-        return try execute(scriptURL: url, interpreter: interpreter, args: args, workDir: skillDir, readDirs: [skillDir], writeDirs: [skillDir])
+        return try execute(scriptURL: url, interpreter: interpreter, args: args, workDir: skillDir, readDirs: [skillDir], writeDirs: [skillDir], watch: watch)
     }
 
     /// Variante general: `script` es relativo a `workDir` o una ruta absoluta que cae dentro de `readDirs`/`writeDirs`.
@@ -162,6 +162,7 @@ public struct ScriptSandbox: Sendable {
         let finished = DispatchSemaphore(value: 0)
         p.terminationHandler = { _ in finished.signal() }
 
+        try Task.checkCancellation()
         try p.run()
         let group = p.processIdentifier
         let deadline = DispatchTime.now() + timeout

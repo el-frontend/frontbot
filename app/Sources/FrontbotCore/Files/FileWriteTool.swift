@@ -39,6 +39,7 @@ public struct FileWriteTool: Sendable {
         let request = FileWriteRequest(agentName: agent.name, path: write.path, content: content,
                                        replaces: write.replaces, previousSize: write.previousSize)
         guard await approve(request) else { throw ValidationError("El usuario no permitió escribir \(write.path).") }
+        try Task.checkCancellation()
         try files.commit(write)
         return ["written": .string(write.path), "bytes": .number(Double(content.utf8.count))]
     }
