@@ -35,9 +35,9 @@ final class ScheduledTaskTests: XCTestCase {
         XCTAssertEqual(task.model, AgentProvider.defaultModel(for: .codex))
 
         let codexModelTask = try db.createTask(agentId: codexAgent.id,
-                                               draft: TaskDraft(name: "Codex model", instruction: "x", schedule: .daily(TimeOfDay(9, 0)), model: "gpt-5"),
+                                               draft: TaskDraft(name: "Codex model", instruction: "x", schedule: .daily(TimeOfDay(9, 0)), model: "gpt-5.6-terra"),
                                                status: .active, createdBy: nil, now: now)
-        XCTAssertEqual(codexModelTask.model, "gpt-5")
+        XCTAssertEqual(codexModelTask.model, "gpt-5.6-terra")
 
         var agentDraft = AgentDraft(agent: codexAgent)
         agentDraft.provider = .claude
@@ -103,8 +103,7 @@ final class ScheduledTaskTests: XCTestCase {
 
     func testTaskModelCatalogUsesOnlyAssignedAgentProviderModels() {
         let codexModels = AgentProvider.models(for: .codex).map(\.id)
-        XCTAssertTrue(codexModels.contains("gpt-5-codex"))
-        XCTAssertTrue(codexModels.contains("gpt-5"))
+        XCTAssertEqual(codexModels, ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"])
         XCTAssertFalse(codexModels.contains { $0.hasPrefix("claude-") })
     }
 
@@ -299,4 +298,3 @@ final class ScheduledRunLogTests: XCTestCase {
         XCTAssertEqual(try db.taskRuns(taskId: task.id).first?.summary, "rate limit")
     }
 }
-
