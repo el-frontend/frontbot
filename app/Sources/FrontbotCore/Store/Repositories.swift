@@ -213,14 +213,15 @@ extension AppDatabase {
         return run
     }
 
-    public func finishRun(id: String, status: RunStatus, summary: String?, inputTokens: Int, outputTokens: Int, costUsd: Double) throws -> AgentRun {
+    public func finishRun(id: String, status: RunStatus, summary: String?, inputTokens: Int, outputTokens: Int, costUsd: Double?) throws -> AgentRun {
         try writer.write { db in
             guard var run = try AgentRun.fetchOne(db, key: id) else { throw notFound("ejecución", id) }
             run.status = status
             run.resultSummary = summary
             run.inputTokens = inputTokens
             run.outputTokens = outputTokens
-            run.costUsd = costUsd
+            run.costUsd = costUsd ?? 0
+            run.costAvailable = costUsd != nil
             try run.update(db)
             return run
         }
@@ -614,11 +615,11 @@ extension AppDatabase {
     }
 
     public func finishTaskRun(id: String, status: TaskRunStatus, summary: String?, notified: Bool, conversationId: String?,
-                              costUsd: Double, now: Date = Date()) throws {
+                              costUsd: Double?, now: Date = Date()) throws {
         try writer.write { db in
             guard var r = try TaskRun.fetchOne(db, key: id) else { return }
             r.status = status; r.summary = summary; r.notified = notified; r.conversationId = conversationId
-            r.costUsd = costUsd; r.finishedAt = now
+            r.costUsd = costUsd ?? 0; r.costAvailable = costUsd != nil; r.finishedAt = now
             try r.update(db)
         }
     }

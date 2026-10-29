@@ -43,7 +43,7 @@ const userPrompt = (params: RunParams) => params.mode === "study" && params.stud
     ? `Ejecución de la tarea programada «${params.task?.name ?? "tarea"}». Instrucción:\n${params.prompt}`
     : buildUserPrompt(params.history ?? [], params.prompt, params.agent?.name);
 export type RunEvent = { run_id: string; type: "text" | "tool_call" | "status"; text: string };
-export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number; error?: string;
+export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number | null; error?: string;
   /** Solo en estudio: cortada por límite, tokens contados con la métrica del laboratorio y desglose por modelo. */
   cut?: boolean; cut_reason?: "tokens" | "clock"; lab_tokens?: number; models?: { model: string; tokens: number }[] };
 

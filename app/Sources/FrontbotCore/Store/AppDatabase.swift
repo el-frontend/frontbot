@@ -334,6 +334,14 @@ public final class AppDatabase: Sendable {
                 t.add(column: "provider", .text).notNull().defaults(to: AgentProvider.claude.rawValue)
             }
         }
+        m.registerMigration("v13-cost-availability") { db in
+            try db.alter(table: "agentRun") { t in
+                t.add(column: "costAvailable", .boolean).notNull().defaults(to: true)
+            }
+            try db.alter(table: "taskRun") { t in
+                t.add(column: "costAvailable", .boolean).notNull().defaults(to: true)
+            }
+        }
         return m
     }
 

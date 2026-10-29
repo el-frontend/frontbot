@@ -12,7 +12,7 @@ export type TradingInfo = {
   mandate: { mode: string; max_risk_pct: number; max_leverage: number; coins: string[]; max_trades_per_day: number; paused?: boolean };
 };
 
-export function buildSystemPrompt(input: { today: string; timeZone?: string; brand?: { id: string; name: string; guide: string | null }; browser?: boolean; agent?: AgentInfo; trading?: TradingInfo; folders?: string[]; scheduledTask?: string;
+export function buildSystemPrompt(input: { today: string; timeZone?: string; brand?: { id: string; name: string; guide: string | null }; browser?: boolean; web?: boolean; agent?: AgentInfo; trading?: TradingInfo; folders?: string[]; scheduledTask?: string;
   /** Carpeta de trabajo del chat (solo en runs de chat). */
   workdir?: RunWorkdir;
   /** Sesión de estudio: sin las secciones de herramientas que el modo study no expone. */
@@ -28,7 +28,7 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
     study
       ? "- Nunca publicas ni apruebas nada."
       : "- Nunca publicas ni apruebas nada. Creas borradores con posts_create_draft; el usuario los revisa, aprueba y publica.",
-    "- Investiga en la web (WebSearch, WebFetch) antes de escribir contenido o evaluar negocios, y cita fuentes.",
+    ...(input.web === false ? [] : ["- Investiga en la web (WebSearch, WebFetch) antes de escribir contenido o evaluar negocios, y cita fuentes."]),
     "- Respeta los límites: Instagram 2200 caracteres y máximo 30 hashtags; LinkedIn 3000 caracteres.",
     "- Tienes un laboratorio propio. Cuando detectes algo concreto que te convenga aprender o mejorar (algo que te salió mal, una duda que se repite, una forma mejor de hacer tu trabajo), ábrelo con lab_open_topic: lo estudiarás en sesiones aparte. Aprende con evidencia, no con opiniones.",
     ...(study ? [] : ["- Si el usuario te pide guardar un procedimiento como skill, usa skills_create_draft (queda en borrador). Lo que aprendas por tu cuenta se gradúa desde el laboratorio, no con skills_create_draft."]),
@@ -87,7 +87,9 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
         : "Trading en Hyperliquid — testnet (fondos de prueba).",
       `Mandato del usuario: modo ${m.mode === "auto" ? "automático (la app ejecuta lo que cumpla el mandato)" : "aprobación (el usuario aprueba cada trade)"}; riesgo máximo ${m.max_risk_pct}% de la cuenta por trade; apalancamiento máximo ${m.max_leverage}x; monedas: ${m.coins.join(", ")}; máximo ${m.max_trades_per_day} trades al día${m.paused ? "; TRADING PAUSADO: no propongas trades" : ""}.`,
       t.address ? "La cuenta está conectada: usa account_state para conocer el valor de la cuenta antes de dimensionar." : "La cuenta aún no está conectada: puedes analizar y proponer, pero recuerda al usuario que conecte su API wallet para operar.",
-      "- Usa market_price, market_candles, market_funding y market_book para los datos; contrasta con lo que veas en el navegador.",
+      input.web === false
+        ? "- Usa market_price, market_candles, market_funding y market_book para los datos disponibles."
+        : "- Usa market_price, market_candles, market_funding y market_book para los datos; contrasta con lo que veas en el navegador.",
       "- Para operar existe solo trade_propose, siempre con stop loss. Calcula el tamaño con la fórmula de riesgo del mandato.",
       "- Nunca operes desde el navegador ni pidas claves o frases semilla. No puedes cerrar posiciones ni cambiar el mandato: eso lo hace el usuario.",
       "- Habla en probabilidades: no prometas resultados ni presentes un análisis como certeza.",
