@@ -259,6 +259,18 @@ final class ScheduledRunLogTests: XCTestCase {
         XCTAssertEqual(saved.costUsd, 0.02)
     }
 
+    func testUnavailableAgentRunCostRemainsUnavailableInScheduledHistory() throws {
+        let tr = try db.startTaskRun(taskId: task.id)
+        let log = ScheduledRunLog(taskRunId: tr.id, task: task, startedAt: tr.startedAt)
+        var run = agentRun(.done, "Sin coste comparable")
+        run.costUsd = 0
+        run.costAvailable = false
+        _ = try db.completeScheduledRun(log, run: run, workspaceId: ws.id, proposalsCreated: 0)
+        let saved = try XCTUnwrap(try db.taskRuns(taskId: task.id).first)
+        XCTAssertEqual(saved.costUsd, 0)
+        XCTAssertFalse(saved.costAvailable)
+    }
+
     func testNotifiedRunsBecomeConversations() throws {
         let tr = try db.startTaskRun(taskId: task.id)
         var log = ScheduledRunLog(taskRunId: tr.id, task: task, startedAt: tr.startedAt)
