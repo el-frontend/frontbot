@@ -13,6 +13,7 @@ struct BrandDetailView: View {
     @State private var importMode: ImportMode = .images
     @State private var importing = false
     @State private var confirmingDelete = false
+    @State private var addingLinks = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +26,7 @@ struct BrandDetailView: View {
         }
         .background(Theme.background)
         .sheet(isPresented: $confirmingDelete) { DeleteBrandSheet(model: model, brand: brand) }
+        .sheet(isPresented: $addingLinks) { BrandLinksSheet(model: model, brand: brand) }
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: importMode == .images ? [.jpeg, .png] : [.pdf],
                       allowsMultipleSelection: importMode == .images) { result in
@@ -38,7 +40,7 @@ struct BrandDetailView: View {
 
     private var header: some View {
         HStack(spacing: 14) {
-            BrandAvatar(brand: brand, size: 44)
+            BrandAvatar(brand: brand, size: 44, logoPath: model.logoPath(brand.id))
             VStack(alignment: .leading, spacing: 3) {
                 Text(brand.name).font(.system(size: 22, weight: .semibold))
                 Text(([brand.industry] + brand.networks.map(Theme.networkName)).filter { !$0.isEmpty }.joined(separator: " · "))
@@ -66,6 +68,13 @@ struct BrandDetailView: View {
                 if !editingGuide {
                     Button("Entrevístame") { model.startInterview() }.buttonStyle(OutlineButtonStyle()).disabled(model.isRunning)
                     Button("Desde un PDF") { importMode = .pdf; importing = true }.buttonStyle(OutlineButtonStyle()).disabled(model.isRunning)
+                    Button("Desde links") { addingLinks = true }
+                        .buttonStyle(OutlineButtonStyle())
+                        .disabled(model.isRunning || !model.canReadWeb)
+                        .help(model.canReadWeb ? String(localized: "Lee tu web y tus perfiles para escribir la guía") : String(localized: "Este agente no puede leer la web; elige un agente de Claude"))
+                    if model.hasPreviousGuide {
+                        Button("Restaurar anterior") { model.restorePreviousGuide() }.buttonStyle(OutlineButtonStyle()).disabled(model.isRunning)
+                    }
                     Button(model.guide == nil ? String(localized: "Escribirla") : String(localized: "Editar")) {
                         guideDraft = model.guide ?? ""
                         editingGuide = true
@@ -89,7 +98,7 @@ struct BrandDetailView: View {
                         if let guide = model.guide {
                             GuideText(markdown: guide)
                         } else {
-                            Text("Esta marca aún no tiene guía. Pídele a Frontbot que te entreviste, súbela en PDF o escríbela tú.")
+                            Text("Esta marca aún no tiene guía. Pídele a Frontbot que te entreviste, que la saque de tus links, súbela en PDF o escríbela tú.")
                                 .foregroundStyle(Theme.muted)
                         }
                     }
@@ -112,6 +121,15 @@ struct BrandDetailView: View {
             }
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
+                    if let logo = model.logoPath(brand.id) {
+                        AssetThumbnail(path: logo, size: 112)
+                            .overlay(alignment: .topLeading) {
+                                Text("Logo").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.text)
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Capsule().fill(Theme.background.opacity(0.85)))
+                                    .padding(6)
+                            }
+                    }
                     ForEach(model.assets) { asset in AssetThumbnail(path: asset.path, size: 112) }
                 }
             }

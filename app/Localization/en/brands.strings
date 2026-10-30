@@ -48,7 +48,7 @@
 "Escribirla" = "Write it";
 "Editar" = "Edit";
 "Guardar guía" = "Save guide";
-"Esta marca aún no tiene guía. Pídele a Frontbot que te entreviste, súbela en PDF o escríbela tú." = "This brand doesn’t have a guide yet. Ask Frontbot to interview you, upload it as a PDF or write it yourself.";
+"Esta marca aún no tiene guía. Pídele a Frontbot que te entreviste, que la saque de tus links, súbela en PDF o escríbela tú." = "This brand doesn’t have a guide yet. Ask Frontbot to interview you or build it from your links, upload it as a PDF or write it yourself.";
 "Imágenes" = "Images";
 "Subir imágenes" = "Upload images";
 "Se abren en tu navegador, con tu sesión." = "They open in your browser, with your session.";
@@ -122,3 +122,20 @@
 "Copiar" = "Copy";
 "Copiado" = "Copied";
 "Copiar todo el texto" = "Copy all the text";
+
+/* Guía desde links */
+"Desde links" = "From links";
+"Restaurar anterior" = "Restore previous";
+"Lee tu web y tus perfiles para escribir la guía" = "Reads your website and profiles to write the guide";
+"Este agente no puede leer la web; elige un agente de Claude" = "This agent can’t read the web; pick a Claude agent";
+"Guía desde links" = "Guide from links";
+"Pega uno o más links, uno por línea: tu web, Instagram, LinkedIn, Linktree… Frontbot los lee, escribe la guía y trae tu logo y algunas fotos." = "Paste one or more links, one per line: your website, Instagram, LinkedIn, Linktree… Frontbot reads them, writes the guide and brings in your logo and a few photos.";
+"No son links válidos: %@ (máximo %lld, solo webs públicas)" = "Not valid links: %@ (up to %lld, public websites only)";
+"Leer links" = "Read links";
+"Logo" = "Logo";
+"No hay una guía anterior que restaurar." = "There’s no previous guide to restore.";
+"Solo se descargan imágenes de links http(s)." = "Images can only be downloaded from http(s) links.";
+"Formato no admitido: solo JPEG, PNG, WebP o GIF." = "Unsupported format: JPEG, PNG, WebP or GIF only.";
+"La imagen pesa más de 8 MB." = "The image is larger than 8 MB.";
+"No se pudo leer la imagen." = "The image couldn’t be read.";
+"Tipo de imagen no válido." = "Invalid image type.";

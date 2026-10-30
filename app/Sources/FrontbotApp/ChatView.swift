@@ -152,7 +152,7 @@ struct ChatView: View {
                 } label: {
                     // Etiqueta propia: el estilo borderlessButton de macOS reduce un HStack a su primer elemento.
                     HStack(spacing: 6) {
-                        if let brand = model.selectedBrand { BrandAvatar(brand: brand, size: 14) }
+                        if let brand = model.selectedBrand { BrandAvatar(brand: brand, size: 14, logoPath: model.logoPath(brand.id)) }
                         Text(model.selectedBrand?.name ?? String(localized: "Sin marca")).lineLimit(1).truncationMode(.tail)
                         Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.muted)
                     }
