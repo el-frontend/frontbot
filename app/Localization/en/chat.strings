@@ -176,10 +176,10 @@
 "Frontbot usará tu sesión de Claude Code en lugar de una API key" = "Frontbot will use your Claude Code session instead of an API key";
 "Continuar" = "Continue";
 "Tu primera marca" = "Your first brand";
-"Para quién escribe Frontbot. Si tiene web, la leerá para aprender su tono y de qué habla." = "Who Frontbot writes for. If it has a website, Frontbot will read it to learn its tone and topics.";
+"Para quién escribe Frontbot. Si nos das sus links (web, Instagram, LinkedIn…), los leerá para aprender su tono, su estilo y sus imágenes." = "Who Frontbot writes for. Give us its links (website, Instagram, LinkedIn…) and Frontbot will read them to learn its tone, style and images.";
 "Rubro" = "Industry";
 "Cafetería de especialidad" = "Specialty coffee shop";
-"Web (opcional)" = "Website (optional)";
+"Links (opcional)" = "Links (optional)";
 "Saltar por ahora" = "Skip for now";
 "Crear marca" = "Create brand";
 "¿Por dónde empezamos?" = "Where do we start?";
@@ -188,7 +188,7 @@
 "Investiga las tendencias de esta semana en mi sector y resúmelas" = "Research this week's trends in my industry and summarize them";
 "Recuérdame cada lunes a las 9 revisar mis pendientes" = "Remind me every Monday at 9 to review my to-dos";
 "Busca 3 oportunidades de negocio en mi ciudad" = "Find 3 business opportunities in my city";
-"Lee %@ y escribe la guía de marca de %@" = "Read %1$@ and write the brand guide for %2$@";
+"Crear la guía de %@ desde sus links" = "Create %@’s guide from its links";
 "Propón 3 posts para %@ para esta semana" = "Suggest 3 posts for %@ for this week";
 "Investiga qué publica la competencia de %@ y qué podemos hacer distinto" = "Research what %@'s competitors post and what we can do differently";
 

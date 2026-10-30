@@ -199,6 +199,16 @@ final class AppModel {
         send(prompt: prompt)
     }
 
+    /// El agente por defecto puede leer la web (Codex no tiene WebFetch ni navegador).
+    var defaultAgentCanReadWeb: Bool { (agents.first { $0.isDefault }?.provider ?? .claude) == .claude }
+
+    /// Primer pedido del onboarding: la guía de la marca recién creada, desde sus links.
+    func finishOnboardingWithGuideFromLinks() {
+        onboardingDone = true
+        newConversation(agentId: agents.first { $0.isDefault }?.id)
+        guideFromLinks(selectedBrand?.links ?? [])
+    }
+
     /// Trading: muy específico, oculto salvo que lo actives en Ajustes.
     var experimentalFeatures = UserDefaults.standard.bool(forKey: "experimentalFeatures") {
         didSet { UserDefaults.standard.set(experimentalFeatures, forKey: "experimentalFeatures") }
@@ -206,9 +216,10 @@ final class AppModel {
 
     // MARK: Marcas
 
-    func createBrand(name: String, industry: String, networks: [Network]) {
+    func createBrand(name: String, industry: String, networks: [Network], links: [String] = []) {
         perform {
             let brand = try db.createBrand(workspaceId: workspace.id, name: name, industry: industry, networks: networks)
+            if !links.isEmpty { try db.setBrandLinks(brandId: brand.id, links: links) }
             brands = try db.brands(workspaceId: workspace.id)
             select(brandId: brand.id)
         }

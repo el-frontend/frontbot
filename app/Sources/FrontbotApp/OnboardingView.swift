@@ -8,11 +8,11 @@ struct OnboardingView: View {
     @State private var key = ""
     @State private var name = ""
     @State private var industry = ""
-    @State private var website = ""
+    @State private var linksText = ""
     @State private var instagram = true
     @State private var linkedin = false
     @State private var brandName: String?
-    @State private var brandWebsite: String?
+    @State private var brandHasLinks = false
 
     private enum Step: Int, CaseIterable { case claude, brand, start }
 
@@ -78,10 +78,10 @@ struct OnboardingView: View {
 
     private var brandStep: some View {
         VStack(alignment: .leading, spacing: 14) {
-            title("Tu primera marca", "Para quién escribe Frontbot. Si tiene web, la leerá para aprender su tono y de qué habla.")
+            title("Tu primera marca", "Para quién escribe Frontbot. Si nos das sus links (web, Instagram, LinkedIn…), los leerá para aprender su tono, su estilo y sus imágenes.")
             field("Nombre", "Café Sol", $name)
             field("Rubro", "Cafetería de especialidad", $industry)
-            field("Web (opcional)", "https://cafesol.com", $website)
+            field("Links (opcional)", "cafesol.com, instagram.com/cafesol", $linksText)
             VStack(alignment: .leading, spacing: 6) {
                 SectionLabel("Redes")
                 HStack(spacing: 16) {
@@ -105,19 +105,11 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 14) {
             title("¿Por dónde empezamos?", "Elige un primer pedido o escribe el tuyo en el chat. Todo lo que el agente crea queda en borrador hasta que lo apruebes.")
             VStack(spacing: 8) {
+                if let brandName, brandHasLinks, model.defaultAgentCanReadWeb {
+                    suggestionRow(String(localized: "Crear la guía de \(brandName) desde sus links")) { model.finishOnboardingWithGuideFromLinks() }
+                }
                 ForEach(suggestions, id: \.self) { prompt in
-                    Button { model.finishOnboarding(prompt: prompt) } label: {
-                        HStack(spacing: 10) {
-                            Text(prompt).font(.system(size: 13)).multilineTextAlignment(.leading)
-                            Spacer()
-                            Image(systemName: "arrow.right").font(.system(size: 11)).foregroundStyle(Theme.muted)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 11)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .panel(radius: 10, fill: Theme.raised)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                    suggestionRow(prompt) { model.finishOnboarding(prompt: prompt) }
                 }
             }
             HStack {
@@ -129,7 +121,22 @@ struct OnboardingView: View {
         }
     }
 
-    /// Con marca, los pedidos hablan de ella; con web, el primero es aprender de ella.
+    private func suggestionRow(_ prompt: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(prompt).font(.system(size: 13)).multilineTextAlignment(.leading)
+                Spacer()
+                Image(systemName: "arrow.right").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .panel(radius: 10, fill: Theme.raised)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Con marca, los pedidos hablan de ella. Con links, antes va `guideFromLinksButton`.
     private var suggestions: [String] {
         guard let brandName else {
             return [String(localized: "Investiga las tendencias de esta semana en mi sector y resúmelas"),
@@ -137,7 +144,6 @@ struct OnboardingView: View {
                     String(localized: "Busca 3 oportunidades de negocio en mi ciudad")]
         }
         var list: [String] = []
-        if let brandWebsite { list.append(String(localized: "Lee \(brandWebsite) y escribe la guía de marca de \(brandName)")) }
         list.append(String(localized: "Propón 3 posts para \(brandName) para esta semana"))
         list.append(String(localized: "Investiga qué publica la competencia de \(brandName) y qué podemos hacer distinto"))
         return list
@@ -155,11 +161,15 @@ struct OnboardingView: View {
         model.errorMessage = nil
         let networks = [instagram ? Network.instagram : nil, linkedin ? Network.linkedin : nil].compactMap { $0 }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        model.createBrand(name: trimmed, industry: industry.trimmingCharacters(in: .whitespacesAndNewlines), networks: networks)
+        let links = BrandLinks.parse(linksText)
+        guard links.invalid.isEmpty else {
+            model.errorMessage = String(localized: "No son links válidos: \(links.invalid.joined(separator: ", ")) (máximo \(BrandLinks.maxLinks), solo webs públicas)")
+            return
+        }
+        model.createBrand(name: trimmed, industry: industry.trimmingCharacters(in: .whitespacesAndNewlines), networks: networks, links: links.links)
         guard model.errorMessage == nil else { return }
         brandName = trimmed
-        let web = website.trimmingCharacters(in: .whitespacesAndNewlines)
-        brandWebsite = web.isEmpty ? nil : web
+        brandHasLinks = !links.links.isEmpty
         step = .start
     }
 
