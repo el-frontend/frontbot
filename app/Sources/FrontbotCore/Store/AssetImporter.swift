@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 public enum AssetKind: String, Sendable {
     case image
@@ -30,6 +32,30 @@ public struct AssetImporter: Sendable {
         else if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { ext = "png" }
         else { throw ValidationError(String(localized: "Formato no admitido: solo JPEG o PNG.")) }
         return try store(data, ext: ext, kind: .image, brandId: brandId)
+    }
+
+    /// Imagen descargada (logo o foto). JPEG y PNG se guardan tal cual; WebP y GIF pasan a PNG (primer cuadro).
+    public func importImage(data: Data, brandId: String, kind: AssetKind) throws -> BrandAsset {
+        guard kind == .image || kind == .logo else { throw ValidationError(String(localized: "Tipo de imagen no válido.")) }
+        try requireBrand(brandId)
+        if data.count > Self.maxImageBytes { throw ValidationError(String(localized: "La imagen pesa más de 8 MB.")) }
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return try store(data, ext: "jpg", kind: kind, brandId: brandId) }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return try store(data, ext: "png", kind: kind, brandId: brandId) }
+        let isWebP = data.count >= 12 && data.prefix(4) == Data("RIFF".utf8) && data.subdata(in: 8..<12) == Data("WEBP".utf8)
+        let isGIF = data.starts(with: Array("GIF8".utf8))
+        guard isWebP || isGIF else { throw ValidationError(String(localized: "Formato no admitido: solo JPEG, PNG, WebP o GIF.")) }
+        return try store(try Self.pngData(from: data), ext: "png", kind: kind, brandId: brandId)
+    }
+
+    static func pngData(from data: Data) throws -> Data {
+        let unreadable = ValidationError(String(localized: "No se pudo leer la imagen."))
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw unreadable }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil) else { throw unreadable }
+        CGImageDestinationAddImage(dest, image, nil)
+        guard CGImageDestinationFinalize(dest) else { throw unreadable }
+        return out as Data
     }
 
     public func importGuidePDF(from url: URL, brandId: String) throws -> BrandAsset {
