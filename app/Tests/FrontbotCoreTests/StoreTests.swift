@@ -21,6 +21,17 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(try db.brand(id: brand.id)?.networks, [.instagram, .linkedin])
     }
 
+    func testBrandLinksDefaultEmptyAndPersist() throws {
+        let brand = try db.createBrand(workspaceId: ws.id, name: "B", industry: "", networks: [.instagram])
+        XCTAssertEqual(try db.brand(id: brand.id)?.links, [])
+        try db.setBrandLinks(brandId: brand.id, links: ["https://a.com", "https://instagram.com/a"])
+        XCTAssertEqual(try db.brand(id: brand.id)?.links, ["https://a.com", "https://instagram.com/a"])
+    }
+
+    func testSetBrandLinksUnknownBrandThrows() {
+        XCTAssertThrowsError(try db.setBrandLinks(brandId: UUID().uuidString, links: []))
+    }
+
     func testDeleteBrandRemovesItsContentAndUnlinksTheRest() throws {
         let brand = try db.createBrand(workspaceId: ws.id, name: "Café Sol", industry: "", networks: [.instagram])
         let other = try db.createBrand(workspaceId: ws.id, name: "Otra", industry: "", networks: [.instagram])

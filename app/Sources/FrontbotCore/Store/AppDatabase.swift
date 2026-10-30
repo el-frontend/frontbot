@@ -342,6 +342,11 @@ public final class AppDatabase: Sendable {
                 t.add(column: "costAvailable", .boolean).notNull().defaults(to: true)
             }
         }
+        m.registerMigration("v14-brand-links") { db in
+            try db.alter(table: "brand") { t in
+                t.add(column: "links", .text).notNull().defaults(to: "[]")
+            }
+        }
         return m
     }
 
