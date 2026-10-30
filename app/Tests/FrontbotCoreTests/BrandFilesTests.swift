@@ -26,36 +26,39 @@ final class BrandFilesTests: XCTestCase {
         try files.writeGuide(brandId: id, markdown: "v1")
         XCTAssertFalse(try files.hasPreviousGuide(brandId: id))
         try files.writeGuide(brandId: id, markdown: "v2")
-        XCTAssertEqual(try String(contentsOf: files.paths.previousGuide(id), encoding: .utf8), "v1")
         XCTAssertTrue(try files.hasPreviousGuide(brandId: id))
     }
 
-    func testSameContentDoesNotOverwriteBackup() throws {
+    func testSameContentDoesNotAddHistory() throws {
         let id = UUID().uuidString
         try files.writeGuide(brandId: id, markdown: "v1")
         try files.writeGuide(brandId: id, markdown: "v2")
         try files.writeGuide(brandId: id, markdown: "v2")
-        XCTAssertEqual(try String(contentsOf: files.paths.previousGuide(id), encoding: .utf8), "v1")
-    }
-
-    func testRestoreSwapsAndIsReversible() throws {
-        let id = UUID().uuidString
-        try files.writeGuide(brandId: id, markdown: "v1")
-        try files.writeGuide(brandId: id, markdown: "v2")
-        try files.restorePreviousGuide(brandId: id)
-        XCTAssertEqual(try files.readGuide(brandId: id), "v1")
-        try files.restorePreviousGuide(brandId: id)
-        XCTAssertEqual(try files.readGuide(brandId: id), "v2")
-    }
-
-    func testRestoreWithoutCurrentGuideMovesBackup() throws {
-        let id = UUID().uuidString
-        try files.writeGuide(brandId: id, markdown: "v1")
-        try files.writeGuide(brandId: id, markdown: "v2")
-        try FileManager.default.removeItem(at: files.paths.guide(id))
         try files.restorePreviousGuide(brandId: id)
         XCTAssertEqual(try files.readGuide(brandId: id), "v1")
         XCTAssertFalse(try files.hasPreviousGuide(brandId: id))
+    }
+
+    /// Dos escrituras seguidas del agente no pueden borrar la guía que escribió el usuario.
+    func testRestoreWalksBackThroughSeveralWrites() throws {
+        let id = UUID().uuidString
+        for v in ["usuario", "agente 1", "agente 2"] { try files.writeGuide(brandId: id, markdown: v) }
+        try files.restorePreviousGuide(brandId: id)
+        XCTAssertEqual(try files.readGuide(brandId: id), "agente 1")
+        try files.restorePreviousGuide(brandId: id)
+        XCTAssertEqual(try files.readGuide(brandId: id), "usuario")
+        XCTAssertFalse(try files.hasPreviousGuide(brandId: id))
+    }
+
+    func testHistoryKeepsLastTen() throws {
+        let id = UUID().uuidString
+        for v in 0...12 { try files.writeGuide(brandId: id, markdown: "v\(v)") }
+        var restored: [String] = []
+        while try files.hasPreviousGuide(brandId: id) {
+            try files.restorePreviousGuide(brandId: id)
+            restored.append(try files.readGuide(brandId: id) ?? "")
+        }
+        XCTAssertEqual(restored, (2...11).reversed().map { "v\($0)" })
     }
 
     func testRestoreWithoutBackupThrows() throws {

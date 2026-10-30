@@ -30,6 +30,8 @@ public enum BrandLinks {
               scheme == "http" || scheme == "https", let host = parts.host, !host.isEmpty else { return nil }
         // "hola" no es un sitio: el host necesita un punto o ser una IP.
         guard host.contains(".") || host.contains(":") else { return nil }
+        // Son links de la marca para leer en internet, nunca la red local o el propio Mac.
+        if PublicHost.isLocalLiteral(host) { return nil }
         parts.scheme = scheme
         parts.host = host.lowercased()
         return parts.string

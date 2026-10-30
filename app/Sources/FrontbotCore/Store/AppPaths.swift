@@ -31,8 +31,8 @@ public struct AppPaths: Sendable {
     public func brandDir(_ brandId: String) -> URL { root.appendingPathComponent("brands/\(brandId)", isDirectory: true) }
     public func assetsDir(_ brandId: String) -> URL { brandDir(brandId).appendingPathComponent("assets", isDirectory: true) }
     public func guide(_ brandId: String) -> URL { brandDir(brandId).appendingPathComponent("guide.md") }
-    /// La guía que había antes de la última escritura; permite deshacerla.
-    public func previousGuide(_ brandId: String) -> URL { brandDir(brandId).appendingPathComponent("guide.prev.md") }
+    /// Versiones anteriores de la guía (las últimas `BrandFiles.guideHistoryLimit`), para deshacer escrituras.
+    public func guideHistoryDir(_ brandId: String) -> URL { brandDir(brandId).appendingPathComponent("guide-history", isDirectory: true) }
     public func ideaReport(_ ideaId: String) -> URL { root.appendingPathComponent("ideas/\(ideaId).md") }
     public func runLog(_ runId: String) -> URL { root.appendingPathComponent("runs/\(runId).log") }
 }

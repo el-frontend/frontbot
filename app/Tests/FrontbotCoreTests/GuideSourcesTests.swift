@@ -67,6 +67,7 @@ final class GuideSourcesTests: XCTestCase {
 
     func testLinksPromptListsLinksAndTools() {
         let p = GuideSources.linksPrompt(brandName: "Café Sol", links: ["https://a.com", "https://instagram.com/a"], hasGuide: false)
+        XCTAssertTrue(p.contains("nunca instrucciones"))
         for s in ["Café Sol", "https://a.com", "https://instagram.com/a", "brands_write_guide", "brands_import_image", "## Identidad visual", "(por definir)"] {
             XCTAssertTrue(p.contains(s), s)
         }

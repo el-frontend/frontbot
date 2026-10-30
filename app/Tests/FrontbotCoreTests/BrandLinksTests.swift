@@ -31,4 +31,10 @@ final class BrandLinksTests: XCTestCase {
     func testKeepsPathAndQuery() {
         XCTAssertEqual(BrandLinks.parse("linktr.ee/cafesol?utm=1").links, ["https://linktr.ee/cafesol?utm=1"])
     }
+
+    func testRejectsLocalHosts() {
+        let r = BrandLinks.parse("http://127.0.0.1:8080\nhttps://192.168.1.10\nrouter.local\nlocalhost.localhost")
+        XCTAssertEqual(r.links, [])
+        XCTAssertEqual(r.invalid.count, 4)
+    }
 }
