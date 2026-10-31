@@ -579,10 +579,17 @@ public actor AgentClient {
                 reply(id, .failure(ValidationError("Esta corrida ya terminó.")))
                 return
             }
+            // Se registra con las aprobaciones del run: parar o fallar el run cancela la descarga.
             let imports = imageImports
-            Task {
-                do { self.reply(id, .success(try await imports.handle(params))) } catch { self.reply(id, .failure(error)) }
+            let taskId = UUID()
+            let task = Task { [weak self] in
+                guard let self else { return }
+                let result: Result<JSONValue, Error>
+                do { result = .success(try await imports.handle(params)) } catch { result = .failure(error) }
+                await self.reply(id, result)
+                await self.finishToolApprovalTask(runId: runId, id: taskId)
             }
+            toolApprovalTasks[runId, default: [:]][taskId] = task
         case .request(let id, let method, let params):
             do {
                 let result = try tools.handle(method: method, params: params)

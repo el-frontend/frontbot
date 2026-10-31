@@ -12,6 +12,8 @@ public enum AssetKind: String, Sendable {
 /// El tipo se detecta por contenido (bytes mágicos), nunca por la extensión.
 public struct AssetImporter: Sendable {
     public static let maxImageBytes = 8 * 1024 * 1024
+    /// Lado máximo de una imagen descargada: más grande cuesta cientos de MB al dibujarla.
+    public static let maxImageSide = 8000
     let db: AppDatabase
     let paths: AppPaths
 
@@ -39,12 +41,28 @@ public struct AssetImporter: Sendable {
         guard kind == .image || kind == .logo else { throw ValidationError(String(localized: "Tipo de imagen no válido.")) }
         try requireBrand(brandId)
         if data.count > Self.maxImageBytes { throw ValidationError(String(localized: "La imagen pesa más de 8 MB.")) }
-        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return try store(data, ext: "jpg", kind: kind, brandId: brandId) }
-        if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return try store(data, ext: "png", kind: kind, brandId: brandId) }
+        let isJPEG = data.starts(with: [0xFF, 0xD8, 0xFF])
+        let isPNG = data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         let isWebP = data.count >= 12 && data.prefix(4) == Data("RIFF".utf8) && data.subdata(in: 8..<12) == Data("WEBP".utf8)
         let isGIF = data.starts(with: Array("GIF8".utf8))
-        guard isWebP || isGIF else { throw ValidationError(String(localized: "Formato no admitido: solo JPEG, PNG, WebP o GIF.")) }
+        guard isJPEG || isPNG || isWebP || isGIF else { throw ValidationError(String(localized: "Formato no admitido: solo JPEG, PNG, WebP o GIF.")) }
+        try Self.checkDimensions(data)
+        if isJPEG { return try store(data, ext: "jpg", kind: kind, brandId: brandId) }
+        if isPNG { return try store(data, ext: "png", kind: kind, brandId: brandId) }
         return try store(try Self.pngData(from: data), ext: "png", kind: kind, brandId: brandId)
+    }
+
+    /// Lee el tamaño de la cabecera sin decodificar: rechaza lo ilegible y lo enorme (bombas de descompresión).
+    static func checkDimensions(_ data: Data) throws {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) > 0,
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? Int, let height = props[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0 else {
+            throw ValidationError(String(localized: "No se pudo leer la imagen."))
+        }
+        guard width <= maxImageSide, height <= maxImageSide else {
+            throw ValidationError(String(localized: "La imagen mide \(width)×\(height) px; el máximo es \(maxImageSide) px por lado."))
+        }
     }
 
     static func pngData(from data: Data) throws -> Data {

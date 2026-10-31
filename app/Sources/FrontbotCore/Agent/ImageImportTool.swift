@@ -36,6 +36,8 @@ public actor ImageImportTool {
         used[runId] = count
         do {
             let data = try await fetcher.fetch(url)
+            // El run terminó o lo paraste mientras se descargaba: no se guarda nada.
+            try Task.checkCancellation()
             let asset = try importer.importImage(data: data, brandId: brandId, kind: kind)
             return ["asset_id": .string(asset.id), "kind": .string(asset.kind)]
         } catch {

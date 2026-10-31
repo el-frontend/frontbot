@@ -3,7 +3,7 @@ import XCTest
 
 final class ImageImportToolTests: XCTestCase {
     final class FakeDownloader: DatasetDownloader, @unchecked Sendable {
-        var body = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] + [UInt8](repeating: 0, count: 32))
+        var body = (try? AssetImporterTests.encoded("public.png")) ?? Data()
         var fail = false
         func download(_ url: URL, to file: URL, maxBytes: Int) async throws {
             if fail { throw ValidationError("Solo se descargan datos públicos: x es una dirección local.") }
@@ -54,6 +54,27 @@ final class ImageImportToolTests: XCTestCase {
         do { _ = try await tool.handle(params("logo")); XCTFail() } catch is ValidationError {}
         downloader.fail = false
         _ = try await tool.handle(params("logo"))
+    }
+
+    /// Si el run se para durante la descarga, no se guarda nada.
+    func testCancelledImportStoresNothing() async throws {
+        let slow = SlowDownloader()
+        let tool = ImageImportTool(importer: AssetImporter(db: db, paths: AppPaths(root: root)), fetcher: RemoteImageFetcher(downloader: slow))
+        let p = params("image")
+        let task = Task { try await tool.handle(p) }
+        try await Task.sleep(for: .milliseconds(100))
+        task.cancel()
+        _ = try? await task.value
+        XCTAssertEqual(try db.assets(brandId: brand.id, kind: nil), [])
+    }
+
+    /// Ignora la cancelación (como una descarga que ya terminó) y tarda un poco.
+    final class SlowDownloader: DatasetDownloader, @unchecked Sendable {
+        func download(_ url: URL, to file: URL, maxBytes: Int) async throws {
+            let start = Date()
+            while Date().timeIntervalSince(start) < 0.3 { usleep(10_000) }
+            try Data(try AssetImporterTests.encoded("public.png")).write(to: file)
+        }
     }
 
     func testUnknownBrandAndBadKind() async {

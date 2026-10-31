@@ -46,11 +46,11 @@ final class AssetImporterTests: XCTestCase {
     }
 
     /// Imagen de 2×2 codificada con ImageIO en el formato pedido (p. ej. "org.webmproject.webp", "com.compuserve.gif").
-    static func encoded(_ type: String) throws -> Data {
-        let ctx = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+    static func encoded(_ type: String, width: Int = 2, height: Int = 2) throws -> Data {
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
-        ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
         let out = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(out, type as CFString, 1, nil) else { throw XCTSkip("ImageIO no codifica \(type)") }
         CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
@@ -59,7 +59,7 @@ final class AssetImporterTests: XCTestCase {
     }
 
     func testImportDataStoresLogoKind() throws {
-        let asset = try importer.importImage(data: Data(Self.png + [UInt8](repeating: 0, count: 64)), brandId: brand.id, kind: .logo)
+        let asset = try importer.importImage(data: try Self.encoded("public.png"), brandId: brand.id, kind: .logo)
         XCTAssertEqual(asset.kind, "logo")
         XCTAssertTrue(asset.path.hasSuffix(".png"))
         XCTAssertEqual(try db.assets(brandId: brand.id, kind: .logo), [asset])
@@ -90,8 +90,23 @@ final class AssetImporterTests: XCTestCase {
             && !((try? FileManager.default.contentsOfDirectory(atPath: AppPaths(root: root).assetsDir(brand.id).path)) ?? []).isEmpty)
     }
 
+    /// Una imagen de pocos MB puede declarar millones de píxeles y colgar la app al dibujarla.
+    func testImportDataRejectsHugeDimensions() throws {
+        for data in [try Self.encoded("public.png", width: AssetImporter.maxImageSide + 1, height: 1),
+                     try Self.encoded("com.compuserve.gif", width: 1, height: AssetImporter.maxImageSide + 1)] {
+            XCTAssertThrowsError(try importer.importImage(data: data, brandId: brand.id, kind: .image)) { error in
+                XCTAssertTrue((error as? ValidationError)?.message.contains("px") == true, "\(error)")
+            }
+        }
+        XCTAssertEqual(try db.assets(brandId: brand.id, kind: nil), [])
+    }
+
+    func testImportDataRejectsUndecodablePNG() {
+        XCTAssertThrowsError(try importer.importImage(data: Data(Self.png + [UInt8](repeating: 0, count: 64)), brandId: brand.id, kind: .image))
+    }
+
     func testImportDataRejectsGuideSourceKind() {
-        XCTAssertThrowsError(try importer.importImage(data: Data(Self.png), brandId: brand.id, kind: .guideSource))
+        XCTAssertThrowsError(try importer.importImage(data: try Self.encoded("public.png"), brandId: brand.id, kind: .guideSource))
     }
 
     func testJpegWithWrongExtensionIsStoredAsJpg() throws {
