@@ -93,3 +93,21 @@ final class ToolHandlerTests: XCTestCase {
         }
     }
 }
+
+extension ToolHandlerTests {
+    func testPostsListIncludesLastMetrics() throws {
+        let read = try db.createDraft(brandId: brand.id, network: .instagram, body: "a", media: [], scheduledFor: nil)
+        let unread = try db.createDraft(brandId: brand.id, network: .instagram, body: "b", media: [], scheduledFor: nil)
+        let store = PostMetadataStore(paths: AppPaths(root: root))
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        try store.record(postId: read.id, MetricsReading(checkpoint: .h24, readAt: at, reach: nil, views: 50, likes: 3, reposts: 0, sourceUrl: nil, note: nil))
+        try store.record(postId: read.id, MetricsReading(checkpoint: .h48, readAt: at, reach: nil, views: 90, likes: 9, reposts: 1, sourceUrl: nil, note: nil))
+        let posts = try handler.handle(method: "tool.posts_list", params: [:])["posts"]?.arrayValue ?? []
+        let first = try XCTUnwrap(posts.first { $0["id"]?.stringValue == read.id })
+        XCTAssertEqual(first["metrics"]?["checkpoint"], "48h")
+        XCTAssertEqual(first["metrics"]?["likes"]?.intValue, 9)
+        XCTAssertEqual(first["metrics"]?["reach"], .null)
+        let second = try XCTUnwrap(posts.first { $0["id"]?.stringValue == unread.id })
+        XCTAssertEqual(second["metrics"], .null)
+    }
+}

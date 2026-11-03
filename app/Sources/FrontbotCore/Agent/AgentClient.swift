@@ -40,6 +40,9 @@ public enum AgentModel {
     }
 }
 
+/// Hay otro run vivo y se pidió arrancar solo sin ninguno (lecturas automáticas: comparten Chrome).
+public struct AgentBusyError: Error, Equatable, Sendable {}
+
 public enum AgentUpdate: Sendable, Equatable {
     case event(runId: String, type: String, text: String)
     /// Cambió alguna propuesta de trade (nueva, enviada automáticamente, fallida…).
@@ -51,6 +54,10 @@ public enum AgentUpdate: Sendable, Equatable {
     case imageCreated(runId: String, assetId: String)
     /// Una herramienta de imagen falló (OpenAI, render, cupo). El agente puede terminar bien igual.
     case imageFailed(runId: String, message: String)
+    /// Un run de métricas guardó su lectura en la metadata del post.
+    case metricsRecorded(runId: String, postId: String)
+    /// Un run de métricas no encontró Chrome: no guardó nada (la automática se pospone).
+    case metricsUnavailable(runId: String)
     /// El run se canceló: la app debe cerrar la hoja de aprobación pendiente y responder que no.
     case workdirApprovalCancelled(runId: String)
 }
@@ -92,6 +99,7 @@ public actor AgentClient {
     private let tools: ToolHandler
     private let imageImports: ImageImportTool
     private let imageCreate: ImageCreateTool
+    private let metricsTool: MetricsTool
     private let workspaceId: String
 
     private var process: Process?
@@ -149,6 +157,7 @@ public actor AgentClient {
         self.workspaceId = workspaceId
         self.tools = ToolHandler(db: db, files: files, workspaceId: workspaceId)
         self.imageImports = ImageImportTool(importer: AssetImporter(db: db, paths: files.paths))
+        self.metricsTool = MetricsTool(db: db, store: PostMetadataStore(paths: files.paths))
         let openAIKey = CredentialStore.normalizedApiKey(config.openAIAPIKey)
         self.imageCreate = imageTool ?? ImageCreateTool(importer: AssetImporter(db: db, paths: files.paths), renderer: WebKitHTMLRenderer(),
                                                         provider: { openAIKey.map { OpenAIImageProvider(apiKey: $0) } })
@@ -163,6 +172,9 @@ public actor AgentClient {
             self.topic = topic; self.session = session; self.budgetTokens = budgetTokens; self.allowOpus = allowOpus
         }
     }
+
+    /// Runs vivos de cualquier tipo: una lectura automática de métricas solo arranca sin ninguno (comparten Chrome).
+    public var activeRunCount: Int { activeRuns.count }
 
     public func setConfig(_ config: AgentConfig) async {
         self.config = config
@@ -195,9 +207,12 @@ public actor AgentClient {
                       model: AgentProvider.resolve(task.model, for: agent.provider), task: task)
     }
 
+    /// `onlyIfIdle`: no arranca si hay otro run vivo (comprobado y reservado de forma atómica en el actor).
     public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil,
                     summarize: Bool = false, task: ScheduledTask? = nil, study: StudyContext? = nil,
-                    workdir: Conversation? = nil, image: ImageRunPlan? = nil) async throws -> AgentRun {
+                    workdir: Conversation? = nil, image: ImageRunPlan? = nil,
+                    metrics: MetricsRunPlan? = nil, onlyIfIdle: Bool = false) async throws -> AgentRun {
+        if onlyIfIdle, !activeRuns.isEmpty { throw AgentBusyError() }
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
@@ -212,7 +227,7 @@ public actor AgentClient {
                 let guide = try files.readGuide(brandId: brand.id)
                 params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
             }
-            if !history.isEmpty, image == nil { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
+            if !history.isEmpty, image == nil, metrics == nil { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
             if summarize { params["mode"] = "summarize" }
             if let task {
                 unattendedRuns.insert(run.id)
@@ -221,7 +236,7 @@ public actor AgentClient {
             }
             if let agent {
                 // Un run de imagen no carga memoria: solo crea imágenes con la guía.
-                let memory = image == nil ? MemoryPrompt.trimmed(try db.memories(agentId: agent.id)) : []
+                let memory = image == nil && metrics == nil ? MemoryPrompt.trimmed(try db.memories(agentId: agent.id)) : []
                 params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
                                    "is_default": .bool(agent.isDefault), "memory": MemoryPrompt.json(memory)]
                 if agent.provider == .claude && agent.browser { params["browser"] = .bool(true) }
@@ -261,8 +276,12 @@ public actor AgentClient {
                 params["image"] = ["kind": .string(image.kind.rawValue), "count": .number(Double(image.count))]
                 await imageCreate.beginRun(run.id, plan: image)
             }
+            if let metrics {
+                params["mode"] = "metrics"
+                await metricsTool.beginRun(run.id, plan: metrics)
+            }
             // La carpeta solo existe en chats: tareas, estudio, resúmenes e imágenes la ignoran.
-            if let conversation = workdir, let path = conversation.workdir, task == nil, study == nil, !summarize, image == nil {
+            if let conversation = workdir, let path = conversation.workdir, task == nil, study == nil, !summarize, image == nil, metrics == nil {
                 params["workdir"] = .object(try workdirParams(path: path, readDirs: conversation.readDirs, agent: agent))
             }
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
@@ -354,9 +373,10 @@ public actor AgentClient {
     private func fail(runId: String, summary: String, labTokens: Int? = nil) {
         cancelToolApprovalTasks(runId: runId)
         activeRuns.remove(runId)
-        Task { [imageImports, imageCreate] in
+        Task { [imageImports, imageCreate, metricsTool] in
             await imageImports.endRun(runId)
             await imageCreate.endRun(runId)
+            await metricsTool.endRun(runId)
         }
         unattendedRuns.remove(runId)
         finishStudy(runId: runId, status: .failed, params: labTokens.map { ["lab_tokens": .number(Double($0))] })
@@ -597,6 +617,19 @@ public actor AgentClient {
             // Va a la red: se atiende aparte para no bloquear al actor, y solo dentro de un run vivo.
             let imports = imageImports
             startRunTool(id: id, params: params) { try await imports.handle($0) }
+        case .request(let id, let method, let params) where method == "tool.metrics_post" || method == "tool.posts_record_metrics":
+            // Solo en un run de métricas vivo; el plan (post y momento) lo fijó la app.
+            let metrics = metricsTool
+            startRunTool(id: id, params: params) { [weak self] params in
+                let (result, outcome) = try await metrics.handle(method: method, params: params)
+                let runId = params["run_id"]?.stringValue ?? ""
+                switch outcome {
+                case .recorded: await self?.broadcast(.metricsRecorded(runId: runId, postId: params["post_id"]?.stringValue ?? ""))
+                case .unavailable: await self?.broadcast(.metricsUnavailable(runId: runId))
+                case nil: break
+                }
+                return result
+            }
         case .request(let id, let method, let params) where method == "tool.images_render_html" || method == "tool.images_generate":
             // Renderizar o generar tarda: igual que la importación, aparte y cancelable con el run.
             let create = imageCreate
@@ -631,9 +664,10 @@ public actor AgentClient {
             guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId) else { return }
             activeRuns.remove(runId)
             unattendedRuns.remove(runId)
-            Task { [imageImports, imageCreate] in
+            Task { [imageImports, imageCreate, metricsTool] in
                 await imageImports.endRun(runId)
                 await imageCreate.endRun(runId)
+                await metricsTool.endRun(runId)
             }
             let ok = params["ok"]?.boolValue ?? false
             finishStudy(runId: runId, status: params["cut"]?.boolValue == true ? .cut : (ok ? .done : .failed), params: params)

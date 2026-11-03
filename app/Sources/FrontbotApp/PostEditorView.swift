@@ -44,6 +44,7 @@ struct PostEditorView: View {
                     imagesSection
                     dateSection
                     publishingSection
+                    if current.status == .published { MetricsSection(model: model, post: current) }
                     if let error = model.errorMessage { Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger) }
                 }
                 .padding(20)

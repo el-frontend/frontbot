@@ -172,3 +172,5 @@
 "OpenAI no generó la imagen: %@" = "OpenAI didn't generate the image: %@";
 "OpenAI no devolvió ninguna imagen." = "OpenAI didn't return any image.";
 "Falta la API key de OpenAI. Agrégala en Ajustes." = "The OpenAI API key is missing. Add it in Settings.";
+"La metadata del post está dañada; no se sobrescribe." = "The post's metadata is damaged; it won't be overwritten.";
+"Solo los posts publicados tienen link." = "Only published posts have a link.";

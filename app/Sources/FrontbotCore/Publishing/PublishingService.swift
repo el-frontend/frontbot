@@ -32,10 +32,13 @@ public enum PublishingLinks {
 public struct PublishingService: Sendable {
     let db: AppDatabase
     let handoff: any PublicationHandoff
+    /// Donde queda la hora de publicación: es la base de las lecturas de métricas a las 24/48/72 h.
+    let metadata: PostMetadataStore?
 
-    public init(db: AppDatabase, handoff: any PublicationHandoff) {
+    public init(db: AppDatabase, handoff: any PublicationHandoff, metadata: PostMetadataStore? = nil) {
         self.db = db
         self.handoff = handoff
+        self.metadata = metadata
     }
 
     public func prepare(postId: String) throws -> (Post, PreparationResult) {
@@ -58,8 +61,10 @@ public struct PublishingService: Sendable {
         return (preparing, PreparationResult(message: message, url: url))
     }
 
-    public func confirmPublished(postId: String, url: String?) throws -> Post {
-        try db.markPublished(id: postId, url: url)
+    public func confirmPublished(postId: String, url: String?, now: Date = Date()) throws -> Post {
+        let post = try db.markPublished(id: postId, url: url)
+        try metadata?.setPublishedAt(postId: postId, now)
+        return post
     }
 
     public func confirmScheduled(postId: String) throws -> Post {

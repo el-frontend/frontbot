@@ -1,3 +1,4 @@
+import { BROWSER_ALLOWED_TOOLS } from "../src/browserGuard.js";
 import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -323,5 +324,37 @@ describe("FakeRunner image mode", () => {
     expect(calls.map(([m]) => m)).toEqual(["tool.images_render_html", "tool.images_render_html", "tool.images_render_html"]);
     expect(calls[0][1]).toMatchObject({ run_id: "r", brand_id: "b1" });
     expect(done).toMatchObject({ ok: true, summary: "3 mem:0" });
+  });
+});
+
+describe("metrics mode", () => {
+  const params: RunParams = { run_id: "r", prompt: "Lee las métricas", model: "m", mode: "metrics", browser: false,
+    trading: { mandate: { mode: "approval", max_risk_pct: 1, max_leverage: 2, coins: ["BTC"], max_trades_per_day: 1 } } as RunParams["trading"],
+    folders: ["/tmp/x"] };
+
+  it("forces Chrome behind the guard with only the metrics tools", () => {
+    const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [] });
+    const opts = buildQueryOptions(params, server, new AbortController(), "2026-11-03");
+    expect(opts.extraArgs).toEqual({ chrome: null });
+    expect(opts.tools).toEqual([]);
+    expect([...(opts.allowedTools ?? [])].sort()).toEqual(
+      [...["metrics_post", "posts_record_metrics"].map((t) => `mcp__frontbot__${t}`), ...BROWSER_ALLOWED_TOOLS].sort());
+    expect(opts.hooks?.PreToolUse?.length).toBeGreaterThan(0);
+    expect(opts.systemPrompt).toContain("Chrome");
+    expect(opts.systemPrompt).not.toContain("Mandato");
+    expect(opts.systemPrompt).not.toContain("/tmp/x");
+    expect(opts.maxTurns).toBe(40);
+    expect(toolContext(params).metrics).toBe(true);
+  });
+
+  it("FakeRunner reads and records, or reports no Chrome", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const fake = new FakeRunner(async (m, p) => { calls.push([m, p]); return m === "tool.metrics_post" ? { post_id: "p1" } : { ok: true }; });
+    await fake.run({ ...params, prompt: "p" }, () => {}, new AbortController().signal);
+    expect(calls.map(([m]) => m)).toEqual(["tool.metrics_post", "tool.posts_record_metrics"]);
+    expect(calls[1][1]).toMatchObject({ run_id: "r", post_id: "p1", likes: 7, views: 120, reposts: 1, reach: null });
+    calls.length = 0;
+    await fake.run({ ...params, prompt: "sin chrome" }, () => {}, new AbortController().signal);
+    expect(calls[1][1]).toMatchObject({ post_id: "p1", unavailable: true });
   });
 });

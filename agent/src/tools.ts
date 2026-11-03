@@ -81,7 +81,19 @@ export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: b
   /** Sesión de estudio del laboratorio: lista cerrada de herramientas, sin nada que publique, opere o escriba fuera. */
   study?: { topicId: string; sessionId: string };
   /** Run de imagen del editor del post: solo leer la marca y la herramienta de imagen de su modo. */
-  image?: "html" | "ai" };
+  image?: "html" | "ai";
+  /** Lectura de métricas de un post: solo leerlo y guardar los números (más el Chrome del guardián). */
+  metrics?: true };
+
+/** Solo en runs de métricas: el post y el momento los fija la app. */
+const metricCount = z.number().int().min(0).nullable().optional();
+export const METRICS_TOOL_SPECS = [
+  { name: "metrics_post", description: "Devuelve el post a medir: red, texto, link publicado (si lo hay), hora de publicación, el momento de esta lectura y los links de la marca.", shape: {} },
+  { name: "posts_record_metrics", description: "Guarda la lectura de métricas del post (una vez por corrida). Usa null para lo que no se ve en la página; nunca estimes. unavailable: true si no hay Chrome conectado (no guarda nada). note: por qué faltan datos (no cargó, pide login, no se encontró el post).", shape: {
+    post_id: z.string(), reach: metricCount, views: metricCount, likes: metricCount, reposts: metricCount,
+    source_url: z.string().optional(), note: z.string().optional(), unavailable: z.boolean().optional(),
+  } },
+] as const;
 
 const STUDY_BASE = ["brands_list", "brands_get_guide", "brands_list_assets", "posts_list", "tasks_list", "skills_list"];
 const STUDY_MEMORY = ["memory_list", "memory_remember"];
@@ -89,6 +101,7 @@ const STUDY_MEMORY = ["memory_list", "memory_remember"];
 const IMAGE_BASE = ["brands_list", "brands_get_guide", "brands_list_assets"];
 
 const specsFor = (ctx: ToolContext) => {
+  if (ctx.metrics) return [...METRICS_TOOL_SPECS];
   if (ctx.image) {
     // Nadie toca el post ni nada fuera: leer la marca y crear imágenes del modo que eligió el usuario.
     const tool = ctx.image === "html" ? "images_render_html" : "images_generate";
@@ -115,7 +128,7 @@ const specsFor = (ctx: ToolContext) => {
 /** Nombres exactos (sin prefijo mcp) de la lista cerrada del modo estudio. */
 export const STUDY_TOOL_NAMES: string[] = specsFor({ isDefault: false, study: { topicId: "", sessionId: "" } }).map((t) => t.name);
 
-export const allowedToolsFor = (ctx: ToolContext) => [...(ctx.memoryOnly || ctx.image ? [] : ["WebSearch", "WebFetch"]), ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];
+export const allowedToolsFor = (ctx: ToolContext) => [...(ctx.memoryOnly || ctx.image || ctx.metrics ? [] : ["WebSearch", "WebFetch"]), ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];
 
 /** Provider-independent Frontbot tool contract shared by Claude and Codex. */
 export function frontbotToolSpecs(ctx: ToolContext = { isDefault: true }) {
@@ -149,7 +162,8 @@ export async function executeFrontbotTool(
     }
   }
   if (spec.name === "notify_user" || spec.name === "files_write" || spec.name === "brands_import_image"
-    || spec.name === "images_render_html" || spec.name === "images_generate") params.run_id = ctx.runId;
+    || spec.name === "images_render_html" || spec.name === "images_generate"
+    || spec.name === "metrics_post" || spec.name === "posts_record_metrics") params.run_id = ctx.runId;
   if (spec.name === "skills_run_script" && ctx.skillPlugin && Array.isArray(params.args)) {
     params.args = params.args.map((arg) => (typeof arg === "string" ? unaliasSkillPaths(arg, ctx.skillPlugin!) : arg));
   }

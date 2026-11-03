@@ -84,6 +84,7 @@ export class CodexRunner implements Runner {
   async run(params: RunParams, emit: (event: RunEvent) => void, signal: AbortSignal, context?: RunnerContext): Promise<RunDone> {
     if (signal.aborted) return cancelled(params.run_id);
     if (params.mode === "study") return failure(params.run_id, "Codex no está disponible para sesiones de estudio.");
+    if (params.mode === "metrics") return failure(params.run_id, "Codex no tiene navegador: las métricas se leen con un agente Claude.");
     if (params.workdir) return failure(params.run_id, "Codex no está disponible para runs con carpeta de trabajo.");
     const apiKey = this.config.apiKey?.trim();
     if (!apiKey) return failure(params.run_id, "Falta la clave de OpenAI para ejecutar Codex.");

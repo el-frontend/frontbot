@@ -128,3 +128,20 @@ describe("image tools", () => {
     ]);
   });
 });
+
+describe("metrics tools", () => {
+  it("metrics mode exposes only its two tools; chat and study never see them", () => {
+    expect(frontbotToolSpecs({ isDefault: true, metrics: true }).map((t) => t.name)).toEqual(["metrics_post", "posts_record_metrics"]);
+    const chat = frontbotToolSpecs({ isDefault: true }).map((t) => t.name);
+    expect(chat).not.toContain("metrics_post");
+    expect(chat).not.toContain("posts_record_metrics");
+    expect(STUDY_TOOL_NAMES).not.toContain("posts_record_metrics");
+  });
+
+  it("metrics tools send the trusted run_id", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    await executeFrontbotTool("posts_record_metrics", { post_id: "p", likes: 3, reach: null, run_id: "falso" },
+      async (m, p) => { calls.push([m, p]); return { ok: true }; }, { isDefault: true, runId: "r1", metrics: true });
+    expect(calls).toEqual([["tool.posts_record_metrics", { post_id: "p", likes: 3, reach: null, run_id: "r1" }]]);
+  });
+});
