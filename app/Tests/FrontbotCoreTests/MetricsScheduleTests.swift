@@ -34,3 +34,27 @@ final class MetricsScheduleTests: XCTestCase {
         XCTAssertFalse(MetricsSchedule.canStart(activeRuns: 0, provider: .codex))
     }
 }
+
+extension MetricsScheduleTests {
+    /// La de 72 h no se reintenta para siempre: 24 h después de su momento se da por saltada.
+    func testLastCheckpointExpiresAfterWindow() {
+        assertDue(meta(), 95, .h72, skip: [.h24, .h48])
+        assertDue(meta(), 97, nil)
+        XCTAssertEqual(MetricsSchedule.stale(meta(), now: at(97)), [.h24, .h48, .h72])
+        XCTAssertEqual(MetricsSchedule.stale(meta([.h24, .h48]), now: at(97)), [.h72])
+        XCTAssertEqual(MetricsSchedule.stale(meta(), now: at(30)), [])
+    }
+
+    /// Un intento que no guardó nada (sin Chrome, detenido, error) espera una hora y hay como mucho 4 por momento.
+    func testAttemptsBackOffAndCap() {
+        var attempts = MetricsAttempts()
+        XCTAssertTrue(attempts.allows(postId: "p", .h24, now: at(25)))
+        attempts.failed(postId: "p", .h24, at: at(25))
+        XCTAssertFalse(attempts.allows(postId: "p", .h24, now: at(25.5)))
+        XCTAssertTrue(attempts.allows(postId: "p", .h24, now: at(26)))
+        XCTAssertTrue(attempts.allows(postId: "p", .h48, now: at(25.5)), "otro momento no hereda la espera")
+        XCTAssertTrue(attempts.allows(postId: "q", .h24, now: at(25.5)), "otro post tampoco")
+        for h in [26.0, 27, 28] { attempts.failed(postId: "p", .h24, at: at(h)) }
+        XCTAssertFalse(attempts.allows(postId: "p", .h24, now: at(40)), "4 intentos y se deja")
+    }
+}

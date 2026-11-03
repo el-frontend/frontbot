@@ -61,6 +61,9 @@ final class AppModel {
     /// Post cuyas métricas se están leyendo (una lectura a la vez) y su run.
     var metricsReadingPostId: String?
     private var metricsRun: (runId: String, manual: Bool)?
+    /// La lectura en curso: si es automática y termina sin guardar nada, cuenta como intento fallido.
+    private var metricsTarget: (postId: String, checkpoint: MetricsCheckpoint, manual: Bool, saved: Bool)?
+    private var metricsAttempts = MetricsAttempts()
     private var lastMetricsTick: Date?
     /// Avisos que llegan mientras `run()` aún no devolvió el id (FakeRunner o un fallo rápido pueden ganarle).
     private var earlyMetricsUpdates: [AgentUpdate] = []
@@ -374,29 +377,32 @@ final class AppModel {
         if let last = lastMetricsTick, now.timeIntervalSince(last) < 15 * 60 { return }
         guard metricsReadingPostId == nil, let agent = agents.first(where: { $0.isDefault }) else { return }
         lastMetricsTick = now
-        Task {
-            guard MetricsSchedule.canStart(activeRuns: await client.activeRunCount, provider: agent.provider),
-                  !isRunning, metricsReadingPostId == nil else { return }
-            let store = PostMetadataStore(paths: paths)
-            let published = (try? db.posts(brandId: nil, status: .published)) ?? []
-            for post in published {
-                guard let due = MetricsSchedule.due(store.read(postId: post.id), now: now) else { continue }
-                try? store.skip(postId: post.id, due.skip)
-                startMetrics(post: post, checkpoint: due.checkpoint, manual: false)
-                return
-            }
+        // El "no hay otro run" definitivo lo comprueba AgentClient de forma atómica (onlyIfIdle).
+        guard MetricsSchedule.canStart(activeRuns: isRunning ? 1 : 0, provider: agent.provider) else { return }
+        let store = PostMetadataStore(paths: paths)
+        let published = (try? db.posts(brandId: nil, status: .published)) ?? []
+        var next: (Post, MetricsCheckpoint)?
+        for post in published {
+            let meta = store.read(postId: post.id)
+            try? store.skip(postId: post.id, MetricsSchedule.stale(meta, now: now))
+            guard next == nil, let due = MetricsSchedule.due(meta, now: now),
+                  metricsAttempts.allows(postId: post.id, due.checkpoint, now: now) else { continue }
+            try? store.skip(postId: post.id, due.skip)
+            next = (post, due.checkpoint)
         }
+        if let (post, checkpoint) = next { startMetrics(post: post, checkpoint: checkpoint, manual: false) }
     }
 
     private func startMetrics(post: Post, checkpoint: MetricsCheckpoint, manual: Bool) {
         guard let brand = brands.first(where: { $0.id == post.brandId }) else { return }
         let agent = agents.first { $0.isDefault }
         metricsReadingPostId = post.id
+        metricsTarget = (post.id, checkpoint, manual, false)
         let prompt = MetricsPrompt.build(network: post.network, checkpoint: checkpoint, hasLink: post.publishedUrl != nil)
         Task {
             do {
                 let run = try await client.run(prompt: prompt, agent: agent, brand: brand,
-                                               metrics: MetricsRunPlan(postId: post.id, checkpoint: checkpoint))
+                                               metrics: MetricsRunPlan(postId: post.id, checkpoint: checkpoint), onlyIfIdle: !manual)
                 metricsRun = (run.id, manual)
                 let early = earlyMetricsUpdates
                 earlyMetricsUpdates = []
@@ -404,6 +410,8 @@ final class AppModel {
             } catch {
                 earlyMetricsUpdates = []
                 metricsReadingPostId = nil
+                metricsTarget = nil
+                if error is AgentBusyError { lastMetricsTick = nil; return } // otro run ganó: se reintenta en el próximo tick
                 if manual { errorMessage = (error as? ValidationError)?.message ?? error.localizedDescription }
             }
         }
@@ -413,6 +421,7 @@ final class AppModel {
     private func handleMetrics(_ update: AgentUpdate) -> Bool {
         switch update {
         case .metricsRecorded(let runId, _) where runId == metricsRun?.runId:
+            metricsTarget?.saved = true
             metricsVersion += 1
             return true
         case .metricsUnavailable(let runId) where runId == metricsRun?.runId:
@@ -424,7 +433,11 @@ final class AppModel {
             if metricsRun?.manual == true, run.status == .failed, errorMessage == nil {
                 errorMessage = run.resultSummary ?? String(localized: "No se pudieron leer las métricas.")
             }
+            if let target = metricsTarget, !target.manual, !target.saved {
+                metricsAttempts.failed(postId: target.postId, target.checkpoint, at: Date())
+            }
             metricsRun = nil
+            metricsTarget = nil
             metricsReadingPostId = nil
             metricsVersion += 1
             return true
@@ -1221,6 +1234,8 @@ final class AppModel {
     func send(prompt: String) {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isRunning else { return }
+        // El chat del usuario va primero: una lectura automática en curso se detiene y se reintenta luego.
+        if metricsRun?.manual == false { cancelMetrics() }
         stopRequested = false
         guard let agent = selectedAgent else { return }
         guard agent.status == .active else {

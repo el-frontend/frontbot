@@ -40,6 +40,9 @@ public enum AgentModel {
     }
 }
 
+/// Hay otro run vivo y se pidió arrancar solo sin ninguno (lecturas automáticas: comparten Chrome).
+public struct AgentBusyError: Error, Equatable, Sendable {}
+
 public enum AgentUpdate: Sendable, Equatable {
     case event(runId: String, type: String, text: String)
     /// Cambió alguna propuesta de trade (nueva, enviada automáticamente, fallida…).
@@ -204,10 +207,12 @@ public actor AgentClient {
                       model: AgentProvider.resolve(task.model, for: agent.provider), task: task)
     }
 
+    /// `onlyIfIdle`: no arranca si hay otro run vivo (comprobado y reservado de forma atómica en el actor).
     public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil,
                     summarize: Bool = false, task: ScheduledTask? = nil, study: StudyContext? = nil,
                     workdir: Conversation? = nil, image: ImageRunPlan? = nil,
-                    metrics: MetricsRunPlan? = nil) async throws -> AgentRun {
+                    metrics: MetricsRunPlan? = nil, onlyIfIdle: Bool = false) async throws -> AgentRun {
+        if onlyIfIdle, !activeRuns.isEmpty { throw AgentBusyError() }
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)

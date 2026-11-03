@@ -9,7 +9,7 @@ final class AgentClientMetricsTests: XCTestCase {
     var root: URL!
     var store: PostMetadataStore!
 
-    func makeClient() throws -> AgentClient {
+    func makeClient(imageTool: ImageCreateTool? = nil) throws -> AgentClient {
         db = try AppDatabase.inMemory()
         let ws = try db.ensureDefaultWorkspace()
         agent = try db.createAgent(workspaceId: ws.id, draft: AgentDraft(name: "A", instructions: "x"), status: .active)
@@ -25,7 +25,9 @@ final class AgentClientMetricsTests: XCTestCase {
         try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: node), "No hay node en \(node)")
         try XCTSkipUnless(FileManager.default.fileExists(atPath: script), "Compila el sidecar: cd agent && npm run build")
         let config = AgentConfig(nodePath: node, scriptPath: script, apiKey: nil, model: AgentConfig.defaultModel, fakeAgent: true)
-        return AgentClient(config: config, db: db, files: BrandFiles(paths: AppPaths(root: root)), workspaceId: ws.id, cancelGrace: .seconds(1))
+        return AgentClient(config: config, db: db, files: BrandFiles(paths: AppPaths(root: root)), workspaceId: ws.id, cancelGrace: .seconds(1),
+                           imageTool: imageTool ?? ImageCreateTool(importer: AssetImporter(db: db, paths: AppPaths(root: root)),
+                                                                   renderer: AgentClientImageTests.GateRenderer(blockFrom: 1), provider: { nil }))
     }
 
     override func tearDownWithError() throws { if let root { try? FileManager.default.removeItem(at: root) } }
@@ -63,6 +65,20 @@ final class AgentClientMetricsTests: XCTestCase {
         let run = try await client.run(prompt: "sin chrome", agent: agent, brand: brand, metrics: MetricsRunPlan(postId: post.id, checkpoint: .h24))
         let seen = await updates(stream, run.id)
         XCTAssertEqual(seen.first, .metricsUnavailable(runId: run.id))
+        XCTAssertEqual(store.read(postId: post.id).metrics.count, 0)
+    }
+
+    /// Comprobar "no hay otro run" y arrancar es atómico: si ya hay uno, la lectura automática no arranca.
+    func testOnlyIfIdleRefusesWhenBusy() async throws {
+        let client = try makeClient()
+        // Un run de imagen que se queda renderizando ocupa el cliente.
+        _ = try await client.run(prompt: "p", agent: agent, brand: brand,
+                                 image: ImageRunPlan(brandId: brand.id, kind: .html, count: 1, size: .forNetwork(.linkedin)))
+        do {
+            _ = try await client.run(prompt: "p", agent: agent, brand: brand,
+                                     metrics: MetricsRunPlan(postId: post.id, checkpoint: .h24), onlyIfIdle: true)
+            XCTFail("debería negarse")
+        } catch is AgentBusyError {}
         XCTAssertEqual(store.read(postId: post.id).metrics.count, 0)
     }
 }
