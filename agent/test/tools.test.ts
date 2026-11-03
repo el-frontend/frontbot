@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTools, ALLOWED_TOOLS, TOOL_SPECS, allowedToolsFor, frontbotToolSpecs } from "../src/tools.js";
+import { buildTools, ALLOWED_TOOLS, TOOL_SPECS, allowedToolsFor, frontbotToolSpecs, executeFrontbotTool, STUDY_TOOL_NAMES } from "../src/tools.js";
 
 describe("tools", () => {
   it("exposes the full trading tool set for a trading-enabled direct provider run", () => {
@@ -13,12 +13,24 @@ describe("tools", () => {
     expect(ALLOWED_TOOLS).toContain("mcp__frontbot__posts_create_draft");
     expect(ALLOWED_TOOLS.some((t) => /publish|approve|Bash|Write|Edit/.test(t))).toBe(false);
     expect(TOOL_SPECS.map((t) => t.name).sort()).toEqual([
-      "brands_get_guide", "brands_list", "brands_list_assets", "brands_write_guide", "ideas_create",
+      "brands_get_guide", "brands_import_image", "brands_list", "brands_list_assets", "brands_write_guide", "ideas_create",
       "posts_create_draft", "posts_list", "posts_update_draft",
       "schedule_create_draft", "schedule_list", "schedule_update_draft",
       "skills_create_draft", "skills_list", "skills_run_script", "skills_update_draft",
       "tasks_complete", "tasks_create", "tasks_list",
     ]);
+  });
+
+  it("brands_import_image is in chat but not in study", () => {
+    expect(allowedToolsFor({ isDefault: true })).toContain("mcp__frontbot__brands_import_image");
+    expect(STUDY_TOOL_NAMES).not.toContain("brands_import_image");
+  });
+
+  it("brands_import_image sends the trusted run_id", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    await executeFrontbotTool("brands_import_image", { brand_id: "b", url: "https://cdn.example.com/a.png", kind: "logo", run_id: "falso" },
+      async (m, p) => { calls.push([m, p]); return { asset_id: "a1" }; }, { isDefault: true, runId: "r1" });
+    expect(calls).toEqual([["tool.brands_import_image", { brand_id: "b", url: "https://cdn.example.com/a.png", kind: "logo", run_id: "r1" }]]);
   });
 
   it("handler forwards to app with tool. prefix and returns JSON text", async () => {

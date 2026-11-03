@@ -66,14 +66,26 @@ struct StatusDot: View {
 struct BrandAvatar: View {
     let brand: Brand
     var size: CGFloat = 18
+    /// Logo importado de la marca; sin él se muestran las iniciales.
+    var logoPath: String? = nil
 
     private static let tones: [(UInt32, UInt32)] = [
         (0x3A2A1C, 0xF5B454), (0x1C2A3A, 0x6AA7FF), (0x1C3A2A, 0x5FD08A), (0x2E1C3A, 0xB58CFF), (0x3A1C2A, 0xF2A3C9),
     ]
 
     var body: some View {
+        if let logoPath, let logo = NSImage(contentsOfFile: logoPath) {
+            Image(nsImage: logo).resizable().interpolation(.high).scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.28))
+        } else {
+            initialsView
+        }
+    }
+
+    private var initialsView: some View {
         let tone = Self.tones[abs(brand.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }) % Self.tones.count]
-        Text(initials)
+        return Text(initials)
             .font(.system(size: size * 0.55, weight: .semibold))
             .foregroundStyle(Color(hex: tone.1))
             .frame(width: size, height: size)

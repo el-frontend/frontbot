@@ -14,6 +14,8 @@ public struct Brand: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     public var industry: String
     public var networks: [Network]
     public var createdAt: Date
+    /// Web, perfiles y otros links de la marca, ya normalizados (`BrandLinks.parse`).
+    public var links: [String] = []
 
     /// Para borrar una marca hay que escribir su nombre exacto (sin contar espacios de los extremos).
     public func deletionConfirmed(by typed: String) -> Bool {

@@ -21,7 +21,8 @@ public struct ToolHandler: Sendable {
             let brands = try db.brands(workspaceId: workspaceId)
             return ["brands": .array(brands.map { b in
                 ["id": .string(b.id), "name": .string(b.name), "industry": .string(b.industry),
-                 "networks": .array(b.networks.map { .string($0.rawValue) })]
+                 "networks": .array(b.networks.map { .string($0.rawValue) }),
+                 "links": .array(b.links.map(JSONValue.string))]
             })]
         case "tool.brands_get_guide":
             let id = try string(params, "brand_id")

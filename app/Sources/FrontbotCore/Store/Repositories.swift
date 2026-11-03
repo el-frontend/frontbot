@@ -23,6 +23,16 @@ extension AppDatabase {
         try writer.read { try Brand.fetchOne($0, key: id) }
     }
 
+    public func setBrandLinks(brandId: String, links: [String]) throws {
+        try writer.write { db in
+            guard var brand = try Brand.fetchOne(db, key: brandId) else {
+                throw ValidationError(String(localized: "No existe marca con id \(brandId)."))
+            }
+            brand.links = links
+            try brand.update(db)
+        }
+    }
+
     /// Borra la marca con sus posts e imágenes (cascade); tareas y conversaciones quedan sin marca.
     /// Los archivos de la marca se borran aparte con `BrandFiles.deleteBrand`.
     public func deleteBrand(id: String) throws {

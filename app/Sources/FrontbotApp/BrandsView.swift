@@ -82,7 +82,7 @@ struct BrandsView: View {
                 ForEach(model.brands) { brand in
                     Button { model.select(brandId: brand.id) } label: {
                         HStack(spacing: 10) {
-                            BrandAvatar(brand: brand)
+                            BrandAvatar(brand: brand, logoPath: model.logoPath(brand.id))
                             Text(brand.name).lineLimit(1)
                             Spacer()
                             Text(brand.networks.map(Theme.networkShort).joined(separator: " · "))

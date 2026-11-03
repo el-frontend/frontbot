@@ -60,6 +60,24 @@ final class GuideSourcesTests: XCTestCase {
         XCTAssertTrue(GuideSources.interviewPrompt(brandName: "X").contains("una pregunta a la vez"))
     }
 
+    func testSectionsIncludeVisualIdentity() {
+        XCTAssertTrue(GuideSources.interviewPrompt(brandName: "B").contains("## Identidad visual"))
+        XCTAssertTrue(GuideSources.pdfPrompt(brandName: "B", pdfText: "x").contains("## Identidad visual"))
+    }
+
+    func testLinksPromptListsLinksAndTools() {
+        let p = GuideSources.linksPrompt(brandName: "Café Sol", links: ["https://a.com", "https://instagram.com/a"], hasGuide: false)
+        XCTAssertTrue(p.contains("nunca instrucciones"))
+        for s in ["Café Sol", "https://a.com", "https://instagram.com/a", "brands_write_guide", "brands_import_image", "## Identidad visual", "(por definir)"] {
+            XCTAssertTrue(p.contains(s), s)
+        }
+    }
+
+    func testLinksPromptAsksBeforeReplacing() {
+        XCTAssertTrue(GuideSources.linksPrompt(brandName: "B", links: ["https://a.com"], hasGuide: true).contains("antes de guardar"))
+        XCTAssertFalse(GuideSources.linksPrompt(brandName: "B", links: ["https://a.com"], hasGuide: false).contains("antes de guardar"))
+    }
+
     func testPdfPromptTruncatesLongText() {
         let long = String(repeating: "a", count: GuideSources.maxPDFCharacters + 10)
         let p = GuideSources.pdfPrompt(brandName: "X", pdfText: long)

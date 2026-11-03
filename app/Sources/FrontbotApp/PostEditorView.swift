@@ -57,7 +57,7 @@ struct PostEditorView: View {
     private var header: some View {
         HStack(spacing: 10) {
             if let brand = model.brand(id: post.brandId) {
-                BrandAvatar(brand: brand, size: 20)
+                BrandAvatar(brand: brand, size: 20, logoPath: model.logoPath(brand.id))
                 Text(brand.name).font(.system(size: 13, weight: .semibold))
             }
             Text(Theme.networkName(post.network)).font(Theme.mono()).foregroundStyle(Theme.muted)

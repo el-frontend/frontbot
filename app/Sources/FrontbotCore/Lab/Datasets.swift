@@ -67,13 +67,18 @@ public enum PublicHost {
 public struct URLSessionDatasetDownloader: DatasetDownloader {
     let protocolClasses: [AnyClass]
     let resolver: @Sendable (String) -> [String]
+    /// Tiempo máximo de la descarga completa; nil = el de URLSession.
+    let resourceTimeout: TimeInterval?
 
-    public init() { self.init(protocolClasses: [], resolver: PublicHost.systemResolve) }
+    public init(resourceTimeout: TimeInterval? = nil) {
+        self.init(protocolClasses: [], resolver: PublicHost.systemResolve, resourceTimeout: resourceTimeout)
+    }
 
     /// Para tests: protocolos de red simulados y resolución de DNS inyectable.
-    init(protocolClasses: [AnyClass], resolver: @escaping @Sendable (String) -> [String]) {
+    init(protocolClasses: [AnyClass], resolver: @escaping @Sendable (String) -> [String], resourceTimeout: TimeInterval? = nil) {
         self.protocolClasses = protocolClasses
         self.resolver = resolver
+        self.resourceTimeout = resourceTimeout
     }
 
     public func download(_ url: URL, to file: URL, maxBytes: Int) async throws {
@@ -83,6 +88,10 @@ public struct URLSessionDatasetDownloader: DatasetDownloader {
         config.httpCookieStorage = nil
         config.urlCredentialStorage = nil
         if !protocolClasses.isEmpty { config.protocolClasses = protocolClasses }
+        if let resourceTimeout {
+            config.timeoutIntervalForRequest = resourceTimeout
+            config.timeoutIntervalForResource = resourceTimeout
+        }
         FileManager.default.createFile(atPath: file.path, contents: nil)
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }

@@ -23,6 +23,12 @@ final class ToolHandlerTests: XCTestCase {
         XCTAssertEqual(result["brands"]?.arrayValue?.first?["networks"], ["instagram"])
     }
 
+    func testBrandsListIncludesLinks() throws {
+        try db.setBrandLinks(brandId: brand.id, links: ["https://a.com"])
+        let result = try handler.handle(method: "tool.brands_list", params: [:])
+        XCTAssertEqual(result["brands"]?.arrayValue?.first?["links"], ["https://a.com"])
+    }
+
     func testGuideWriteAndRead() throws {
         XCTAssertEqual(try handler.handle(method: "tool.brands_get_guide", params: ["brand_id": .string(brand.id)])["guide"], .null)
         _ = try handler.handle(method: "tool.brands_write_guide", params: ["brand_id": .string(brand.id), "markdown": "# Tono"])

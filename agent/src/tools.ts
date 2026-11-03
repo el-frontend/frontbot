@@ -13,6 +13,7 @@ export const TOOL_SPECS = [
   { name: "brands_list", description: "Lista las marcas del usuario con sus redes.", shape: {} },
   { name: "brands_get_guide", description: "Lee la guía de marca (markdown) de una marca.", shape: { brand_id: z.string() } },
   { name: "brands_write_guide", description: "Escribe o reemplaza la guía de marca completa en markdown.", shape: { brand_id: z.string(), markdown: z.string() } },
+  { name: "brands_import_image", description: "Descarga una imagen pública (JPEG, PNG, WebP o GIF; máx. 8 MB) a los assets de la marca. kind: logo para el logo (1 por corrida) o image para fotos (8 por corrida). Devuelve el id del asset.", shape: { brand_id: z.string(), url: z.string(), kind: z.enum(["image", "logo"]) } },
   { name: "brands_list_assets", description: "Lista las imágenes y archivos de una marca (id, tipo, nombre). Usa los id de tipo image en media.", shape: { brand_id: z.string() } },
   { name: "posts_list", description: "Lista posts, opcionalmente por marca y estado (draft, approved, preparing, scheduled, published, archived).", shape: { brand_id: z.string().optional(), status: z.string().optional() } },
   { name: "posts_create_draft", description: "Crea un post en borrador para una marca. No lo publica: el usuario lo revisa y aprueba. media: ids de imágenes de la marca (máx. 10).", shape: { brand_id: z.string(), network, body: z.string(), scheduled_for: date.optional(), media: z.array(z.string()).optional() } },
@@ -135,7 +136,7 @@ export async function executeFrontbotTool(
       params.topic_id = ctx.study.topicId;
     }
   }
-  if (spec.name === "notify_user" || spec.name === "files_write") params.run_id = ctx.runId;
+  if (spec.name === "notify_user" || spec.name === "files_write" || spec.name === "brands_import_image") params.run_id = ctx.runId;
   if (spec.name === "skills_run_script" && ctx.skillPlugin && Array.isArray(params.args)) {
     params.args = params.args.map((arg) => (typeof arg === "string" ? unaliasSkillPaths(arg, ctx.skillPlugin!) : arg));
   }

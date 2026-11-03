@@ -86,6 +86,7 @@ public actor AgentClient {
     private let db: AppDatabase
     private let files: BrandFiles
     private let tools: ToolHandler
+    private let imageImports: ImageImportTool
     private let workspaceId: String
 
     private var process: Process?
@@ -141,6 +142,7 @@ public actor AgentClient {
         self.files = files
         self.workspaceId = workspaceId
         self.tools = ToolHandler(db: db, files: files, workspaceId: workspaceId)
+        self.imageImports = ImageImportTool(importer: AssetImporter(db: db, paths: files.paths))
     }
 
     public struct StudyContext: Sendable {
@@ -335,6 +337,7 @@ public actor AgentClient {
     private func fail(runId: String, summary: String, labTokens: Int? = nil) {
         cancelToolApprovalTasks(runId: runId)
         activeRuns.remove(runId)
+        Task { [imageImports] in await imageImports.endRun(runId) }
         unattendedRuns.remove(runId)
         finishStudy(runId: runId, status: .failed, params: labTokens.map { ["lab_tokens": .number(Double($0))] })
         if let run = try? db.finishRun(id: runId, status: .failed, summary: summary, inputTokens: 0, outputTokens: 0, costUsd: 0) {
@@ -570,6 +573,23 @@ public actor AgentClient {
                 let allow = await approver(approval)
                 self.reply(id, .success(["allow": .bool(allow)]))
             }
+        case .request(let id, "tool.brands_import_image", let params):
+            // Va a la red: se atiende aparte para no bloquear al actor, y solo dentro de un run vivo.
+            guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId) else {
+                reply(id, .failure(ValidationError("Esta corrida ya terminó.")))
+                return
+            }
+            // Se registra con las aprobaciones del run: parar o fallar el run cancela la descarga.
+            let imports = imageImports
+            let taskId = UUID()
+            let task = Task { [weak self] in
+                guard let self else { return }
+                let result: Result<JSONValue, Error>
+                do { result = .success(try await imports.handle(params)) } catch { result = .failure(error) }
+                await self.reply(id, result)
+                await self.finishToolApprovalTask(runId: runId, id: taskId)
+            }
+            toolApprovalTasks[runId, default: [:]][taskId] = task
         case .request(let id, let method, let params):
             do {
                 let result = try tools.handle(method: method, params: params)
@@ -585,6 +605,7 @@ public actor AgentClient {
             guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId) else { return }
             activeRuns.remove(runId)
             unattendedRuns.remove(runId)
+            Task { [imageImports] in await imageImports.endRun(runId) }
             let ok = params["ok"]?.boolValue ?? false
             finishStudy(runId: runId, status: params["cut"]?.boolValue == true ? .cut : (ok ? .done : .failed), params: params)
             let summary = ok ? params["summary"]?.stringValue : (params["error"]?.stringValue ?? "Error desconocido")
