@@ -58,6 +58,18 @@ final class AppModel {
     private var earlyImageUpdates: [AgentUpdate] = []
     private var startingImageRuns = 0
     var canCreateAIImages: Bool { openAIKeyPresent }
+    /// Post cuyas métricas se están leyendo (una lectura a la vez) y su run.
+    var metricsReadingPostId: String?
+    private var metricsRun: (runId: String, manual: Bool)?
+    private var lastMetricsTick: Date?
+    /// Avisos que llegan mientras `run()` aún no devolvió el id (FakeRunner o un fallo rápido pueden ganarle).
+    private var earlyMetricsUpdates: [AgentUpdate] = []
+    /// Sube con cada lectura guardada: la vista vuelve a leer la metadata.
+    var metricsVersion = 0
+    var canReadMetrics: Bool {
+        defaultAgentCanReadWeb && !isRunning && metricsReadingPostId == nil
+            && !posts.contains { imageJobs.job(postId: $0.id)?.running == true }
+    }
     var calendarScope: CalendarScope = .week
     var calendarDate = Date()
     var calendarNetwork: Network?
@@ -331,6 +343,100 @@ final class AppModel {
             } catch {
                 imageJobs.failStart(postId: post.id, error: (error as? ValidationError)?.message ?? error.localizedDescription)
             }
+        }
+    }
+
+    // MARK: Métricas
+
+    func postMetadata(postId: String) -> PostMetadata {
+        _ = metricsVersion
+        return PostMetadataStore(paths: paths).read(postId: postId)
+    }
+
+    func setPublishedUrl(_ post: Post, url: String) {
+        perform { _ = try db.setPublishedUrl(id: post.id, url: url) }
+        reloadContent()
+    }
+
+    /// Lectura a pedido desde el editor del post publicado.
+    func readMetrics(post: Post) {
+        guard canReadMetrics else { return }
+        startMetrics(post: post, checkpoint: .manual, manual: true)
+    }
+
+    func cancelMetrics() {
+        guard let run = metricsRun else { return }
+        Task { await client.cancel(runId: run.runId) }
+    }
+
+    /// Cada 15 minutos: la lectura automática que toque (24/48/72 h), una a la vez y sin otro run activo.
+    private func tickMetrics(now: Date = Date()) {
+        if let last = lastMetricsTick, now.timeIntervalSince(last) < 15 * 60 { return }
+        guard metricsReadingPostId == nil, let agent = agents.first(where: { $0.isDefault }) else { return }
+        lastMetricsTick = now
+        Task {
+            guard MetricsSchedule.canStart(activeRuns: await client.activeRunCount, provider: agent.provider),
+                  !isRunning, metricsReadingPostId == nil else { return }
+            let store = PostMetadataStore(paths: paths)
+            let published = (try? db.posts(brandId: nil, status: .published)) ?? []
+            for post in published {
+                guard let due = MetricsSchedule.due(store.read(postId: post.id), now: now) else { continue }
+                try? store.skip(postId: post.id, due.skip)
+                startMetrics(post: post, checkpoint: due.checkpoint, manual: false)
+                return
+            }
+        }
+    }
+
+    private func startMetrics(post: Post, checkpoint: MetricsCheckpoint, manual: Bool) {
+        guard let brand = brands.first(where: { $0.id == post.brandId }) else { return }
+        let agent = agents.first { $0.isDefault }
+        metricsReadingPostId = post.id
+        let prompt = MetricsPrompt.build(network: post.network, checkpoint: checkpoint, hasLink: post.publishedUrl != nil)
+        Task {
+            do {
+                let run = try await client.run(prompt: prompt, agent: agent, brand: brand,
+                                               metrics: MetricsRunPlan(postId: post.id, checkpoint: checkpoint))
+                metricsRun = (run.id, manual)
+                let early = earlyMetricsUpdates
+                earlyMetricsUpdates = []
+                for update in early { _ = handleMetrics(update) }
+            } catch {
+                earlyMetricsUpdates = []
+                metricsReadingPostId = nil
+                if manual { errorMessage = (error as? ValidationError)?.message ?? error.localizedDescription }
+            }
+        }
+    }
+
+    /// Eventos de un run de métricas. Devuelve false si no son de uno.
+    private func handleMetrics(_ update: AgentUpdate) -> Bool {
+        switch update {
+        case .metricsRecorded(let runId, _) where runId == metricsRun?.runId:
+            metricsVersion += 1
+            return true
+        case .metricsUnavailable(let runId) where runId == metricsRun?.runId:
+            if metricsRun?.manual == true {
+                errorMessage = String(localized: "Abre Chrome con la extensión de Claude para leer las métricas.")
+            }
+            return true
+        case .finished(let run) where run.id == metricsRun?.runId:
+            if metricsRun?.manual == true, run.status == .failed, errorMessage == nil {
+                errorMessage = run.resultSummary ?? String(localized: "No se pudieron leer las métricas.")
+            }
+            metricsRun = nil
+            metricsReadingPostId = nil
+            metricsVersion += 1
+            return true
+        default:
+            if metricsReadingPostId != nil, metricsRun == nil, earlyMetricsUpdates.count < 50 {
+                switch update {
+                case .metricsRecorded, .metricsUnavailable: earlyMetricsUpdates.append(update); return true
+                case .finished: earlyMetricsUpdates.append(update) // copia: también sigue su camino
+                default: break
+                }
+            }
+            return false
         }
     }
 
@@ -625,6 +731,7 @@ final class AppModel {
 
     func tickScheduler() {
         lab.tick()
+        tickMetrics()
         guard let due = try? db.dueTasks() else { return }
         let now = Date()
         for task in due where !isTaskRunning(task) {
@@ -1355,6 +1462,7 @@ final class AppModel {
         for await update in await client.updates() {
             if handleScheduled(update) { continue }
             if handleImage(update) { continue }
+            if handleMetrics(update) { continue }
             if lab.handle(update) { continue }
             bufferIfUnknown(update)
             switch update {
