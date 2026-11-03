@@ -12,6 +12,10 @@ public struct ImageJobs: Sendable {
         public var error: String?
         /// Creadas que el editor aún no agregó al post, en orden.
         var pending: [String]
+        /// El último error de una herramienta: el agente puede terminar bien aunque una imagen haya fallado.
+        var lastToolError: String? = nil
+        /// El usuario pulsó Detener: el final no cuenta como fallo.
+        var stopped = false
     }
 
     private var jobs: [String: Job] = [:]
@@ -22,9 +26,35 @@ public struct ImageJobs: Sendable {
 
     /// false si ese post ya tiene un trabajo en marcha. Lo pendiente de uno anterior se conserva.
     public mutating func begin(postId: String, runId: String, total: Int) -> Bool {
-        if jobs[postId]?.running == true { return false }
-        jobs[postId] = Job(runId: runId, total: total, done: 0, running: true, error: nil, pending: jobs[postId]?.pending ?? [])
+        guard reserve(postId: postId, total: total) else { return false }
+        attach(postId: postId, runId: runId)
         return true
+    }
+
+    /// Marca el post como ocupado antes de lanzar el run (aún sin id): un segundo clic no lanza otro.
+    public mutating func reserve(postId: String, total: Int) -> Bool {
+        if jobs[postId]?.running == true { return false }
+        jobs[postId] = Job(runId: "", total: total, done: 0, running: true, error: nil, pending: jobs[postId]?.pending ?? [])
+        return true
+    }
+
+    public mutating func attach(postId: String, runId: String) {
+        jobs[postId]?.runId = runId
+    }
+
+    /// El run no llegó a lanzarse.
+    public mutating func failStart(postId: String, error: String) {
+        jobs[postId]?.running = false
+        jobs[postId]?.error = error
+    }
+
+    public mutating func toolFailed(runId: String, message: String) {
+        guard let postId = postId(runId: runId) else { return }
+        jobs[postId]?.lastToolError = message
+    }
+
+    public mutating func stop(postId: String) {
+        jobs[postId]?.stopped = true
     }
 
     public mutating func created(runId: String, assetId: String) {
@@ -34,9 +64,16 @@ public struct ImageJobs: Sendable {
     }
 
     public mutating func finish(runId: String, error: String?) {
-        guard let postId = postId(runId: runId) else { return }
-        jobs[postId]?.running = false
-        jobs[postId]?.error = error
+        guard let postId = postId(runId: runId), var job = jobs[postId] else { return }
+        job.running = false
+        if job.stopped {
+            job.error = nil
+        } else if let error {
+            job.error = error
+        } else if job.done < job.total {
+            job.error = job.lastToolError ?? String(localized: "Se crearon \(job.done) de \(job.total) imágenes.")
+        }
+        jobs[postId] = job
     }
 
     /// Lo pendiente de ese post, una sola vez. Un trabajo terminado sin error desaparece al tomarlo.
@@ -55,6 +92,7 @@ public struct ImageJobs: Sendable {
     }
 
     public func postId(runId: String) -> String? {
-        jobs.first { $0.value.runId == runId }?.key
+        guard !runId.isEmpty else { return nil }
+        return jobs.first { $0.value.runId == runId }?.key
     }
 }

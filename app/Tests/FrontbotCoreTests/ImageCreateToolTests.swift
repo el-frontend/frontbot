@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import FrontbotCore
 
 final class ImageCreateToolTests: XCTestCase {
@@ -131,5 +132,36 @@ extension ImageCreateToolTests {
         await tool.setProvider { FakeProvider() }
         _ = try await tool.handle(method: "tool.images_generate", params: ai())
         XCTAssertEqual(try images(), 1)
+    }
+}
+
+extension ImageCreateToolTests {
+    func testImageRunRejectsOtherBrand() async throws {
+        let tool = makeTool()
+        let other = try db.createBrand(workspaceId: brand.workspaceId, name: "Otra", industry: "", networks: [.instagram])
+        await tool.beginRun("r1", plan: ImageRunPlan(brandId: brand.id, kind: .html, count: 2, size: .forNetwork(.instagram)))
+        let params: JSONValue = ["run_id": "r1", "brand_id": .string(other.id), "html": "<b>"]
+        do { _ = try await tool.handle(method: "tool.images_render_html", params: params); XCTFail() } catch is ValidationError {}
+        XCTAssertEqual(try db.assets(brandId: other.id, kind: .image).count, 0)
+    }
+
+    /// El tope de 512 KB es del HTML del modelo; el logo incrustado no cuenta.
+    func testLogoDoesNotCountTowardHTMLLimit() async throws {
+        let tool = makeTool()
+        var noise = [UInt8](repeating: 0, count: 700 * 700 * 4)
+        for i in noise.indices { noise[i] = UInt8.random(in: 0...255) }
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 700, pixelsHigh: 700, bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 700 * 4, bitsPerPixel: 32)!
+        noise.withUnsafeBytes { memcpy(rep.bitmapData!, $0.baseAddress!, noise.count) }
+        let logo = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        XCTAssertGreaterThan(logo.count, 600_000)
+        _ = try importer.importImage(data: logo, brandId: brand.id, kind: .logo)
+        _ = try await tool.handle(method: "tool.images_render_html", params: html())
+        XCTAssertGreaterThan(try XCTUnwrap(renderer.htmls.last).utf8.count, WebKitHTMLRenderer.maxHTMLBytes)
+
+        let big: JSONValue = ["run_id": "r1", "brand_id": .string(brand.id), "html": .string(String(repeating: "a", count: WebKitHTMLRenderer.maxHTMLBytes + 1))]
+        let calls = renderer.htmls.count
+        do { _ = try await tool.handle(method: "tool.images_render_html", params: big); XCTFail() } catch is ValidationError {}
+        XCTAssertEqual(renderer.htmls.count, calls, "lo rechaza antes de renderizar")
     }
 }

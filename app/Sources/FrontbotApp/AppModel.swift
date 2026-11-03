@@ -312,8 +312,8 @@ final class AppModel {
     /// Crea imágenes para el post con el agente por defecto, en segundo plano. No guarda el post: lo creado
     /// queda pendiente en `imageJobs` y el editor lo agrega a su selección.
     func createImages(post: Post, body: String, kind: ImageKind, count: Int, indication: String) {
-        guard imageJobs.job(postId: post.id)?.running != true,
-              let brand = brands.first(where: { $0.id == post.brandId }) else { return }
+        guard let brand = brands.first(where: { $0.id == post.brandId }),
+              imageJobs.reserve(postId: post.id, total: count) else { return } // un segundo clic no lanza otro run
         let agent = agents.first { $0.isDefault }
         let size = kind == .ai ? ImageSize.ai : .forNetwork(post.network)
         let prompt = ImagePrompt.build(body: body, network: post.network, kind: kind, count: count, indication: indication,
@@ -324,18 +324,19 @@ final class AppModel {
             defer { startingImageRuns -= 1 }
             do {
                 let run = try await client.run(prompt: prompt, agent: agent, brand: brand, image: plan)
-                _ = imageJobs.begin(postId: post.id, runId: run.id, total: count)
+                imageJobs.attach(postId: post.id, runId: run.id)
                 let early = earlyImageUpdates
                 earlyImageUpdates = []
                 for update in early { _ = handleImage(update) }
             } catch {
-                errorMessage = error.localizedDescription
+                imageJobs.failStart(postId: post.id, error: (error as? ValidationError)?.message ?? error.localizedDescription)
             }
         }
     }
 
     func cancelImages(postId: String) {
-        guard let job = imageJobs.job(postId: postId), job.running else { return }
+        guard let job = imageJobs.job(postId: postId), job.running, !job.runId.isEmpty else { return }
+        imageJobs.stop(postId: postId)
         Task { await client.cancel(runId: job.runId) }
     }
 
@@ -358,6 +359,13 @@ final class AppModel {
             }
             imageJobs.created(runId: runId, assetId: assetId)
             reloadContent()
+            return true
+        case .imageFailed(let runId, let message):
+            guard imageJobs.postId(runId: runId) != nil else {
+                if startingImageRuns > 0, earlyImageUpdates.count < 50 { earlyImageUpdates.append(update) }
+                return true
+            }
+            imageJobs.toolFailed(runId: runId, message: message)
             return true
         case .finished(let run):
             guard imageJobs.postId(runId: run.id) != nil else {

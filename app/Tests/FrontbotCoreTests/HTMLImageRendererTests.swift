@@ -55,10 +55,28 @@ final class HTMLImageRendererTests: XCTestCase {
     }
 
     func testRejectsOversizedHTML() async throws {
-        let html = String(repeating: "a", count: WebKitHTMLRenderer.maxHTMLBytes + 1)
+        let html = String(repeating: "a", count: WebKitHTMLRenderer.maxRenderBytes + 1)
         do {
             _ = try await renderer.render(html: html, size: ImageSize(width: 100, height: 100))
             XCTFail("debería rechazarlo")
         } catch is ValidationError {}
+    }
+}
+
+extension HTMLImageRendererTests {
+    /// Una carga que nunca avisa (proceso web caído) no puede colgar la herramienta: el plazo gana aunque la
+    /// operación ignore la cancelación.
+    func testTimeoutWinsOverOperationThatIgnoresCancellation() async throws {
+        let start = Date()
+        do {
+            _ = try await WebKitHTMLRenderer.race(timeout: .milliseconds(200)) { () async throws -> Data in
+                await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in } // nunca vuelve
+                return Data()
+            }
+            XCTFail("debería vencer el plazo")
+        } catch let error as ValidationError {
+            XCTAssertTrue(error.message.contains("tardó demasiado"))
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
     }
 }

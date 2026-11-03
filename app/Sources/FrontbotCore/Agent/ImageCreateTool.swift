@@ -47,6 +47,13 @@ public actor ImageCreateTool {
             throw ValidationError(kind == .html ? "Falta html." : "Falta prompt.")
         }
         guard try importer.db.brand(id: brandId) != nil else { throw ValidationError("No existe marca con id \(brandId).") }
+        if let plan = plans[runId], plan.brandId != brandId {
+            throw ValidationError("En esta corrida solo se crean imágenes para la marca \(plan.brandId).")
+        }
+        // El tope es del HTML del modelo; el logo se incrusta después y no cuenta.
+        if kind == .html, content.utf8.count > WebKitHTMLRenderer.maxHTMLBytes {
+            throw ValidationError(String(localized: "El diseño pesa más de 512 KB."))
+        }
 
         let size = try reserve(runId: runId, kind: kind, network: params["network"]?.stringValue)
         do {

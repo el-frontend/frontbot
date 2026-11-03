@@ -49,6 +49,8 @@ public enum AgentUpdate: Sendable, Equatable {
     case finished(AgentRun)
     /// Un run creó una imagen (`images_render_html` / `images_generate`) y ya está en los assets de la marca.
     case imageCreated(runId: String, assetId: String)
+    /// Una herramienta de imagen falló (OpenAI, render, cupo). El agente puede terminar bien igual.
+    case imageFailed(runId: String, message: String)
     /// El run se canceló: la app debe cerrar la hoja de aprobación pendiente y responder que no.
     case workdirApprovalCancelled(runId: String)
 }
@@ -599,11 +601,20 @@ public actor AgentClient {
             // Renderizar o generar tarda: igual que la importación, aparte y cancelable con el run.
             let create = imageCreate
             startRunTool(id: id, params: params) { [weak self] params in
-                let result = try await create.handle(method: method, params: params)
-                if let runId = params["run_id"]?.stringValue, let assetId = result["asset_id"]?.stringValue {
-                    await self?.broadcast(.imageCreated(runId: runId, assetId: assetId))
+                let runId = params["run_id"]?.stringValue ?? ""
+                do {
+                    let result = try await create.handle(method: method, params: params)
+                    if let assetId = result["asset_id"]?.stringValue {
+                        await self?.broadcast(.imageCreated(runId: runId, assetId: assetId))
+                    }
+                    return result
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    let message = (error as? ValidationError)?.message ?? error.localizedDescription
+                    await self?.broadcast(.imageFailed(runId: runId, message: message))
+                    throw error
                 }
-                return result
             }
         case .request(let id, let method, let params):
             do {

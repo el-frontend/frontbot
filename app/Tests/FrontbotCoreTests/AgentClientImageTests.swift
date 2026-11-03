@@ -100,3 +100,22 @@ final class AgentClientImageTests: XCTestCase {
         XCTAssertEqual(try db.assets(brandId: brand.id, kind: .image).count, 1)
     }
 }
+
+extension AgentClientImageTests {
+    final class FailingRenderer: HTMLRendering {
+        func render(html: String, size: ImageSize) async throws -> Data { throw ValidationError("render roto") }
+    }
+
+    /// Los errores de las herramientas llegan a la app aunque el agente termine bien.
+    func testToolFailureIsBroadcast() async throws {
+        let client = try makeClient(renderer: FailingRenderer())
+        let stream = await client.updates()
+        let run = try await client.run(prompt: "p", agent: agent, brand: brand, image: plan(1))
+        var failures: [String] = []
+        for await update in stream {
+            if case .imageFailed(let r, let message) = update, r == run.id { failures.append(message) }
+            if case .finished(let done) = update, done.id == run.id { break }
+        }
+        XCTAssertEqual(failures, ["render roto"])
+    }
+}
