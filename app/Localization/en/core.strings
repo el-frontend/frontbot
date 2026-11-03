@@ -167,3 +167,8 @@
 "La tarea necesita una instrucción." = "The task needs an instruction.";
 "La instrucción admite hasta 4.000 caracteres." = "The instruction allows up to 4,000 characters.";
 "El límite diario debe estar entre 1 y 96 ejecuciones." = "The daily limit must be between 1 and 96 runs.";
+"El diseño pesa más de 512 KB." = "The design is larger than 512 KB.";
+"El diseño tardó demasiado en renderizarse." = "The design took too long to render.";
+"OpenAI no generó la imagen: %@" = "OpenAI didn't generate the image: %@";
+"OpenAI no devolvió ninguna imagen." = "OpenAI didn't return any image.";
+"Falta la API key de OpenAI. Agrégala en Ajustes." = "The OpenAI API key is missing. Add it in Settings.";
