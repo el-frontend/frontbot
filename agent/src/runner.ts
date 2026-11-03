@@ -15,7 +15,7 @@ export type Brand = { id: string; name: string; guide: string | null };
 export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
 /** mode "summarize": run en segundo plano que solo actualiza la memoria del agente.
  *  mode "scheduled": tarea programada, sin nadie mirando; puede avisar con notify_user. */
-export type RunParams = { run_id: string; prompt: string; model: string; provider?: "claude" | "codex"; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled" | "study"; study?: RunStudy; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
+export type RunParams = { run_id: string; prompt: string; model: string; provider?: "claude" | "codex"; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled" | "study" | "image"; image?: { kind: "html" | "ai"; count: number }; study?: RunStudy; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
   /** Carpetas del usuario autorizadas para este agente (rutas reales). */
   folders?: string[];
   /** Carpeta de trabajo del chat: herramientas de Claude Code dentro de la sandbox. Se ignora fuera de runs de chat. */
@@ -32,9 +32,13 @@ export const toolContext = (params: RunParams): ToolContext => ({
   trading: params.trading,
   // Cerrado por defecto: en estudio la lista de estudio rige aunque falte el tema (RealRunner lo rechaza antes).
   study: params.mode === "study" ? { topicId: params.study?.topic_id ?? "", sessionId: params.study?.session_id ?? "" } : undefined,
+  // Cerrado por defecto: un run de imagen sin tipo crea diseños, nunca fotos de pago.
+  image: params.mode === "image" ? params.image?.kind ?? "html" : undefined,
 });
 
-const userPrompt = (params: RunParams) => params.mode === "study" && params.study
+const userPrompt = (params: RunParams) => params.mode === "image"
+  ? params.prompt
+  : params.mode === "study" && params.study
   ? buildStudyPrompt(params.study, params.agent ?? { name: "Frontbot" })
   : params.mode === "summarize"
   ? buildSummaryPrompt(params.history ?? [], params.agent?.name ?? "Frontbot")
@@ -186,11 +190,13 @@ function browserHooks(guard: BrowserGuard): Hooks {
 /** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude.
  *  Con `browser`, añade el Chrome del usuario (Claude in Chrome) detrás del guardián. */
 export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin, meter: TokenMeter | undefined = undefined, call?: AppCall): Options {
+  // Un run de imagen se comporta como un resumen en lo que expone: nada de web, Chrome, skills ni trading.
+  const image = params.mode === "image";
   const summarize = params.mode === "summarize";
   // En estudio nadie mira: sin Chrome, sin plugin de skills y sin Read, aunque el run los pida.
   const study = params.mode === "study";
-  const browser = params.browser === true && !summarize && !study;
-  const skills = !summarize && !study && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
+  const browser = params.browser === true && !summarize && !study && !image;
+  const skills = !summarize && !study && !image && plugin && plugin.skillNames.length > 0 ? plugin : undefined;
   // La carpeta de trabajo solo existe en el chat; en el resto de modos se ignora aunque llegue.
   const workdir = (params.mode === undefined || params.mode === "chat") ? params.workdir : undefined;
   const approvedUnsandboxed = new Map<string, string>();
@@ -208,11 +214,11 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   return {
     // El hilo principal del estudio siempre corre en Sonnet (§8); los subagentes eligen el suyo.
     model: study ? STUDY_MODEL : params.model,
-    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize ? undefined : params.trading, folders: summarize || study ? undefined : params.folders, workdir, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined, study }),
-    tools: [...new Set(summarize ? [] : study ? ["WebSearch", "WebFetch", "Agent"] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : []), ...(workdir ? WORKDIR_TOOLS : [])])],
+    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize || image ? undefined : params.trading, folders: summarize || study || image ? undefined : params.folders, workdir, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined, study }),
+    tools: [...new Set(summarize || image ? [] : study ? ["WebSearch", "WebFetch", "Agent"] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : []), ...(workdir ? WORKDIR_TOOLS : [])])],
     allowedTools: [...new Set([...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : []), ...(workdir ? WORKDIR_TOOLS : []),
       // En estudio solo se lee el mercado: ni account_state ni trade_propose.
-      ...(params.trading && !summarize ? (study ? MARKET_TOOL_NAMES : TRADING_TOOL_NAMES).map((t) => `mcp__frontbot__${t}`) : []),
+      ...(params.trading && !summarize && !image ? (study ? MARKET_TOOL_NAMES : TRADING_TOOL_NAMES).map((t) => `mcp__frontbot__${t}`) : []),
       ...(study ? ["Agent"] : [])])],
     ...(workdir ? { cwd: workdir.path, env: workdirEnv(workdir), sandbox: sandboxSettings(workdir, homedir(), toolPaths()), canUseTool: unsandboxedOnly(approvedUnsandboxed) } : {}),
     ...(browser ? { extraArgs: { chrome: null } } : {}),
@@ -325,6 +331,18 @@ export class FakeRunner implements Runner {
       emit({ run_id: params.run_id, type: "text", text: provider });
       emit({ run_id: params.run_id, type: "text", text: `Modelo: ${params.model}` });
       return { run_id: params.run_id, ok: true, summary: provider, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+    }
+    if (params.mode === "image") {
+      // Para los tests de la app: crea `image.count` diseños y cuenta las notas de memoria que llegaron.
+      let ok = 0;
+      for (let i = 0; i < (params.image?.count ?? 1); i++) {
+        if (signal.aborted) break;
+        try {
+          await this.call("tool.images_render_html", { run_id: params.run_id, brand_id: params.brand?.id, html: '<body style="margin:0;background:#F2A3C9"></body>' });
+          ok++;
+        } catch { /* el test mira cuántas salieron */ }
+      }
+      return { run_id: params.run_id, ok: true, summary: `${ok} mem:${params.agent?.memory?.length ?? 0}`, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
     }
     if (params.prompt.includes("escribir") && params.folders?.length) {
       // Para los tests de la app: escribe un archivo en la primera carpeta (o cuenta por qué no pudo).
