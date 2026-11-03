@@ -28,6 +28,8 @@ public struct AppPaths: Sendable {
     public func datasetDir(_ name: String) -> URL { datasetsDir.appendingPathComponent(name, isDirectory: true) }
     public var labVenvPython: URL { labsDir.appendingPathComponent(".venv/bin/python3") }
     public var database: URL { root.appendingPathComponent("frontbot.sqlite") }
+    /// Metadata local de un post (JSON abierto: métricas y lo que venga después).
+    public func postMetadata(_ postId: String) -> URL { root.appendingPathComponent("posts/\(postId)/metadata.json") }
     public func brandDir(_ brandId: String) -> URL { root.appendingPathComponent("brands/\(brandId)", isDirectory: true) }
     public func assetsDir(_ brandId: String) -> URL { brandDir(brandId).appendingPathComponent("assets", isDirectory: true) }
     public func guide(_ brandId: String) -> URL { brandDir(brandId).appendingPathComponent("guide.md") }
