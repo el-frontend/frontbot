@@ -332,6 +332,11 @@ export class FakeRunner implements Runner {
       emit({ run_id: params.run_id, type: "text", text: `Modelo: ${params.model}` });
       return { run_id: params.run_id, ok: true, summary: provider, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
     }
+    if (params.mode === "image" && params.prompt === "otra corrida") {
+      const error = await this.call("tool.images_render_html", { run_id: "no-existe", brand_id: params.brand?.id, html: "<b>" })
+        .then(() => "creada", (err: Error) => err.message);
+      return { run_id: params.run_id, ok: true, summary: error, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+    }
     if (params.mode === "image") {
       // Para los tests de la app: crea `image.count` diseños y cuenta las notas de memoria que llegaron.
       let ok = 0;

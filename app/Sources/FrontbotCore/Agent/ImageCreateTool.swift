@@ -8,13 +8,18 @@ public actor ImageCreateTool {
 
     let importer: AssetImporter
     let renderer: HTMLRendering
-    let provider: @Sendable () -> ImageProvider?
+    private var provider: @Sendable () -> ImageProvider?
     private var plans: [String: ImageRunPlan] = [:]
     private var used: [String: (html: Int, ai: Int)] = [:]
 
     public init(importer: AssetImporter, renderer: HTMLRendering, provider: @escaping @Sendable () -> ImageProvider?) {
         self.importer = importer
         self.renderer = renderer
+        self.provider = provider
+    }
+
+    /// La key de OpenAI puede cambiar en Ajustes sin reiniciar.
+    public func setProvider(_ provider: @escaping @Sendable () -> ImageProvider?) {
         self.provider = provider
     }
 

@@ -123,3 +123,13 @@ final class ImageCreateToolTests: XCTestCase {
         XCTAssertEqual(try images(), 0)
     }
 }
+
+extension ImageCreateToolTests {
+    /// Guardar la key en Ajustes no reinicia la app: la siguiente foto ya la usa.
+    func testProviderCanChangeAtRuntime() async throws {
+        let tool = makeTool(withKey: false)
+        await tool.setProvider { FakeProvider() }
+        _ = try await tool.handle(method: "tool.images_generate", params: ai())
+        XCTAssertEqual(try images(), 1)
+    }
+}
