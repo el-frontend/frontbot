@@ -135,6 +135,13 @@ describe("CodexRunner Responses API", () => {
     expect(requests[0].tools?.map((tool) => tool.name)).toEqual(["brands_list", "brands_get_guide", "brands_list_assets", "images_render_html"]);
   });
 
+  it("rejects metrics runs (no browser in Codex) before contacting OpenAI", async () => {
+    const transport = vi.fn<Transport>();
+    await expect(runner(transport).run({ ...base, mode: "metrics" }, () => {}, new AbortController().signal))
+      .resolves.toMatchObject({ ok: false, error: expect.stringContaining("navegador") });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
   it("rejects study and workdir runs before contacting OpenAI", async () => {
     const transport = vi.fn<Transport>();
     const api = runner(transport);
