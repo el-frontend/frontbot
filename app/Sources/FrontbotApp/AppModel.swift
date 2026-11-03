@@ -52,6 +52,12 @@ final class AppModel {
     var hasPreviousGuide = false
     /// Logo más reciente de cada marca (id → ruta); sin entrada, el avatar usa las iniciales.
     var logos: [String: String] = [:]
+    /// Imágenes que se están creando por post (o ya creadas y aún no agregadas al editor).
+    var imageJobs = ImageJobs()
+    /// Avisos de runs de imagen que llegaron antes de saber su id (el render puede ganarle a `run()`).
+    private var earlyImageUpdates: [AgentUpdate] = []
+    private var startingImageRuns = 0
+    var canCreateAIImages: Bool { openAIKeyPresent }
     var calendarScope: CalendarScope = .week
     var calendarDate = Date()
     var calendarNetwork: Network?
@@ -302,6 +308,79 @@ final class AppModel {
     }
 
     // MARK: Posts
+
+    /// Crea imágenes para el post con el agente por defecto, en segundo plano. No guarda el post: lo creado
+    /// queda pendiente en `imageJobs` y el editor lo agrega a su selección.
+    func createImages(post: Post, body: String, kind: ImageKind, count: Int, indication: String) {
+        guard let brand = brands.first(where: { $0.id == post.brandId }),
+              imageJobs.reserve(postId: post.id, total: count) else { return } // un segundo clic no lanza otro run
+        let agent = agents.first { $0.isDefault }
+        let size = kind == .ai ? ImageSize.ai : .forNetwork(post.network)
+        let prompt = ImagePrompt.build(body: body, network: post.network, kind: kind, count: count, indication: indication,
+                                       size: size, hasLogo: logos[brand.id] != nil)
+        let plan = ImageRunPlan(brandId: brand.id, kind: kind, count: count, size: size)
+        startingImageRuns += 1
+        Task {
+            defer { startingImageRuns -= 1 }
+            do {
+                let run = try await client.run(prompt: prompt, agent: agent, brand: brand, image: plan)
+                imageJobs.attach(postId: post.id, runId: run.id)
+                let early = earlyImageUpdates
+                earlyImageUpdates = []
+                for update in early { _ = handleImage(update) }
+            } catch {
+                imageJobs.failStart(postId: post.id, error: (error as? ValidationError)?.message ?? error.localizedDescription)
+            }
+        }
+    }
+
+    func cancelImages(postId: String) {
+        guard let job = imageJobs.job(postId: postId), job.running, !job.runId.isEmpty else { return }
+        imageJobs.stop(postId: postId)
+        Task { await client.cancel(runId: job.runId) }
+    }
+
+    /// Lo creado para ese post que el editor aún no agregó, en orden y una sola vez.
+    func takePendingImages(postId: String) -> [String] {
+        imageJobs.take(postId: postId)
+    }
+
+    func dismissImageError(postId: String) {
+        imageJobs.dismissError(postId: postId)
+    }
+
+    /// Eventos de runs de imagen. Devuelve false si no son de uno.
+    private func handleImage(_ update: AgentUpdate) -> Bool {
+        switch update {
+        case .imageCreated(let runId, let assetId):
+            guard imageJobs.postId(runId: runId) != nil else {
+                if startingImageRuns > 0, earlyImageUpdates.count < 50 { earlyImageUpdates.append(update) }
+                return true
+            }
+            imageJobs.created(runId: runId, assetId: assetId)
+            reloadContent()
+            return true
+        case .imageFailed(let runId, let message):
+            guard imageJobs.postId(runId: runId) != nil else {
+                if startingImageRuns > 0, earlyImageUpdates.count < 50 { earlyImageUpdates.append(update) }
+                return true
+            }
+            imageJobs.toolFailed(runId: runId, message: message)
+            return true
+        case .finished(let run):
+            guard imageJobs.postId(runId: run.id) != nil else {
+                // Puede ser de un run de imagen que aún no registramos: se guarda una copia y sigue su camino.
+                if startingImageRuns > 0, earlyImageUpdates.count < 50 { earlyImageUpdates.append(update) }
+                return false
+            }
+            let error = run.status == .failed ? (run.resultSummary ?? String(localized: "No se pudieron crear las imágenes.")) : nil
+            imageJobs.finish(runId: run.id, error: error)
+            reloadContent()
+            return true
+        default:
+            return false
+        }
+    }
 
     @discardableResult
     func updatePost(_ post: Post, body: String, media: [String], scheduledFor: Date?) -> Bool {
@@ -1275,6 +1354,7 @@ final class AppModel {
     private func listen() async {
         for await update in await client.updates() {
             if handleScheduled(update) { continue }
+            if handleImage(update) { continue }
             if lab.handle(update) { continue }
             bufferIfUnknown(update)
             switch update {

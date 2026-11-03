@@ -7,7 +7,7 @@ import { TokenMeter } from "../src/study.js";
 import type { AppCall } from "../src/tools.js";
 import type { SkillPlugin } from "../src/skills.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { buildQueryOptions, createProductionRunner, ProviderRunner, RealRunner, toolCallText, type RunParams, type Runner } from "../src/runner.js";
+import { buildQueryOptions, createProductionRunner, FakeRunner, ProviderRunner, RealRunner, toolCallText, toolContext, type RunParams, type Runner } from "../src/runner.js";
 
 describe("ProviderRunner", () => {
   it("dispatches provider runs and preserves their event and completion contract", async () => {
@@ -290,5 +290,38 @@ describe("workdir", () => {
     expect(toolCallText("Grep", { pattern: "x".repeat(200) }, wd)).toBe(`Grep · ${"x".repeat(120)}`);
     expect(toolCallText("TodoWrite", { todos: [] }, wd)).toBe("TodoWrite");
     expect(toolCallText("mcp__frontbot__lab_note", {}, wd)).toBe("lab_note");
+  });
+});
+
+describe("image mode", () => {
+  const params: RunParams = { run_id: "r", prompt: "Crea una imagen", model: "m", mode: "image", image: { kind: "ai", count: 1 },
+    trading: { mandate: { mode: "approval", max_risk_pct: 1, max_leverage: 2, coins: ["BTC"], max_trades_per_day: 1 } } as RunParams["trading"],
+    browser: true, folders: ["/tmp/x"] };
+
+  it("carries the image kind into the tool context", () => {
+    expect(toolContext(params).image).toBe("ai");
+    expect(toolContext({ ...params, image: undefined }).image).toBe("html");
+    expect(toolContext({ ...params, mode: "chat" }).image).toBeUndefined();
+  });
+
+  it("has no built-in tools, no browser and only the closed list", () => {
+    const server = createSdkMcpServer({ name: "frontbot", version: "0.1.0", tools: [] });
+    const opts = buildQueryOptions(params, server, new AbortController(), "2026-11-03");
+    expect(opts.tools).toEqual([]);
+    expect(opts.extraArgs).toBeUndefined();
+    expect([...(opts.allowedTools ?? [])].sort()).toEqual(["brands_get_guide", "brands_list", "brands_list_assets", "images_generate"].map((t) => `mcp__frontbot__${t}`));
+    expect(opts.maxTurns).toBe(30);
+  });
+});
+
+describe("FakeRunner image mode", () => {
+  it("renders count designs for the run's brand", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const fake = new FakeRunner(async (m, p) => { calls.push([m, p]); return { asset_id: `a${calls.length}` }; });
+    const done = await fake.run({ run_id: "r", prompt: "p", model: "m", mode: "image", image: { kind: "html", count: 3 },
+      brand: { id: "b1", name: "B", guide: null } }, () => {}, new AbortController().signal);
+    expect(calls.map(([m]) => m)).toEqual(["tool.images_render_html", "tool.images_render_html", "tool.images_render_html"]);
+    expect(calls[0][1]).toMatchObject({ run_id: "r", brand_id: "b1" });
+    expect(done).toMatchObject({ ok: true, summary: "3 mem:0" });
   });
 });

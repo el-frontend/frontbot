@@ -11,6 +11,7 @@ struct PostEditorView: View {
     @State private var hasDate: Bool
     @State private var date: Date
     @State private var publishedUrl = ""
+    @State private var showCreateImage = false
 
     init(model: AppModel, post: Post, close: @escaping () -> Void) {
         self.model = model
@@ -50,7 +51,12 @@ struct PostEditorView: View {
             footer
         }
         .background(Theme.sidebar)
-        .onAppear { model.errorMessage = nil }
+        .onAppear {
+            model.errorMessage = nil
+            takePendingImages()
+        }
+        .onChange(of: model.imageJobs.job(postId: post.id)?.done) { _, _ in takePendingImages() }
+        .onChange(of: model.imageJobs.job(postId: post.id)?.running) { _, _ in takePendingImages() }
         .onDisappear { model.errorMessage = nil }
     }
 
@@ -101,8 +107,10 @@ struct PostEditorView: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel("Imágenes · toca para elegir el orden")
             let assets = model.brandAssets(post.brandId)
+            let job = model.imageJobs.job(postId: post.id)
+            let room = ImagePrompt.maxCount(selected: media.count)
             if assets.isEmpty {
-                Text("Esta marca no tiene imágenes todavía. Súbelas desde la página de la marca.")
+                Text("Esta marca no tiene imágenes todavía. Crea una o súbelas desde la página de la marca.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
             }
             ScrollView(.horizontal, showsIndicators: false) {
@@ -123,9 +131,36 @@ struct PostEditorView: View {
                             }
                             .accessibilityLabel(index != nil ? Text("Imagen \(index! + 1), seleccionada") : Text("Imagen"))
                     }
+                    CreateImageTile(job: job, enabled: editable && (room > 0 || job?.running == true),
+                                    help: room == 0 ? String(localized: "El post ya tiene 10 imágenes") : String(localized: "Crear imágenes para este post")) {
+                        showCreateImage = true
+                    }
+                }
+            }
+            if showCreateImage || job?.running == true {
+                CreateImagePanel(maxCount: room, canUseAI: model.canCreateAIImages, running: job?.running == true,
+                                 create: { kind, count, indication in
+                                     model.createImages(post: current, body: text, kind: kind, count: count, indication: indication)
+                                 },
+                                 stop: { model.cancelImages(postId: post.id) },
+                                 cancel: { showCreateImage = false })
+            }
+            if let error = job?.error {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger)
+                    Button("Cerrar") { model.dismissImageError(postId: post.id) }.buttonStyle(.plain)
+                        .font(.system(size: 12)).foregroundStyle(Theme.muted)
                 }
             }
         }
+    }
+
+    /// Lo creado para este post entra a la selección (sin guardar), en orden y sin repetir.
+    private func takePendingImages() {
+        for id in model.takePendingImages(postId: post.id) where !media.contains(id) && media.count < ImagePrompt.maxMedia {
+            media.append(id)
+        }
+        if model.imageJobs.job(postId: post.id)?.running != true { showCreateImage = false }
     }
 
     private var dateSection: some View {

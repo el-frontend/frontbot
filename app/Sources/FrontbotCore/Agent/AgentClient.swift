@@ -47,6 +47,10 @@ public enum AgentUpdate: Sendable, Equatable {
     /// Una tarea programada pidió avisar al usuario (`notify_user`).
     case notify(runId: String, title: String, message: String)
     case finished(AgentRun)
+    /// Un run creó una imagen (`images_render_html` / `images_generate`) y ya está en los assets de la marca.
+    case imageCreated(runId: String, assetId: String)
+    /// Una herramienta de imagen falló (OpenAI, render, cupo). El agente puede terminar bien igual.
+    case imageFailed(runId: String, message: String)
     /// El run se canceló: la app debe cerrar la hoja de aprobación pendiente y responder que no.
     case workdirApprovalCancelled(runId: String)
 }
@@ -87,6 +91,7 @@ public actor AgentClient {
     private let files: BrandFiles
     private let tools: ToolHandler
     private let imageImports: ImageImportTool
+    private let imageCreate: ImageCreateTool
     private let workspaceId: String
 
     private var process: Process?
@@ -135,7 +140,8 @@ public actor AgentClient {
     /// Para operaciones síncronas desde la app (rechazar) sin esperar al actor.
     nonisolated public func tradingService(db: AppDatabase) -> TradingService { TradingService(db: db, executor: self, keys: KeychainTradeKeys()) }
 
-    public init(config: AgentConfig, db: AppDatabase, files: BrandFiles, workspaceId: String, cancelGrace: Duration = .seconds(10)) {
+    public init(config: AgentConfig, db: AppDatabase, files: BrandFiles, workspaceId: String, cancelGrace: Duration = .seconds(10),
+                imageTool: ImageCreateTool? = nil) {
         self.cancelGrace = cancelGrace
         self.config = config
         self.db = db
@@ -143,6 +149,9 @@ public actor AgentClient {
         self.workspaceId = workspaceId
         self.tools = ToolHandler(db: db, files: files, workspaceId: workspaceId)
         self.imageImports = ImageImportTool(importer: AssetImporter(db: db, paths: files.paths))
+        let openAIKey = CredentialStore.normalizedApiKey(config.openAIAPIKey)
+        self.imageCreate = imageTool ?? ImageCreateTool(importer: AssetImporter(db: db, paths: files.paths), renderer: WebKitHTMLRenderer(),
+                                                        provider: { openAIKey.map { OpenAIImageProvider(apiKey: $0) } })
     }
 
     public struct StudyContext: Sendable {
@@ -155,8 +164,10 @@ public actor AgentClient {
         }
     }
 
-    public func setConfig(_ config: AgentConfig) {
+    public func setConfig(_ config: AgentConfig) async {
         self.config = config
+        let openAIKey = CredentialStore.normalizedApiKey(config.openAIAPIKey)
+        await imageCreate.setProvider { openAIKey.map { OpenAIImageProvider(apiKey: $0) } }
         stop() // el próximo run relanza con la nueva config (p. ej. nueva API key)
     }
 
@@ -186,7 +197,7 @@ public actor AgentClient {
 
     public func run(prompt: String, agent: Agent? = nil, brand: Brand?, history: [ChatTurn] = [], model: String? = nil,
                     summarize: Bool = false, task: ScheduledTask? = nil, study: StudyContext? = nil,
-                    workdir: Conversation? = nil) async throws -> AgentRun {
+                    workdir: Conversation? = nil, image: ImageRunPlan? = nil) async throws -> AgentRun {
         try ensureProcess()
         let run = try db.startRun(workspaceId: workspaceId, brandId: brand?.id, prompt: prompt)
         activeRuns.insert(run.id)
@@ -201,7 +212,7 @@ public actor AgentClient {
                 let guide = try files.readGuide(brandId: brand.id)
                 params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
             }
-            if !history.isEmpty { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
+            if !history.isEmpty, image == nil { params["history"] = ChatHistory.json(ChatHistory.trimmed(history)) }
             if summarize { params["mode"] = "summarize" }
             if let task {
                 unattendedRuns.insert(run.id)
@@ -209,7 +220,8 @@ public actor AgentClient {
                 params["task"] = ["name": .string(task.name)]
             }
             if let agent {
-                let memory = MemoryPrompt.trimmed(try db.memories(agentId: agent.id))
+                // Un run de imagen no carga memoria: solo crea imágenes con la guía.
+                let memory = image == nil ? MemoryPrompt.trimmed(try db.memories(agentId: agent.id)) : []
                 params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
                                    "is_default": .bool(agent.isDefault), "memory": MemoryPrompt.json(memory)]
                 if agent.provider == .claude && agent.browser { params["browser"] = .bool(true) }
@@ -244,8 +256,13 @@ public actor AgentClient {
                                    "notebook": notebook]
                 try db.attachAgentRun(labSessionId: study.session.id, agentRunId: run.id)
             }
-            // La carpeta solo existe en chats: tareas, estudio y resúmenes la ignoran.
-            if let conversation = workdir, let path = conversation.workdir, task == nil, study == nil, !summarize {
+            if let image {
+                params["mode"] = "image"
+                params["image"] = ["kind": .string(image.kind.rawValue), "count": .number(Double(image.count))]
+                await imageCreate.beginRun(run.id, plan: image)
+            }
+            // La carpeta solo existe en chats: tareas, estudio, resúmenes e imágenes la ignoran.
+            if let conversation = workdir, let path = conversation.workdir, task == nil, study == nil, !summarize, image == nil {
                 params["workdir"] = .object(try workdirParams(path: path, readDirs: conversation.readDirs, agent: agent))
             }
             try send(.request(id: takeId(), method: "agent.run", params: .object(params)))
@@ -337,7 +354,10 @@ public actor AgentClient {
     private func fail(runId: String, summary: String, labTokens: Int? = nil) {
         cancelToolApprovalTasks(runId: runId)
         activeRuns.remove(runId)
-        Task { [imageImports] in await imageImports.endRun(runId) }
+        Task { [imageImports, imageCreate] in
+            await imageImports.endRun(runId)
+            await imageCreate.endRun(runId)
+        }
         unattendedRuns.remove(runId)
         finishStudy(runId: runId, status: .failed, params: labTokens.map { ["lab_tokens": .number(Double($0))] })
         if let run = try? db.finishRun(id: runId, status: .failed, summary: summary, inputTokens: 0, outputTokens: 0, costUsd: 0) {
@@ -575,21 +595,27 @@ public actor AgentClient {
             }
         case .request(let id, "tool.brands_import_image", let params):
             // Va a la red: se atiende aparte para no bloquear al actor, y solo dentro de un run vivo.
-            guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId) else {
-                reply(id, .failure(ValidationError("Esta corrida ya terminó.")))
-                return
-            }
-            // Se registra con las aprobaciones del run: parar o fallar el run cancela la descarga.
             let imports = imageImports
-            let taskId = UUID()
-            let task = Task { [weak self] in
-                guard let self else { return }
-                let result: Result<JSONValue, Error>
-                do { result = .success(try await imports.handle(params)) } catch { result = .failure(error) }
-                await self.reply(id, result)
-                await self.finishToolApprovalTask(runId: runId, id: taskId)
+            startRunTool(id: id, params: params) { try await imports.handle($0) }
+        case .request(let id, let method, let params) where method == "tool.images_render_html" || method == "tool.images_generate":
+            // Renderizar o generar tarda: igual que la importación, aparte y cancelable con el run.
+            let create = imageCreate
+            startRunTool(id: id, params: params) { [weak self] params in
+                let runId = params["run_id"]?.stringValue ?? ""
+                do {
+                    let result = try await create.handle(method: method, params: params)
+                    if let assetId = result["asset_id"]?.stringValue {
+                        await self?.broadcast(.imageCreated(runId: runId, assetId: assetId))
+                    }
+                    return result
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    let message = (error as? ValidationError)?.message ?? error.localizedDescription
+                    await self?.broadcast(.imageFailed(runId: runId, message: message))
+                    throw error
+                }
             }
-            toolApprovalTasks[runId, default: [:]][taskId] = task
         case .request(let id, let method, let params):
             do {
                 let result = try tools.handle(method: method, params: params)
@@ -605,7 +631,10 @@ public actor AgentClient {
             guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId) else { return }
             activeRuns.remove(runId)
             unattendedRuns.remove(runId)
-            Task { [imageImports] in await imageImports.endRun(runId) }
+            Task { [imageImports, imageCreate] in
+                await imageImports.endRun(runId)
+                await imageCreate.endRun(runId)
+            }
             let ok = params["ok"]?.boolValue ?? false
             finishStudy(runId: runId, status: params["cut"]?.boolValue == true ? .cut : (ok ? .done : .failed), params: params)
             let summary = ok ? params["summary"]?.stringValue : (params["error"]?.stringValue ?? "Error desconocido")
@@ -622,6 +651,23 @@ public actor AgentClient {
         default:
             break
         }
+    }
+
+    /// Herramienta async de un run vivo. Se registra con las aprobaciones del run: parar o fallar el run la cancela.
+    private func startRunTool(id: Int, params: JSONValue, _ work: @escaping @Sendable (JSONValue) async throws -> JSONValue) {
+        guard let runId = params["run_id"]?.stringValue, activeRuns.contains(runId) else {
+            reply(id, .failure(ValidationError("Esta corrida ya terminó.")))
+            return
+        }
+        let taskId = UUID()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            let result: Result<JSONValue, Error>
+            do { result = .success(try await work(params)) } catch { result = .failure(error) }
+            await self.reply(id, result)
+            await self.finishToolApprovalTask(runId: runId, id: taskId)
+        }
+        toolApprovalTasks[runId, default: [:]][taskId] = task
     }
 
     private func reply(_ id: Int, _ result: Result<JSONValue, Error>) {

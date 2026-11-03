@@ -13,7 +13,7 @@ describe("tools", () => {
     expect(ALLOWED_TOOLS).toContain("mcp__frontbot__posts_create_draft");
     expect(ALLOWED_TOOLS.some((t) => /publish|approve|Bash|Write|Edit/.test(t))).toBe(false);
     expect(TOOL_SPECS.map((t) => t.name).sort()).toEqual([
-      "brands_get_guide", "brands_import_image", "brands_list", "brands_list_assets", "brands_write_guide", "ideas_create",
+      "brands_get_guide", "brands_import_image", "brands_list", "brands_list_assets", "brands_write_guide", "ideas_create", "images_generate", "images_render_html",
       "posts_create_draft", "posts_list", "posts_update_draft",
       "schedule_create_draft", "schedule_list", "schedule_update_draft",
       "skills_create_draft", "skills_list", "skills_run_script", "skills_update_draft",
@@ -98,5 +98,33 @@ describe("file tools", () => {
     const tools = buildTools(async (m, p) => { calls.push([m, p]); return { written: "/x" }; }, { isDefault: false, agentId: "a", files: true, runId: "r1" });
     await tools.find((t) => t.name === "files_write")!.handler({ path: "/x", content: "hola", run_id: "otro" } as never, {});
     expect(calls).toEqual([["tool.files_write", { path: "/x", content: "hola", run_id: "r1", agent_id: "a" }]]);
+  });
+});
+
+describe("image tools", () => {
+  const names = (ctx: Parameters<typeof frontbotToolSpecs>[0]) => frontbotToolSpecs(ctx).map((t) => t.name);
+
+  it("image mode exposes a closed list with only the chosen image tool", () => {
+    expect(names({ isDefault: true, image: "html" })).toEqual(["brands_list", "brands_get_guide", "brands_list_assets", "images_render_html"]);
+    expect(names({ isDefault: true, image: "ai" })).toEqual(["brands_list", "brands_get_guide", "brands_list_assets", "images_generate"]);
+  });
+
+  it("chat has both, scheduled runs never pay for photos, study has neither", () => {
+    expect(names({ isDefault: true })).toEqual(expect.arrayContaining(["images_render_html", "images_generate"]));
+    expect(names({ isDefault: true, scheduled: true })).toContain("images_render_html");
+    expect(names({ isDefault: true, scheduled: true })).not.toContain("images_generate");
+    expect(STUDY_TOOL_NAMES).not.toContain("images_render_html");
+    expect(STUDY_TOOL_NAMES).not.toContain("images_generate");
+  });
+
+  it("image tools send the trusted run_id", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const call = async (m: string, p: Record<string, unknown>) => { calls.push([m, p]); return { asset_id: "a1" }; };
+    await executeFrontbotTool("images_generate", { brand_id: "b", prompt: "a cup", run_id: "falso" }, call, { isDefault: true, runId: "r1" });
+    await executeFrontbotTool("images_render_html", { brand_id: "b", html: "<b>", network: "linkedin" }, call, { isDefault: true, runId: "r1", image: "html" });
+    expect(calls).toEqual([
+      ["tool.images_generate", { brand_id: "b", prompt: "a cup", run_id: "r1" }],
+      ["tool.images_render_html", { brand_id: "b", html: "<b>", network: "linkedin", run_id: "r1" }],
+    ]);
   });
 });

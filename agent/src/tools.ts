@@ -15,6 +15,8 @@ export const TOOL_SPECS = [
   { name: "brands_write_guide", description: "Escribe o reemplaza la guía de marca completa en markdown.", shape: { brand_id: z.string(), markdown: z.string() } },
   { name: "brands_import_image", description: "Descarga una imagen pública (JPEG, PNG, WebP o GIF; máx. 8 MB) a los assets de la marca. kind: logo para el logo (1 por corrida) o image para fotos (8 por corrida). Devuelve el id del asset.", shape: { brand_id: z.string(), url: z.string(), kind: z.enum(["image", "logo"]) } },
   { name: "brands_list_assets", description: "Lista las imágenes y archivos de una marca (id, tipo, nombre). Usa los id de tipo image en media.", shape: { brand_id: z.string() } },
+  { name: "images_render_html", description: "Convierte un diseño HTML en una imagen PNG y la guarda en las imágenes de la marca. html: documento completo con CSS inline, sin scripts ni recursos externos (no se cargan); para el logo usa {{logo}} como src. network define el tamaño (instagram 1080×1350, linkedin 1200×1500). Devuelve el id del asset.", shape: { brand_id: z.string(), html: z.string(), network: z.enum(["instagram", "linkedin"]).optional() } },
+  { name: "images_generate", description: "Genera una foto con IA (OpenAI, cuesta dinero en la cuenta del usuario) a partir de un prompt visual en inglés y la guarda en las imágenes de la marca. Úsala solo si el usuario pide fotos generadas. Devuelve el id del asset.", shape: { brand_id: z.string(), prompt: z.string() } },
   { name: "posts_list", description: "Lista posts, opcionalmente por marca y estado (draft, approved, preparing, scheduled, published, archived).", shape: { brand_id: z.string().optional(), status: z.string().optional() } },
   { name: "posts_create_draft", description: "Crea un post en borrador para una marca. No lo publica: el usuario lo revisa y aprueba. media: ids de imágenes de la marca (máx. 10).", shape: { brand_id: z.string(), network, body: z.string(), scheduled_for: date.optional(), media: z.array(z.string()).optional() } },
   { name: "posts_update_draft", description: "Edita un post que sigue en borrador.", shape: { post_id: z.string(), body: z.string().optional(), scheduled_for: date.optional(), media: z.array(z.string()).optional() } },
@@ -77,12 +79,21 @@ export const ALLOWED_TOOLS = ["WebSearch", "WebFetch", ...TOOL_SPECS.map((t) => 
 /** Contexto del run: lo pone el sidecar, nunca el modelo. */
 export type ToolContext = { agentId?: string; isDefault: boolean; memoryOnly?: boolean; runId?: string; scheduled?: boolean; files?: boolean; trading?: RunTrading; skillPlugin?: SkillPlugin;
   /** Sesión de estudio del laboratorio: lista cerrada de herramientas, sin nada que publique, opere o escriba fuera. */
-  study?: { topicId: string; sessionId: string } };
+  study?: { topicId: string; sessionId: string };
+  /** Run de imagen del editor del post: solo leer la marca y la herramienta de imagen de su modo. */
+  image?: "html" | "ai" };
 
 const STUDY_BASE = ["brands_list", "brands_get_guide", "brands_list_assets", "posts_list", "tasks_list", "skills_list"];
 const STUDY_MEMORY = ["memory_list", "memory_remember"];
 
+const IMAGE_BASE = ["brands_list", "brands_get_guide", "brands_list_assets"];
+
 const specsFor = (ctx: ToolContext) => {
+  if (ctx.image) {
+    // Nadie toca el post ni nada fuera: leer la marca y crear imágenes del modo que eligió el usuario.
+    const tool = ctx.image === "html" ? "images_render_html" : "images_generate";
+    return TOOL_SPECS.filter((t) => [...IMAGE_BASE, tool].includes(t.name));
+  }
   if (ctx.study) {
     // Nadie mira: solo lectura de la app, memoria propia y el laboratorio. Nada que publique, opere o escriba fuera.
     return [
@@ -93,7 +104,8 @@ const specsFor = (ctx: ToolContext) => {
   }
   if (ctx.memoryOnly) return [...MEMORY_TOOL_SPECS];
   // En una tarea programada nadie puede aprobar un script: esa herramienta no existe ahí.
-  const base = ctx.scheduled ? TOOL_SPECS.filter((t) => t.name !== "skills_run_script") : [...TOOL_SPECS];
+  // Tampoco hay nadie para decidir gastar en fotos generadas.
+  const base = ctx.scheduled ? TOOL_SPECS.filter((t) => t.name !== "skills_run_script" && t.name !== "images_generate") : [...TOOL_SPECS];
   // Tampoco hay nadie para aprobar una escritura: en una tarea programada solo se lee.
   const files = !ctx.files ? [] : ctx.scheduled ? FILE_TOOL_SPECS.filter((t) => t.name !== "files_write") : [...FILE_TOOL_SPECS];
   const lab = LAB_TOOL_SPECS.filter((t) => (LAB_ANYWHERE as readonly string[]).includes(t.name));
@@ -103,7 +115,7 @@ const specsFor = (ctx: ToolContext) => {
 /** Nombres exactos (sin prefijo mcp) de la lista cerrada del modo estudio. */
 export const STUDY_TOOL_NAMES: string[] = specsFor({ isDefault: false, study: { topicId: "", sessionId: "" } }).map((t) => t.name);
 
-export const allowedToolsFor = (ctx: ToolContext) => [...(ctx.memoryOnly ? [] : ["WebSearch", "WebFetch"]), ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];
+export const allowedToolsFor = (ctx: ToolContext) => [...(ctx.memoryOnly || ctx.image ? [] : ["WebSearch", "WebFetch"]), ...specsFor(ctx).map((t) => `mcp__frontbot__${t.name}`)];
 
 /** Provider-independent Frontbot tool contract shared by Claude and Codex. */
 export function frontbotToolSpecs(ctx: ToolContext = { isDefault: true }) {
@@ -136,7 +148,8 @@ export async function executeFrontbotTool(
       params.topic_id = ctx.study.topicId;
     }
   }
-  if (spec.name === "notify_user" || spec.name === "files_write" || spec.name === "brands_import_image") params.run_id = ctx.runId;
+  if (spec.name === "notify_user" || spec.name === "files_write" || spec.name === "brands_import_image"
+    || spec.name === "images_render_html" || spec.name === "images_generate") params.run_id = ctx.runId;
   if (spec.name === "skills_run_script" && ctx.skillPlugin && Array.isArray(params.args)) {
     params.args = params.args.map((arg) => (typeof arg === "string" ? unaliasSkillPaths(arg, ctx.skillPlugin!) : arg));
   }

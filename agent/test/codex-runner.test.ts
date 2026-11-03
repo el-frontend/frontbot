@@ -125,6 +125,16 @@ describe("CodexRunner Responses API", () => {
     expect(execute.mock.calls.length).toBeLessThan(10);
   });
 
+  it("image runs send the app's prompt as-is with the closed tool list", async () => {
+    const requests: OpenAIResponsesRequest[] = [];
+    const transport: Transport = async (request) => { requests.push(request); return completed([{ type: "message", content: [{ type: "output_text", text: "ok" }] }]); };
+    const api = runner(transport, { frontbot: { context: { isDefault: true, image: "html" }, execute: vi.fn() } });
+    await api.run({ ...base, mode: "image", image: { kind: "html", count: 2 }, prompt: "Crea un carrusel", history: [{ role: "user", text: "antes" }] },
+      () => {}, new AbortController().signal);
+    expect(requests[0].input).toEqual([{ role: "user", content: "Crea un carrusel" }]);
+    expect(requests[0].tools?.map((tool) => tool.name)).toEqual(["brands_list", "brands_get_guide", "brands_list_assets", "images_render_html"]);
+  });
+
   it("rejects study and workdir runs before contacting OpenAI", async () => {
     const transport = vi.fn<Transport>();
     const api = runner(transport);

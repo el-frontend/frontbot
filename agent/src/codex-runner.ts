@@ -17,6 +17,7 @@ const failure = (runId: string, error: string, inputTokens = 0, outputTokens = 0
 });
 
 function runPrompt(params: RunParams): string {
+  if (params.mode === "image") return params.prompt;
   if (params.mode === "summarize") return buildSummaryPrompt(params.history ?? [], params.agent?.name ?? "Frontbot");
   if (params.mode === "scheduled") return `Ejecución de la tarea programada «${params.task?.name ?? "tarea"}». Instrucción:\n${params.prompt}`;
   return buildUserPrompt(params.history ?? [], params.prompt, params.agent?.name);
@@ -100,8 +101,8 @@ export class CodexRunner implements Runner {
     }));
     const instructions = buildSystemPrompt({
       today: localToday(), timeZone: timeZoneLabel(), brand: params.brand, agent: params.agent,
-      trading: params.mode === "summarize" ? undefined : params.trading,
-      folders: params.mode === "summarize" ? undefined : params.folders,
+      trading: params.mode === "summarize" || params.mode === "image" ? undefined : params.trading,
+      folders: params.mode === "summarize" || params.mode === "image" ? undefined : params.folders,
       scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined,
       browser: false, web: false,
     });
