@@ -110,3 +110,26 @@ final class PublishingServiceTests: XCTestCase {
         XCTAssertEqual(try service.cancelPreparation(postId: post.id).status, .approved)
     }
 }
+
+extension PublishingServiceTests {
+    func testConfirmPublishedWritesPublishedAt() throws {
+        let store = PostMetadataStore(paths: AppPaths(root: root))
+        service = PublishingService(db: db, handoff: handoff, metadata: store)
+        let post = try approved(.linkedin, media: [])
+        _ = try service.prepare(postId: post.id)
+        let when = Date(timeIntervalSince1970: 1_800_000_000)
+        _ = try service.confirmPublished(postId: post.id, url: nil, now: when)
+        XCTAssertEqual(store.read(postId: post.id).publishedAt, when)
+    }
+
+    func testSetPublishedUrlOnlyWhenPublished() throws {
+        let post = try approved(.linkedin, media: [])
+        XCTAssertThrowsError(try db.setPublishedUrl(id: post.id, url: "https://www.linkedin.com/feed/update/x"))
+        _ = try service.prepare(postId: post.id)
+        _ = try service.confirmPublished(postId: post.id, url: nil)
+        XCTAssertEqual(try db.setPublishedUrl(id: post.id, url: " https://www.linkedin.com/feed/update/x ").publishedUrl,
+                       "https://www.linkedin.com/feed/update/x")
+        XCTAssertThrowsError(try db.setPublishedUrl(id: post.id, url: "ftp://x"))
+        XCTAssertNil(try db.setPublishedUrl(id: post.id, url: "").publishedUrl)
+    }
+}

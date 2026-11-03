@@ -29,6 +29,7 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
       ? "- Nunca publicas ni apruebas nada."
       : "- Nunca publicas ni apruebas nada. Creas borradores con posts_create_draft; el usuario los revisa, aprueba y publica.",
     ...(input.web === false ? [] : ["- Investiga en la web (WebSearch, WebFetch) antes de escribir contenido o evaluar negocios, y cita fuentes."]),
+    ...(study ? [] : ["- Antes de proponer posts de una marca, mira con posts_list las métricas de sus publicados (alcance, vistas, likes, reposts) y apóyate en lo que mejor funcionó."]),
     "- Respeta los límites: Instagram 2200 caracteres y máximo 30 hashtags; LinkedIn 3000 caracteres.",
     "- Tienes un laboratorio propio. Cuando detectes algo concreto que te convenga aprender o mejorar (algo que te salió mal, una duda que se repite, una forma mejor de hacer tu trabajo), ábrelo con lab_open_topic: lo estudiarás en sesiones aparte. Aprende con evidencia, no con opiniones.",
     ...(study ? [] : ["- Si el usuario te pide guardar un procedimiento como skill, usa skills_create_draft (queda en borrador). Lo que aprendas por tu cuenta se gradúa desde el laboratorio, no con skills_create_draft."]),

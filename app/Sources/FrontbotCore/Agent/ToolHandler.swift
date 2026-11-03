@@ -14,6 +14,15 @@ public struct ToolHandler: Sendable {
     }
 
     var skills: SkillLibrary { SkillLibrary(db: db, paths: files.paths) }
+    var metadata: PostMetadataStore { PostMetadataStore(paths: files.paths) }
+
+    /// La última lectura de métricas de un post, para que el agente vea cómo le fue.
+    static func lastMetrics(_ meta: PostMetadata) -> JSONValue {
+        guard let r = meta.metrics.last else { return .null }
+        func n(_ v: Int?) -> JSONValue { v.map { .number(Double($0)) } ?? .null }
+        return ["checkpoint": .string(r.checkpoint.rawValue), "read_at": .string(isoString(r.readAt)),
+                "reach": n(r.reach), "views": n(r.views), "likes": n(r.likes), "reposts": n(r.reposts)]
+    }
 
     public func handle(method: String, params: JSONValue) throws -> JSONValue {
         switch method {
@@ -44,7 +53,8 @@ public struct ToolHandler: Sendable {
             return ["posts": .array(posts.map { p in
                 ["id": .string(p.id), "brand_id": .string(p.brandId), "network": .string(p.network.rawValue),
                  "body": .string(p.body), "status": .string(p.status.rawValue),
-                 "scheduled_for": p.scheduledFor.map { .string(Self.isoString($0)) } ?? .null]
+                 "scheduled_for": p.scheduledFor.map { .string(Self.isoString($0)) } ?? .null,
+                 "metrics": Self.lastMetrics(metadata.read(postId: p.id))]
             })]
         case "tool.posts_create_draft":
             let post = try db.createDraft(

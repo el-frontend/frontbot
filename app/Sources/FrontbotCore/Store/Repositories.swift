@@ -109,11 +109,7 @@ extension AppDatabase {
     }
 
     public func markPublished(id: String, url: String?) throws -> Post {
-        let trimmed = url?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let clean = (trimmed?.isEmpty ?? true) ? nil : trimmed
-        if let clean, !(clean.hasPrefix("https://") || clean.hasPrefix("http://")) {
-            throw ValidationError(String(localized: "La URL debe empezar con https://."))
-        }
+        let clean = try Self.publishedLink(url)
         return try writer.write { db in
             guard var post = try Post.fetchOne(db, key: id) else { throw notFound("post", id) }
             try PostStateMachine.checkTransition(from: post.status, to: .published, actor: .user)
@@ -123,6 +119,28 @@ extension AppDatabase {
             try post.update(db)
             return post
         }
+    }
+
+    /// El link del post se puede agregar o corregir después de publicar (lo usan las métricas). No cambia el estado.
+    public func setPublishedUrl(id: String, url: String?) throws -> Post {
+        let clean = try Self.publishedLink(url)
+        return try writer.write { db in
+            guard var post = try Post.fetchOne(db, key: id) else { throw notFound("post", id) }
+            guard post.status == .published else { throw ValidationError(String(localized: "Solo los posts publicados tienen link.")) }
+            post.publishedUrl = clean
+            post.updatedAt = .dbNow()
+            try post.update(db)
+            return post
+        }
+    }
+
+    static func publishedLink(_ url: String?) throws -> String? {
+        let trimmed = url?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        if let clean, !(clean.hasPrefix("https://") || clean.hasPrefix("http://")) {
+            throw ValidationError(String(localized: "La URL debe empezar con https://."))
+        }
+        return clean
     }
 
     public func transitionPost(id: String, to status: PostStatus, actor: Actor) throws -> Post {

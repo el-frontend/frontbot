@@ -415,7 +415,7 @@ final class AppModel {
 
     // MARK: Publicación asistida
 
-    private var publishing: PublishingService { PublishingService(db: db, handoff: BrowserHandoff()) }
+    private var publishing: PublishingService { PublishingService(db: db, handoff: BrowserHandoff(), metadata: PostMetadataStore(paths: paths)) }
 
     func preparePublication(_ post: Post) {
         preparationMessage = nil

@@ -87,3 +87,11 @@ describe("buildSystemPrompt memory", () => {
     expect(buildSystemPrompt({ today: "2026-10-18" })).not.toContain("Carpeta de trabajo");
   });
 });
+
+describe("metrics in the prompt", () => {
+  it("tells the agent to look at published posts' metrics", () => {
+    const p = buildSystemPrompt({ today: "2026-11-03", brand: { id: "b", name: "B", guide: null } });
+    expect(p).toContain("métricas");
+    expect(p).toContain("posts_list");
+  });
+});
