@@ -225,3 +225,16 @@
 "Crear imágenes para este post" = "Create images for this post";
 "Esta marca no tiene imágenes todavía. Crea una o súbelas desde la página de la marca." = "This brand has no images yet. Create one or upload them from the brand page.";
 "No se pudieron crear las imágenes." = "The images couldn't be created.";
+"Métricas" = "Metrics";
+"Manual" = "Manual";
+"Link del post" = "Post link";
+"Leer métricas" = "Read metrics";
+"Leyendo en Chrome…" = "Reading in Chrome…";
+"Este post se publicó antes de las métricas automáticas: léelas a mano." = "This post was published before automatic metrics: read them manually.";
+"%@ · saltada (la app estaba cerrada)" = "%@ · skipped (the app was closed)";
+"Alcance %@ · Vistas %@ · Likes %@ · Reposts %@" = "Reach %@ · Views %@ · Likes %@ · Reposts %@";
+"Las métricas se leen con Chrome: elige un agente Claude como agente por defecto" = "Metrics are read with Chrome: choose a Claude agent as the default agent";
+"Espera a que termine lo que está haciendo el agente" = "Wait until the agent finishes what it's doing";
+"Abre el post en tu Chrome y lee alcance, vistas, likes y reposts" = "Opens the post in your Chrome and reads reach, views, likes and reposts";
+"Abre Chrome con la extensión de Claude para leer las métricas." = "Open Chrome with the Claude extension to read the metrics.";
+"No se pudieron leer las métricas." = "The metrics couldn't be read.";
