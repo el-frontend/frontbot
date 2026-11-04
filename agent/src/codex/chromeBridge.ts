@@ -26,6 +26,7 @@ export class ChromeBridge {
   private pending = new Map<number, Pending>();
   private buffer = "";
   private guard = new BrowserGuard();
+  private queue: Promise<unknown> = Promise.resolve();
   tools: DynamicTool[] = [];
 
   private constructor(private child: ChildProcessWithoutNullStreams) {
@@ -65,7 +66,14 @@ export class ChromeBridge {
 
   has(name: string) { return this.tools.some((t) => t.name === name); }
 
-  async call(name: string, args: Record<string, unknown>): Promise<{ success: boolean; text: string }> {
+  /** Una llamada a la vez: el guardián decide con el estado del navegador que dejó la anterior. */
+  call(name: string, args: Record<string, unknown>): Promise<{ success: boolean; text: string }> {
+    const next = this.queue.then(() => this.callNow(name, args));
+    this.queue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async callNow(name: string, args: Record<string, unknown>): Promise<{ success: boolean; text: string }> {
     if (!this.has(name)) return { success: false, text: NOT_ALLOWED };
     const decision = this.guard.beforeTool(PREFIX + name, args);
     if (!decision.allow) return { success: false, text: decision.reason ?? NOT_ALLOWED };

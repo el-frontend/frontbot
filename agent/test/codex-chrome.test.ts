@@ -60,3 +60,17 @@ describe("ChromeBridge", () => {
     expect(claudeChromeCommand({}).command).toMatch(/claude$/);
   });
 });
+
+describe("ChromeBridge · llamadas en paralelo", () => {
+  it("un contexto viejo no habilita un clic tras navegar", async () => {
+    process.env.FAKE_CHROME_SLOW_CONTEXT = "1";
+    const b = (await start())!;
+    const context = b.call("tabs_context_mcp", {});
+    const nav = b.call("navigate", { url: "https://www.linkedin.com/feed" });
+    await Promise.all([context, nav]);
+    const click = await b.call("computer", { action: "left_click" });
+    expect(click.success).toBe(false);
+    expect(click.text).toContain("Antes de hacer clic");
+    delete process.env.FAKE_CHROME_SLOW_CONTEXT;
+  });
+});

@@ -39,6 +39,8 @@ async function play(text) {
     say(`decision:${r?.decision ?? "error"}`); return complete();
   }
   if (text === "permisos") { const r = await ask("item/permissions/requestApproval", { threadId: thread.id, turnId: turn.id }); say(`respuesta:${JSON.stringify(r)}`); return complete(); }
+  if (text === "reintenta") { notify("error", { threadId: thread.id, turnId: turn.id, willRetry: true, error: { message: "stream disconnected, retrying" } }); say("recuperado"); return complete(); }
+  if (process.env.FAKE_STUDY_DIE === "1" && text.startsWith("Sesión de estudio")) { usage(80, 0, 20); setTimeout(() => process.exit(4), 30); return; }
   if (text === "cuelga") return;
   if (text === "muere") process.exit(3);
   if (text === "falla") { notify("error", { threadId: thread.id, turnId: turn.id, error: { message: "Your session expired. Sign in again." } }); return complete("failed"); }

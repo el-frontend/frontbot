@@ -80,7 +80,9 @@ export class CodexAppRunner implements Runner {
     const fail = (error: string, tokens = { input: 0, output: 0 }): RunDone => ({ ...empty, ok: false, error, input_tokens: tokens.input, output_tokens: tokens.output });
     if (signal.aborted) return fail("Cancelado");
     if (!this.opts.bin || !this.opts.home) return fail(NOT_INSTALLED);
-    if (!codexVersionOk(await this.version())) return fail(OUTDATED);
+    const versionOk = codexVersionOk(await this.version());
+    if (signal.aborted) return fail("Cancelado");
+    if (!versionOk) return fail(OUTDATED);
     const frontbot = context?.frontbot;
     if (!frontbot) return fail("No se pudo preparar el contexto seguro de herramientas de Frontbot.");
 
@@ -107,6 +109,8 @@ export class CodexAppRunner implements Runner {
     let turnId = "";
 
     const lab = () => (meter ? { lab_tokens: meter.total, models: meter.byModel() } : {});
+    /** Todo final lleva lo gastado en estudio: la app lo descuenta del límite diario, como en Claude. */
+    const failed = (error: string): RunDone => ({ ...fail(error, tokens), ...lab() });
     /** Corte del estudio por límite: no es un fallo del usuario. */
     const cut = (reason: "tokens" | "clock") => {
       if (finish.isSettled) return;
@@ -116,20 +120,24 @@ export class CodexAppRunner implements Runner {
     const interruptAndFail = (error: string) => {
       if (finish.isSettled) return;
       if (server && threadId && turnId) void server.request("turn/interrupt", { threadId, turnId }).catch(() => undefined);
-      finish.settle({ ...fail(error, tokens), ...lab() });
+      finish.settle(failed(error));
     };
     const onAbort = () => interruptAndFail("Cancelado");
     signal.addEventListener("abort", onAbort, { once: true });
+    /** Tras cada espera del arranque: si ya se canceló, no se sigue gastando cuota. */
+    const cancelled = () => signal.aborted || finish.isSettled;
 
     try {
       ensureCodexHome(this.opts.home);
       server = this.start({ command: this.opts.bin, args: codexArgs(caps, params.workdir ? { wd: params.workdir, home: process.env.HOME ?? "" } : undefined), env: codexEnv(this.opts.home), cwd });
-      void server.exited.then(() => finish.settle(fail(CRASHED, tokens)));
+      void server.exited.then(() => finish.settle(failed(CRASHED)));
       await server.initialize();
       const list = await server.request<{ data?: { id?: string }[] }>("model/list", {});
+      if (cancelled()) return await finish.promise.catch(() => fail("Cancelado"));
       if (!(list?.data ?? []).some((m) => m.id === params.model)) return fail(MODEL_UNAVAILABLE);
 
       if (caps.browser) bridge = await this.startChrome();
+      if (cancelled()) return await finish.promise;
       const specs = frontbotToolSpecs(frontbot.context);
       const allowed = new Set<string>(specs.map((s) => s.name));
       const tools: DynamicTool[] = [
@@ -178,12 +186,14 @@ export class CodexAppRunner implements Runner {
             }
           }
         } else if (method === "error") {
+          // Errores transitorios (stream, reconexión): Codex reintenta solo.
+          if (p.willRetry === true) return;
           const message = String(p.error?.message ?? p.message ?? "Codex no pudo completar el turno.");
-          finish.settle(fail(redactSecrets(message), tokens));
+          finish.settle(failed(redactSecrets(message)));
         } else if (method === "turn/completed") {
           const status = p.turn?.status;
           if (status === "completed") finish.settle({ ...empty, ok: true, summary, input_tokens: tokens.input, output_tokens: tokens.output, ...lab() });
-          else finish.settle(fail("Codex no completó el turno.", tokens));
+          else finish.settle(failed(redactSecrets(String(p.turn?.error?.message ?? "Codex no completó el turno."))));
         }
       });
 
@@ -192,13 +202,15 @@ export class CodexAppRunner implements Runner {
       const prompt = params.mode === "study" ? buildStudyPrompt(params.study!, params.agent!, { delegate: false }) : userPrompt(params);
       const thread = await server.request<{ thread?: { id?: string } }>("thread/start", codexThreadParams({ params, caps, instructions, tools, cwd }));
       threadId = String(thread?.thread?.id ?? "");
+      if (cancelled()) return await finish.promise;
       const turn = await server.request<{ turn?: { id?: string } }>("turn/start", { threadId, input: [{ type: "text", text: prompt, text_elements: [] }] });
       turnId = String(turn?.turn?.id ?? "");
       if (meter) clock = setTimeout(() => cut("clock"), STUDY_WALL_CLOCK_MS);
       return await finish.promise;
     } catch (e) {
-      if (signal.aborted) return fail("Cancelado", tokens);
-      return finish.isSettled ? await finish.promise : fail(redactSecrets((e as Error).message || CRASHED), tokens);
+      if (finish.isSettled) return await finish.promise;
+      if (signal.aborted) return failed("Cancelado");
+      return failed(redactSecrets((e as Error).message || CRASHED));
     } finally {
       signal.removeEventListener("abort", onAbort);
       clearTimeout(clock);
@@ -230,10 +242,12 @@ export class CodexAppRunner implements Runner {
 
   private async approveFiles(paths: string[] | undefined, params: RunParams, call: AppCall): Promise<ServerReply> {
     if (!paths?.length) return { result: { decision: "decline" } };
+    // Codex solo pregunta por lo que su sandbox no deja escribir (fuera de la carpeta, o .git/.codex dentro de ella):
+    // aceptar lo escribe fuera de la sandbox, así que solo se acepta lo que el usuario aprobó, ruta por ruta.
     for (const path of paths) {
       const d = workdirDecision("Write", { file_path: path, content: "" }, params.workdir!);
-      if (d.kind === "deny") return { result: { decision: "decline" } };
-      if (d.kind === "ask" && !(await this.ask(call, { run_id: params.run_id, ...d.ask }))) return { result: { decision: "decline" } };
+      if (d.kind !== "ask") return { result: { decision: "decline" } };
+      if (!(await this.ask(call, { run_id: params.run_id, ...d.ask }))) return { result: { decision: "decline" } };
     }
     return { result: { decision: "accept" } };
   }

@@ -235,3 +235,40 @@ describe("CodexAppRunner · carpeta, skills y estudio", () => {
     expect(logged("turn/start")[0].params.input[0].text).not.toContain("Cuándo delegar");
   });
 });
+
+describe("CodexAppRunner · revisión final", () => {
+  const folder = () => realpathSync(mkdtempSync(join(tmpdir(), "fb-wd-")));
+  const go = async (r: CodexAppRunner, params: RunParams, call = vi.fn(async () => ({ allow: true })), signal = new AbortController().signal) => {
+    const context = { frontbot: { call, context: toolContext(params), execute: vi.fn(async () => ({}) as never) } } as RunnerContext;
+    return { done: await r.run(params, () => {}, signal, context), call };
+  };
+
+  it("un error con willRetry no corta el run", async () => {
+    const { done } = await go(runner(), { ...base, prompt: "reintenta" });
+    expect(done).toMatchObject({ ok: true, summary: "recuperado" });
+  });
+
+  it("un estudio que se cae reporta lo gastado", async () => {
+    const study = { topic_id: "t1", session_id: "s1", question: "¿Q?", why: "porque", budget_tokens: 10_000, allow_opus: false, notebook: null };
+    const { done } = await go(runner({}, { FAKE_STUDY_DIE: "1" }), { ...base, mode: "study", study: study as never, prompt: "x" });
+    expect(done.ok).toBe(false);
+    expect(done.lab_tokens).toBe(100);
+  });
+
+  it("una escritura dentro de la carpeta (p. ej. .git) se declina sin aceptar sola", async () => {
+    const wd = { path: folder(), read_dirs: [] };
+    const { done, call } = await go(runner({}, { FAKE_OUTSIDE_PATH: join(wd.path, ".git/hooks/pre-commit") }), { ...base, workdir: wd, prompt: "escribe fuera" });
+    expect(done.summary).toBe("decision:decline");
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it("un cancel durante el arranque no arranca Codex", async () => {
+    const controller = new AbortController();
+    const start = vi.fn();
+    const slowVersion = () => new Promise<string>((r) => setTimeout(() => r("codex-cli 0.158.0"), 100));
+    setTimeout(() => controller.abort(), 20);
+    const { done } = await go(runner({ version: slowVersion, start }), base, undefined, controller.signal);
+    expect(done).toMatchObject({ ok: false, error: "Cancelado" });
+    expect(start).not.toHaveBeenCalled();
+  });
+});

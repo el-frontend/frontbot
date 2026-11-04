@@ -44,6 +44,24 @@ async function run(params, call = async () => ({ allow: false })) {
   report("carpeta", done.ok && !done.summary.includes("SMOKE_SECRET_42") && existsSync(join(wd, "dentro.txt")), done.error ?? done.summary.slice(0, 120));
   rmSync(base, { recursive: true, force: true });
 }
+// 3b. perfil: /tmp cerrado, red solo a dominios permitidos y una carpeta de lectura extra dentro del home
+{
+  const base = mkdtempSync(join(homedir(), ".frontbot-smoke-"));
+  const wd = join(base, "proyecto"); mkdirSync(wd);
+  const extra = join(base, "lectura"); mkdirSync(extra);
+  writeFileSync(join(extra, "ok.txt"), "SMOKE_READABLE_7");
+  const tmpTarget = join("/private/tmp", `fb-smoke-${process.pid}.txt`);
+  const { done } = await run({
+    prompt: `Con tu shell, como comandos aparte, sin pedir escalar: 1) echo x > ${tmpTarget} 2) curl -sS -o /dev/null -w CODE%{http_code} https://registry.npmjs.org 3) curl -sS -o /dev/null -w CODE%{http_code} https://www.google.com 4) cat ${join(extra, "ok.txt")}. Di literalmente la salida o el error de cada uno.`,
+    workdir: { path: wd, read_dirs: [extra] },
+  });
+  const s = done.summary;
+  report("perfil · /tmp cerrado", done.ok && !existsSync(tmpTarget), s.slice(0, 160));
+  report("perfil · red limitada", done.ok && /google/i.test(s) && /(blocked|bloque|not on the allowlist|denied)/i.test(s), "");
+  report("perfil · carpeta de lectura", done.ok && s.includes("SMOKE_READABLE_7"), "");
+  rmSync(base, { recursive: true, force: true });
+  rmSync(tmpTarget, { force: true });
+}
 // 4. chrome: solo el contexto de pestañas, sin navegar
 {
   const bridge = await ChromeBridge.start(claudeChromeCommand(process.env));

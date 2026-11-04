@@ -21,7 +21,8 @@ process.stdin.on("data", (chunk) => {
       const text = name === "tabs_context_mcp"
         ? `Tab 1: ${process.env.FAKE_CHROME_SOCIAL === "1" ? "https://www.linkedin.com/feed" : "https://example.com"}`
         : `called:${name}`;
-      send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }], isError: false } });
+      const reply = () => send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }], isError: false } });
+      if (name === "tabs_context_mcp" && process.env.FAKE_CHROME_SLOW_CONTEXT === "1") setTimeout(reply, 200); else reply();
     } else send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "no" } });
   }
 });
