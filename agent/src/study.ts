@@ -75,7 +75,9 @@ export function studyAgents(allowOpus: boolean): Record<string, AgentDefinition>
 
 const text = (v: unknown) => typeof v === "string" ? v : JSON.stringify(v, null, 2);
 
-export function buildStudyPrompt(study: RunStudy, agent: { name: string }): string {
+/** `delegate: false` (Codex): sin sub-agentes, no se habla de delegar. */
+export function buildStudyPrompt(study: RunStudy, agent: { name: string }, opts: { delegate?: boolean } = {}): string {
+  const delegate = opts.delegate !== false;
   const nb = study.notebook as { model_notes?: unknown[] } | null | undefined;
   const modelNotes = Array.isArray(nb?.model_notes) ? nb.model_notes : [];
   return [
@@ -97,12 +99,14 @@ export function buildStudyPrompt(study: RunStudy, agent: { name: string }): stri
     "- Termina siempre llamando a lab_end_session(outcome, summary, conclusion?).",
     "- Nunca actúas sobre cuentas reales: aquí solo estudias, no operas ni publicas.",
     "",
-    "Cuándo delegar:",
-    "- ayudante (Haiku): descargar y ordenar datos, ejecutar y resumir pruebas, formatear notas, clasificar ejemplos.",
-    "- analista (Sonnet): un segundo razonamiento acotado sobre un resultado dudoso.",
-    ...(study.allow_opus ? ["- experto (Opus): una sola consulta por sesión y solo si Sonnet ya falló."] : []),
-    "- Si un modelo se quedó corto o sobró, regístralo con lab_note de kind model_note.",
-    "",
+    ...(delegate ? [
+      "Cuándo delegar:",
+      "- ayudante (Haiku): descargar y ordenar datos, ejecutar y resumir pruebas, formatear notas, clasificar ejemplos.",
+      "- analista (Sonnet): un segundo razonamiento acotado sobre un resultado dudoso.",
+      ...(study.allow_opus ? ["- experto (Opus): una sola consulta por sesión y solo si Sonnet ya falló."] : []),
+      "- Si un modelo se quedó corto o sobró, regístralo con lab_note de kind model_note.",
+      "",
+    ] : []),
     `Presupuesto: unos ${study.budget_tokens} tokens. Cuando te avisen de que queda poco, anota y cierra.`,
   ].join("\n");
 }

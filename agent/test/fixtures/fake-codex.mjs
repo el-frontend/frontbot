@@ -34,7 +34,8 @@ async function play(text) {
     say(`decision:${r?.decision ?? "error"}`); return complete();
   }
   if (text === "escribe fuera") {
-    const r = await ask("item/fileChange/requestApproval", { threadId: thread.id, turnId: turn.id, itemId: "f1", changes: [{ path: process.env.FAKE_OUTSIDE_PATH ?? "/Users/u/fuera.txt", kind: "add" }] });
+    notify("item/started", { threadId: thread.id, turnId: turn.id, item: { type: "fileChange", id: "f1", changes: [{ path: process.env.FAKE_OUTSIDE_PATH ?? "/Users/u/fuera.txt", kind: { type: "add" }, diff: "hola" }], status: "inProgress" } });
+    const r = await ask("item/fileChange/requestApproval", { threadId: thread.id, turnId: turn.id, itemId: process.env.FAKE_FILE_ITEM ?? "f1", startedAtMs: 0, grantRoot: process.env.FAKE_GRANT_ROOT ?? null });
     say(`decision:${r?.decision ?? "error"}`); return complete();
   }
   if (text === "permisos") { const r = await ask("item/permissions/requestApproval", { threadId: thread.id, turnId: turn.id }); say(`respuesta:${JSON.stringify(r)}`); return complete(); }
@@ -42,7 +43,7 @@ async function play(text) {
   if (text === "muere") process.exit(3);
   if (text === "falla") { notify("error", { threadId: thread.id, turnId: turn.id, error: { message: "Your session expired. Sign in again." } }); return complete("failed"); }
   if (text === "muchas") { for (let i = 0; i < 50; i++) await toolCall("brands_list", {}, `c${i}`); say("fin"); return complete(); }
-  if (text === "estudio") {
+  if (text === "estudio" || text.startsWith("Sesión de estudio")) {
     for (let i = 1; i <= 10; i++) { usage(20 * i, 0, 5 * i); await new Promise((r) => setTimeout(r, 20)); }
     say("estudio terminado"); return complete();
   }

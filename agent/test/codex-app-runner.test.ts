@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, readFileSync, existsSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AppServer, type Spawn } from "../src/codex/appServer.js";
@@ -145,5 +145,93 @@ describe("CodexAppRunner", () => {
     expect(call).toHaveBeenCalledWith("tabs_context_mcp", {});
     expect(done.summary).toBe("ok:true:Tab 1: https://example.com");
     expect(bridge.close).toHaveBeenCalled();
+  });
+});
+
+describe("CodexAppRunner · carpeta, skills y estudio", () => {
+  const folder = () => realpathSync(mkdtempSync(join(tmpdir(), "fb-wd-")));
+  const withCall = (params: RunParams, call: ReturnType<typeof vi.fn>) => {
+    const execute = vi.fn(async () => ({}) as never);
+    return { execute, context: { frontbot: { call, context: toolContext(params), execute } } as RunnerContext };
+  };
+  const go = async (r: CodexAppRunner, params: RunParams, call = vi.fn(async () => ({ allow: false }))) => {
+    const { context } = withCall(params, call);
+    return { done: await r.run(params, () => {}, new AbortController().signal, context), call };
+  };
+
+  it("un comando con ruta protegida se declina sin preguntar", async () => {
+    const wd = { path: folder(), read_dirs: [] };
+    const { done, call } = await go(runner(), { ...base, workdir: wd, prompt: "shell" });
+    expect(done.summary).toBe("decision:decline");
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it("un comando fuera de la sandbox pregunta a la app", async () => {
+    const wd = { path: folder(), read_dirs: [] };
+    const yes = await go(runner(), { ...base, workdir: wd, prompt: "shell npm install" }, vi.fn(async () => ({ allow: true })));
+    expect(yes.call).toHaveBeenCalledWith("workdir.approve", { run_id: "r1", kind: "unsandboxed", command: "npm install" });
+    expect(yes.done.summary).toBe("decision:accept");
+    const no = await go(runner(), { ...base, workdir: wd, prompt: "shell npm install" });
+    expect(no.done.summary).toBe("decision:decline");
+  });
+
+  it("con carpeta arranca con el perfil de permisos y sin entornos vacíos", async () => {
+    const wd = { path: folder(), read_dirs: [] };
+    await go(runner(), { ...base, workdir: wd });
+    expect(spawned[0].args).toContain('default_permissions="frontbot"');
+    expect(spawned[0].args).not.toContain("shell_tool");
+    expect(spawned[0].cwd).toBe(wd.path);
+    expect(logged("thread/start")[0].params).toMatchObject({ permissions: "frontbot", approvalPolicy: "on-request" });
+  });
+
+  it("una escritura fuera de la carpeta pregunta como write", async () => {
+    const wd = { path: folder(), read_dirs: [] };
+    const outside = join(folder(), "fuera.txt");
+    const { done, call } = await go(runner({}, { FAKE_OUTSIDE_PATH: outside }), { ...base, workdir: wd, prompt: "escribe fuera" }, vi.fn(async () => ({ allow: true })));
+    expect(call).toHaveBeenCalledWith("workdir.approve", expect.objectContaining({ run_id: "r1", kind: "write", path: outside }));
+    expect(done.summary).toBe("decision:accept");
+  });
+
+  it("un cambio de archivo desconocido o con grantRoot se declina", async () => {
+    const wd = { path: folder(), read_dirs: [] };
+    const unknown = await go(runner({}, { FAKE_FILE_ITEM: "otro" }), { ...base, workdir: wd, prompt: "escribe fuera" }, vi.fn(async () => ({ allow: true })));
+    expect(unknown.done.summary).toBe("decision:decline");
+    const grant = await go(runner({}, { FAKE_GRANT_ROOT: "/" }), { ...base, workdir: wd, prompt: "escribe fuera" }, vi.fn(async () => ({ allow: true })));
+    expect(grant.done.summary).toBe("decision:decline");
+  });
+
+  it("una petición de permisos se declina", async () => {
+    const { done } = await go(runner(), { ...base, prompt: "permisos" });
+    expect(done.summary).toContain('"decision":"decline"');
+  });
+
+  it("una carpeta inválida no arranca Codex", async () => {
+    const start = vi.fn();
+    const { done } = await go(runner({ start }), { ...base, workdir: { path: homedir(), read_dirs: [] } });
+    expect(done.ok).toBe(false);
+    expect(done.error).toContain("Elige una carpeta concreta");
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("skills_read lee dentro de los skills y niega fuera", async () => {
+    const dir = folder();
+    writeFileSync(join(dir, "SKILL.md"), "# Mi skill\nPasos.");
+    const params: RunParams = { ...base, skills: [{ name: "mi-skill", dir }], prompt: "lee skill" };
+    const { done } = await go(runner({}, { FAKE_SKILL_PATH: join(dir, "SKILL.md") }), params);
+    expect(done.summary).toBe("a:true:# Mi skill\nPasos.|b:false:skills_read solo puede leer archivos de tus skills.");
+    const thread = logged("thread/start")[0].params;
+    expect(thread.developerInstructions).toContain("Skills disponibles");
+    expect(thread.developerInstructions).toContain(join(dir, "SKILL.md"));
+    expect(thread.dynamicTools.map((t: { name: string }) => t.name)).toContain("skills_read");
+  });
+
+  it("el estudio corta por tokens y avisa una vez", async () => {
+    const study = { topic_id: "t1", session_id: "s1", question: "¿Q?", why: "porque", budget_tokens: 140, allow_opus: false, notebook: null };
+    const params: RunParams = { ...base, mode: "study", study: study as never, prompt: "estudio" };
+    const { done } = await go(runner(), params);
+    expect(done).toMatchObject({ ok: true, cut: true, cut_reason: "tokens" });
+    expect(done.lab_tokens).toBeGreaterThanOrEqual(140);
+    expect(logged("turn/steer")).toHaveLength(1);
+    expect(logged("turn/start")[0].params.input[0].text).not.toContain("Cuándo delegar");
   });
 });
