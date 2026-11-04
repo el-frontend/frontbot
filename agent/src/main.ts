@@ -4,6 +4,7 @@ import { createProductionRunner, redactSecrets, toolContext, type Runner, type R
 import { HyperliquidTrader, FakeTrader, type Trader } from "./trader.js";
 import { realMarket } from "./trading.js";
 import { executeFrontbotTool, type AppCall } from "./tools.js";
+import { CodexAccount, FakeCodexAccount, locateCodex, type CodexAccountLike } from "./codex/account.js";
 
 /** Matches the former bridge's approval/runtime budget. */
 export const APP_CALL_TIMEOUT_MS = 200_000;
@@ -29,8 +30,17 @@ function boundedAppCall(peer: RpcPeer, method: string, params: Record<string, un
 
 // stdout es solo para JSON-RPC; cualquier log va a stderr.
 
-export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader, options: { appCallTimeoutMs?: number } = {}) {
+export function startServer(peer: RpcPeer, runner: Runner, trader?: Trader, options: { appCallTimeoutMs?: number; codexAccount?: CodexAccountLike } = {}) {
   const active = new Map<string, AbortController>();
+
+  // Sesión de Codex de Frontbot (Ajustes): estado, login con ChatGPT y logout.
+  const codex = options.codexAccount;
+  if (codex) {
+    peer.onRequest("codex.status", () => codex.status());
+    peer.onRequest("codex.login", () => codex.login());
+    peer.onRequest("codex.login_wait", () => codex.waitLogin());
+    peer.onRequest("codex.logout", async () => { await codex.logout(); return { ok: true }; });
+  }
 
   peer.onRequest("agent.run", async (params: RunParams) => {
     const controller = new AbortController();
@@ -101,7 +111,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const peer = new RpcPeer(process.stdin, process.stdout);
   const call = (m: string, p: Record<string, unknown>) => peer.request(m, p);
   const fake = process.env.FRONTBOT_FAKE_AGENT === "1";
+  const codexAccount = fake
+    ? new FakeCodexAccount(process.env.FRONTBOT_FAKE_CODEX_SESSION === "1")
+    // Sin carpeta propia no hay sesión posible: nunca se cae en ~/.codex.
+    : new CodexAccount({ bin: process.env.FRONTBOT_CODEX_HOME ? locateCodex(process.env) : null, home: process.env.FRONTBOT_CODEX_HOME ?? "" });
   const runner = createProductionRunner(call, process.env, fake);
-  startServer(peer, runner, fake ? new FakeTrader() : new HyperliquidTrader());
+  startServer(peer, runner, fake ? new FakeTrader() : new HyperliquidTrader(), { codexAccount });
   process.stdin.on("end", () => process.exit(0));
 }

@@ -211,3 +211,19 @@ describe("trade.* RPC (app → sidecar)", () => {
       .rejects.toThrow("Hyperliquid no responde");
   });
 });
+
+describe("codex.* RPC", () => {
+  it("codex.status en modo fake refleja la sesión simulada", async () => {
+    const { FakeCodexAccount } = await import("../src/codex/account.js");
+    const appToAgent = new PassThrough();
+    const agentToApp = new PassThrough();
+    const app = new RpcPeer(agentToApp, appToAgent);
+    const agent = new RpcPeer(appToAgent, agentToApp);
+    const fake = () => new FakeRunner((m, p) => agent.request(m, p));
+    startServer(agent, new ProviderRunner(fake(), fake()), undefined, { codexAccount: new FakeCodexAccount(true) });
+    await expect(app.request("codex.status", {})).resolves.toMatchObject({ installed: true, compatible: true, account: { email: "fake@frontbot.test" } });
+    await expect(app.request("codex.login", {})).resolves.toEqual({ auth_url: "https://auth.openai.com/fake" });
+    await expect(app.request("codex.login_wait", {})).resolves.toEqual({ ok: true });
+    await expect(app.request("codex.logout", {})).resolves.toEqual({ ok: true });
+  });
+});
