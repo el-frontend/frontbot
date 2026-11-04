@@ -98,3 +98,21 @@
 "Quitar carpeta" = "Remove folder";
 "Carpeta" = "Folder";
 "Carpeta de trabajo" = "Working folder";
+
+/* Sesión de Codex */
+"Sesión de Codex" = "Codex session";
+"API key de OpenAI" = "OpenAI API key";
+"Conectado como %@ · %@" = "Connected as %@ · %@";
+"Codex no está instalado" = "Codex isn't installed";
+"Actualiza Codex (versión %@)" = "Update Codex (version %@)";
+"No conectado" = "Not connected";
+"Desconectar" = "Disconnect";
+"Conectar con ChatGPT" = "Connect with ChatGPT";
+"Instalar Codex" = "Install Codex";
+"Con la sesión conectada, Codex usa tu suscripción de ChatGPT y puede usar web, tu Chrome, carpeta de trabajo y el Laboratorio." = "With the session connected, Codex uses your ChatGPT subscription and can use the web, your Chrome, a working folder and the Lab.";
+"Sin sesión, Codex usa esta API key en modo básico: solo herramientas de Frontbot, sin web, Chrome ni carpeta. Se factura a tu proyecto de API de OpenAI." = "Without a session, Codex uses this API key in basic mode: Frontbot tools only, no web, Chrome or folder. It's billed to your OpenAI API project.";
+"El Laboratorio de Codex necesita la sesión de Codex conectada (Ajustes)." = "The Lab with Codex needs the Codex session connected (Settings).";
+"Usa la extensión Claude in Chrome." = "Uses the Claude in Chrome extension.";
+"Conecta la sesión de Codex en Ajustes para usar tu Chrome." = "Connect the Codex session in Settings to use your Chrome.";
+"Conecta la sesión de Codex en Ajustes para usar una carpeta de trabajo." = "Connect the Codex session in Settings to use a working folder.";
+"No se completó el inicio de sesión de Codex." = "The Codex sign-in didn't finish.";

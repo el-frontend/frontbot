@@ -29,8 +29,9 @@ public enum MetricsSchedule {
     }
 
     /// Una lectura automática solo arranca con un agente Claude (Chrome) y sin ningún otro run activo.
-    public static func canStart(activeRuns: Int, provider: AgentProvider) -> Bool {
-        activeRuns == 0 && provider == .claude
+    /// `canRead`: el agente por defecto tiene Chrome (Claude, o Codex con la sesión conectada).
+    public static func canStart(activeRuns: Int, canRead: Bool) -> Bool {
+        activeRuns == 0 && canRead
     }
 }
 

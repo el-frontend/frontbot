@@ -70,7 +70,7 @@ final class AppModel {
     /// Sube con cada lectura guardada: la vista vuelve a leer la metadata.
     var metricsVersion = 0
     var canReadMetrics: Bool {
-        defaultAgentCanReadWeb && !isRunning && metricsReadingPostId == nil
+        capabilities(for: agents.first { $0.isDefault }).browser && !isRunning && metricsReadingPostId == nil
             && !posts.contains { imageJobs.job(postId: $0.id)?.running == true }
     }
     var calendarScope: CalendarScope = .week
@@ -220,8 +220,16 @@ final class AppModel {
         send(prompt: prompt)
     }
 
-    /// El agente por defecto puede leer la web (Codex no tiene WebFetch ni navegador).
-    var defaultAgentCanReadWeb: Bool { (agents.first { $0.isDefault }?.provider ?? .claude) == .claude }
+    /// Sesión de Codex de Frontbot (nil hasta la primera consulta al sidecar).
+    var codexStatus: CodexStatus?
+
+    /// Qué puede hacer un agente: Claude todo; Codex todo con la sesión conectada y lo básico con solo API key.
+    func capabilities(for agent: Agent?) -> AgentCapabilities {
+        AgentCapabilities.of(provider: agent?.provider ?? .claude, codexConnected: codexStatus?.connected == true)
+    }
+
+    /// El agente por defecto puede leer la web.
+    var defaultAgentCanReadWeb: Bool { capabilities(for: agents.first { $0.isDefault }).web }
 
     /// Primer pedido del onboarding: la guía de la marca recién creada, desde sus links.
     func finishOnboardingWithGuideFromLinks() {
@@ -301,8 +309,8 @@ final class AppModel {
         }
     }
 
-    /// Codex no tiene WebFetch ni navegador: no puede leer links.
-    var canReadWeb: Bool { (selectedAgent?.provider ?? .claude) == .claude }
+    /// Codex sin sesión no tiene web ni navegador: no puede leer links.
+    var canReadWeb: Bool { capabilities(for: selectedAgent).web }
 
     func guideFromLinks(_ links: [String]) {
         guard let brand = selectedBrand, !links.isEmpty else { return }
@@ -378,7 +386,7 @@ final class AppModel {
         guard metricsReadingPostId == nil, let agent = agents.first(where: { $0.isDefault }) else { return }
         lastMetricsTick = now
         // El "no hay otro run" definitivo lo comprueba AgentClient de forma atómica (onlyIfIdle).
-        guard MetricsSchedule.canStart(activeRuns: isRunning ? 1 : 0, provider: agent.provider) else { return }
+        guard MetricsSchedule.canStart(activeRuns: isRunning ? 1 : 0, canRead: capabilities(for: agent).browser) else { return }
         let store = PostMetadataStore(paths: paths)
         let published = (try? db.posts(brandId: nil, status: .published)) ?? []
         var next: (Post, MetricsCheckpoint)?
@@ -727,6 +735,7 @@ final class AppModel {
     }
 
     private func startScheduler() {
+        Task { await refreshCodexStatus() }
         notifications.model = self
         UNUserNotificationCenter.current().delegate = notifications
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } // macOS lo pregunta una vez
@@ -1408,6 +1417,37 @@ final class AppModel {
             reconfigureSidecarCredentials()
         }
         return ok
+    }
+
+    // MARK: Sesión de Codex
+
+    /// Se consulta al arrancar, al abrir Ajustes y tras conectar o desconectar.
+    func refreshCodexStatus() async {
+        do {
+            codexStatus = try await client.codexStatus()
+        } catch {
+            codexStatus = .unknown
+            await client.setCodexConnected(false)
+        }
+    }
+
+    /// Abre el login de ChatGPT en el navegador y espera a que termine.
+    func connectCodex() async {
+        do {
+            let url = try await client.codexLogin()
+            NSWorkspace.shared.open(url)
+            if try await client.codexWaitLogin() == false {
+                errorMessage = String(localized: "No se completó el inicio de sesión de Codex.")
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await refreshCodexStatus()
+    }
+
+    func disconnectCodex() async {
+        do { try await client.codexLogout() } catch { errorMessage = error.localizedDescription }
+        await refreshCodexStatus()
     }
 
     @discardableResult

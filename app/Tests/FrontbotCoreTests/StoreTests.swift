@@ -140,4 +140,14 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(done.costUsd, 0)
         XCTAssertFalse(done.costAvailable)
     }
+
+    func testFinishRunStoresRuntime() throws {
+        let db = try AppDatabase.inMemory()
+        let ws = try db.ensureDefaultWorkspace()
+        let run = try db.startRun(workspaceId: ws.id, brandId: nil, prompt: "p")
+        XCTAssertNil(run.runtime)
+        let done = try db.finishRun(id: run.id, status: .done, summary: "ok", inputTokens: 1, outputTokens: 2, costUsd: nil, runtime: "session")
+        XCTAssertEqual(done.runtime, "session")
+        XCTAssertEqual(try db.finishRun(id: run.id, status: .done, summary: "ok", inputTokens: 1, outputTokens: 2, costUsd: nil).runtime, nil)
+    }
 }

@@ -358,3 +358,17 @@ describe("metrics mode", () => {
     expect(calls[1][1]).toMatchObject({ post_id: "p1", unavailable: true });
   });
 });
+
+describe("ProviderRunner con codex_runtime", () => {
+  it("session va al runner de app-server y api al bucle", async () => {
+    const seen: string[] = [];
+    const mk = (name: string): Runner => ({ async run(params) { seen.push(name); return { run_id: params.run_id, ok: true, summary: name, input_tokens: 0, output_tokens: 0, cost_usd: null }; } });
+    const router = new ProviderRunner(mk("claude"), mk("api"), mk("session"));
+    const signal = new AbortController().signal;
+    expect((await router.run({ run_id: "1", prompt: "p", model: "m", provider: "codex", codex_runtime: "session" }, () => {}, signal)).runtime).toBe("session");
+    expect((await router.run({ run_id: "2", prompt: "p", model: "m", provider: "codex", codex_runtime: "api" }, () => {}, signal)).runtime).toBe("api");
+    await router.run({ run_id: "3", prompt: "p", model: "m", provider: "codex" }, () => {}, signal);
+    await router.run({ run_id: "4", prompt: "p", model: "m", codex_runtime: "session" }, () => {}, signal);
+    expect(seen).toEqual(["session", "api", "api", "claude"]);
+  });
+});

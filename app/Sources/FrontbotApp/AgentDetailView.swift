@@ -34,14 +34,14 @@ struct AgentDetailView: View {
     }
 
     private var tab: AgentTab {
-        guard agent.provider == .claude else { return .general }
+        guard model.capabilities(for: agent).lab else { return .general }
         return model.agentTab[agent.id] ?? .general
     }
 
     private var tabPicker: some View {
         Group {
-            if agent.provider == .codex {
-                Label("El Laboratorio solo está disponible para agentes Claude.", systemImage: "info.circle")
+            if !model.capabilities(for: agent).lab {
+                Label("El Laboratorio de Codex necesita la sesión de Codex conectada (Ajustes).", systemImage: "info.circle")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -160,7 +160,7 @@ struct AgentDetailView: View {
             HStack(spacing: 12) {
                 SectionLabel("Modelo")
                 Picker("Modelo", selection: Binding(get: { AgentProvider.resolve(agent.model, for: agent.provider) }, set: { value in save { $0.model = value } })) {
-                    ForEach(AgentProvider.models(for: agent.provider), id: \.id) { Text($0.label).tag($0.id) }
+                    ForEach(AgentProvider.pickerModels(for: agent.provider, codex: model.codexStatus), id: \.id) { Text($0.label).tag($0.id) }
                 }
                 .labelsHidden().fixedSize()
                 Spacer()
@@ -173,9 +173,9 @@ struct AgentDetailView: View {
                 }
             }
             .toggleStyle(.switch).controlSize(.small)
-            .disabled(agent.provider == .codex)
+            .disabled(!model.capabilities(for: agent).browser)
             if agent.provider == .codex {
-                Text("Claude in Chrome no está disponible para Codex. Tu preferencia guardada se conserva si vuelves a Claude.")
+                Text(model.capabilities(for: agent).browser ? "Usa la extensión Claude in Chrome." : "Conecta la sesión de Codex en Ajustes para usar tu Chrome.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             // Con las funciones experimentales apagadas sigue visible si ya está activo, para poder apagarlo.
