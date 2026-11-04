@@ -74,6 +74,7 @@ struct SettingsView: View {
         .foregroundStyle(Theme.text)
         .padding(22)
         .frame(width: 500, alignment: .topLeading)
+        .task { await model.refreshCodexStatus() }
         .fixedSize(horizontal: false, vertical: true)
         .background(Theme.background)
         .preferredColorScheme(.dark)
@@ -110,14 +111,49 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
+    private var codexSession: some View {
+        let status = model.codexStatus
+        HStack(spacing: 8) {
+            StatusDot(color: status?.connected == true ? Theme.approved : Theme.draft, size: 7)
+            Group {
+                if let status, status.connected {
+                    Text("Conectado como \(status.email ?? "ChatGPT") · \(status.plan ?? "")")
+                } else if let status, !status.installed {
+                    Text("Codex no está instalado")
+                } else if let status, !status.compatible {
+                    Text("Actualiza Codex (versión \(status.version ?? "?"))")
+                } else {
+                    Text("No conectado")
+                }
+            }
+            .font(.system(size: 13, weight: .medium))
+            Spacer()
+            if status?.connected == true {
+                Button("Desconectar") { Task { await model.disconnectCodex() } }
+                    .buttonStyle(OutlineButtonStyle())
+            } else if status?.installed == true, status?.compatible == true {
+                Button("Conectar con ChatGPT") { Task { await model.connectCodex() } }
+                    .buttonStyle(OutlineButtonStyle(prominent: true))
+            }
+        }
+        if status?.installed == false {
+            Link("Instalar Codex", destination: URL(string: "https://developers.openai.com/codex")!).font(.system(size: 12))
+        }
+        note("Con la sesión conectada, Codex usa tu suscripción de ChatGPT y puede usar web, tu Chrome, carpeta de trabajo y el Laboratorio.")
+    }
+
+    @ViewBuilder
     private var codexCredentials: some View {
+        SectionLabel("Sesión de Codex")
+        codexSession
+        Divider()
+        SectionLabel("API key de OpenAI")
         HStack(spacing: 8) {
             StatusDot(color: model.openAIKeyPresent ? Theme.approved : Theme.draft, size: 7)
             Text(model.openAIKeyPresent ? "API key guardada" : "API key no guardada")
                 .font(.system(size: 13, weight: .medium))
         }
-        note("Codex usa una API key de OpenAI guardada de forma segura en el llavero.")
-        note("El uso se factura a tu proyecto de API de OpenAI; no se incluye en tu suscripción de ChatGPT o Codex.")
+        note("Sin sesión, Codex usa esta API key en modo básico: solo herramientas de Frontbot, sin web, Chrome ni carpeta. Se factura a tu proyecto de API de OpenAI.")
         note("Frontbot conserva el historial de tus conversaciones.")
         note("Las solicitudes usan store:false: OpenAI no guarda el objeto de respuesta normal. El tratamiento de datos sigue los controles de tu proyecto de API de OpenAI.")
         HStack(spacing: 8) {

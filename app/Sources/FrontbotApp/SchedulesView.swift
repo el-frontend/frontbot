@@ -227,7 +227,7 @@ struct TaskEditorSheet: View {
             }
             HStack(spacing: 16) {
                 labeled("Modelo") {
-                    Picker("", selection: $modelId) { ForEach(AgentProvider.models(for: agent.provider), id: \.id) { Text($0.label).tag($0.id) } }.labelsHidden().fixedSize()
+                    Picker("", selection: $modelId) { ForEach(AgentProvider.pickerModels(for: agent.provider, codex: model.codexStatus), id: \.id) { Text($0.label).tag($0.id) } }.labelsHidden().fixedSize()
                 }
                 labeled("Máx. ejecuciones al día") {
                     Stepper("\(maxRuns)", value: $maxRuns, in: 1...96).fixedSize()

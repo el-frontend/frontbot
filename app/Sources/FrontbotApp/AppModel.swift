@@ -735,6 +735,7 @@ final class AppModel {
     }
 
     private func startScheduler() {
+        Task { await refreshCodexStatus() }
         notifications.model = self
         UNUserNotificationCenter.current().delegate = notifications
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } // macOS lo pregunta una vez
@@ -1416,6 +1417,37 @@ final class AppModel {
             reconfigureSidecarCredentials()
         }
         return ok
+    }
+
+    // MARK: Sesión de Codex
+
+    /// Se consulta al arrancar, al abrir Ajustes y tras conectar o desconectar.
+    func refreshCodexStatus() async {
+        do {
+            codexStatus = try await client.codexStatus()
+        } catch {
+            codexStatus = .unknown
+            await client.setCodexConnected(false)
+        }
+    }
+
+    /// Abre el login de ChatGPT en el navegador y espera a que termine.
+    func connectCodex() async {
+        do {
+            let url = try await client.codexLogin()
+            NSWorkspace.shared.open(url)
+            if try await client.codexWaitLogin() == false {
+                errorMessage = String(localized: "No se completó el inicio de sesión de Codex.")
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await refreshCodexStatus()
+    }
+
+    func disconnectCodex() async {
+        do { try await client.codexLogout() } catch { errorMessage = error.localizedDescription }
+        await refreshCodexStatus()
     }
 
     @discardableResult

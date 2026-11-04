@@ -6,6 +6,8 @@ import FrontbotCore
 struct WorkdirChip: View {
     let model: AppModel
 
+    private var canUseFolder: Bool { model.capabilities(for: model.selectedAgent).workdir }
+
     var body: some View {
         Menu {
             Button("Elegir carpeta de trabajo…") { if let url = Self.pickFolder(String(localized: "Elegir carpeta de trabajo")) { model.chooseWorkdir(url) } }
@@ -33,8 +35,9 @@ struct WorkdirChip: View {
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
         .fixedSize()
-        .disabled(model.isRunningHere)
-        .help(model.workdir ?? String(localized: "Carpeta de trabajo"))
+        .disabled(model.isRunningHere || !canUseFolder)
+        .help(canUseFolder ? model.workdir ?? String(localized: "Carpeta de trabajo")
+              : String(localized: "Conecta la sesión de Codex en Ajustes para usar una carpeta de trabajo."))
     }
 
     /// Solo directorios; nil si el usuario cancela.

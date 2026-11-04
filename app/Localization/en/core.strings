@@ -174,3 +174,4 @@
 "Falta la API key de OpenAI. Agrégala en Ajustes." = "The OpenAI API key is missing. Add it in Settings.";
 "La metadata del post está dañada; no se sobrescribe." = "The post's metadata is damaged; it won't be overwritten.";
 "Solo los posts publicados tienen link." = "Only published posts have a link.";
+"Codex no devolvió la página de inicio de sesión." = "Codex didn't return the sign-in page.";
