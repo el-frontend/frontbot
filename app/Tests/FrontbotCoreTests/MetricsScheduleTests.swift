@@ -29,9 +29,9 @@ final class MetricsScheduleTests: XCTestCase {
     func testNoPublishedAt() { assertDue(meta(published: false), 100, nil) }
 
     func testCanStart() {
-        XCTAssertTrue(MetricsSchedule.canStart(activeRuns: 0, provider: .claude))
-        XCTAssertFalse(MetricsSchedule.canStart(activeRuns: 1, provider: .claude))
-        XCTAssertFalse(MetricsSchedule.canStart(activeRuns: 0, provider: .codex))
+        XCTAssertTrue(MetricsSchedule.canStart(activeRuns: 0, canRead: true))
+        XCTAssertFalse(MetricsSchedule.canStart(activeRuns: 1, canRead: true))
+        XCTAssertFalse(MetricsSchedule.canStart(activeRuns: 0, canRead: false))
     }
 }
 

@@ -241,7 +241,7 @@ extension AppDatabase {
         return run
     }
 
-    public func finishRun(id: String, status: RunStatus, summary: String?, inputTokens: Int, outputTokens: Int, costUsd: Double?) throws -> AgentRun {
+    public func finishRun(id: String, status: RunStatus, summary: String?, inputTokens: Int, outputTokens: Int, costUsd: Double?, runtime: String? = nil) throws -> AgentRun {
         try writer.write { db in
             guard var run = try AgentRun.fetchOne(db, key: id) else { throw notFound("ejecución", id) }
             run.status = status
@@ -250,6 +250,7 @@ extension AppDatabase {
             run.outputTokens = outputTokens
             run.costUsd = costUsd ?? 0
             run.costAvailable = costUsd != nil
+            run.runtime = runtime
             try run.update(db)
             return run
         }

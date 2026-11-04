@@ -347,6 +347,9 @@ public final class AppDatabase: Sendable {
                 t.add(column: "links", .text).notNull().defaults(to: "[]")
             }
         }
+        m.registerMigration("v15-run-runtime") { db in
+            try db.alter(table: "agentRun") { t in t.add(column: "runtime", .text) }
+        }
         return m
     }
 

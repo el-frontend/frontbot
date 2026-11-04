@@ -223,6 +223,8 @@ public actor AgentClient {
             let resolvedModel = agent == nil ? storedModel : AgentProvider.resolve(storedModel, for: provider)
             var params: [String: JSONValue] = ["run_id": .string(run.id), "prompt": .string(prompt),
                                                "provider": .string(provider.rawValue), "model": .string(resolvedModel)]
+            // Codex: con sesión conectada, el app-server real; si no, el bucle de la API key. Nunca se cambia a mitad.
+            if provider == .codex { params["codex_runtime"] = .string(codexConnected ? "session" : "api") }
             if let brand {
                 let guide = try files.readGuide(brandId: brand.id)
                 params["brand"] = ["id": .string(brand.id), "name": .string(brand.name), "guide": guide.map(JSONValue.string) ?? .null]
@@ -239,7 +241,7 @@ public actor AgentClient {
                 let memory = image == nil && metrics == nil ? MemoryPrompt.trimmed(try db.memories(agentId: agent.id)) : []
                 params["agent"] = ["id": .string(agent.id), "name": .string(agent.name), "instructions": .string(agent.instructions),
                                    "is_default": .bool(agent.isDefault), "memory": MemoryPrompt.json(memory)]
-                if agent.provider == .claude && agent.browser { params["browser"] = .bool(true) }
+                if agent.browser && AgentCapabilities.of(provider: agent.provider, codexConnected: codexConnected).browser { params["browser"] = .bool(true) }
                 let folders = try db.folders(agentId: agent.id)
                 if !folders.isEmpty { params["folders"] = .array(folders.map(JSONValue.string)) }
                 if agent.trading {
@@ -308,6 +310,38 @@ public actor AgentClient {
         let domains = agent?.networkDomains ?? Workdir.defaultNetworkDomains
         return ["path": .string(real), "read_dirs": .array(reads.map(JSONValue.string)),
                 "allowed_domains": .array(domains.map(JSONValue.string))]
+    }
+
+    // MARK: Codex
+
+    /// Si la sesión de Codex está conectada (lo actualiza `codexStatus()`). Decide `codex_runtime` en cada run.
+    public private(set) var codexConnected = false
+
+    public func setCodexConnected(_ value: Bool) { codexConnected = value }
+
+    public func codexStatus() async throws -> CodexStatus {
+        let status = CodexStatus(json: try await call("codex.status", params: .object([:]), timeout: .seconds(30)))
+        codexConnected = status.connected
+        return status
+    }
+
+    /// Página de inicio de sesión de ChatGPT para la sesión de Codex de Frontbot.
+    public func codexLogin() async throws -> URL {
+        let result = try await call("codex.login", params: .object([:]), timeout: .seconds(30))
+        guard let raw = result["auth_url"]?.stringValue, let url = URL(string: raw), url.scheme == "https" else {
+            throw ValidationError(String(localized: "Codex no devolvió la página de inicio de sesión."))
+        }
+        return url
+    }
+
+    /// Espera a que el usuario termine el login en el navegador (el sidecar corta a los 10 minutos).
+    public func codexWaitLogin() async throws -> Bool {
+        try await call("codex.login_wait", params: .object([:]), timeout: .seconds(11 * 60))["ok"]?.boolValue ?? false
+    }
+
+    public func codexLogout() async throws {
+        _ = try await call("codex.logout", params: .object([:]), timeout: .seconds(30))
+        codexConnected = false
     }
 
     /// Llamada con respuesta al sidecar (p. ej. `trade.execute`). La hace la app, nunca el agente.
@@ -426,13 +460,18 @@ public actor AgentClient {
 
     /// Entorno mínimo del sidecar. Con API key, el SDK la usa; sin ella, usa la sesión de Claude Code
     /// del usuario en este Mac (uso personal). Nunca se hereda una key de la shell.
-    static func sidecarEnvironment(config: AgentConfig, inherited: [String: String]) -> [String: String] {
+    static func sidecarEnvironment(config: AgentConfig, inherited: [String: String], codexHome: String? = nil) -> [String: String] {
         var env = inherited.filter { ["PATH", "HOME", "TMPDIR", "USER"].contains($0.key) }
+        // La sesión de Codex de Frontbot vive en su carpeta de datos; nunca en ~/.codex.
+        if let codexHome { env["FRONTBOT_CODEX_HOME"] = codexHome }
         env["CLAUDE_AGENT_SDK_CLIENT_APP"] = "frontbot/0.1.0"
         if let key = CredentialStore.normalizedApiKey(config.apiKey) { env["ANTHROPIC_API_KEY"] = key }
         // Node consumes this bootstrap-only variable at startup and removes it before any runner can execute.
         if let key = CredentialStore.normalizedApiKey(config.openAIAPIKey) { env["FRONTBOT_OPENAI_API_KEY"] = key }
-        if config.fakeAgent { env["FRONTBOT_FAKE_AGENT"] = "1" }
+        if config.fakeAgent {
+            env["FRONTBOT_FAKE_AGENT"] = "1"
+            if let session = inherited["FRONTBOT_FAKE_CODEX_SESSION"] { env["FRONTBOT_FAKE_CODEX_SESSION"] = session }
+        }
         return env
     }
 
@@ -454,7 +493,8 @@ public actor AgentClient {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: config.nodePath)
         p.arguments = [config.scriptPath]
-        p.environment = Self.sidecarEnvironment(config: config, inherited: ProcessInfo.processInfo.environment)
+        p.environment = Self.sidecarEnvironment(config: config, inherited: ProcessInfo.processInfo.environment,
+                                                codexHome: files.paths.root.appendingPathComponent("codex-home", isDirectory: true).path)
 
         let inPipe = Pipe(), outPipe = Pipe()
         p.standardInput = inPipe
@@ -675,7 +715,7 @@ public actor AgentClient {
             if let run = try? db.finishRun(id: runId, status: ok ? .done : .failed, summary: summary,
                                            inputTokens: params["input_tokens"]?.intValue ?? 0,
                                            outputTokens: params["output_tokens"]?.intValue ?? 0,
-                                           costUsd: params["cost_usd"]?.doubleValue) {
+                                           costUsd: params["cost_usd"]?.doubleValue, runtime: params["runtime"]?.stringValue) {
                 broadcast(.finished(run))
             }
         case .response(let id, let result):

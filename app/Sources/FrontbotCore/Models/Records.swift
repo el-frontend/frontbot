@@ -80,6 +80,8 @@ public struct AgentRun: Codable, FetchableRecord, PersistableRecord, Identifiabl
     public var costAvailable: Bool = true
     public var logPath: String?
     public var createdAt: Date
+    /// Solo Codex: "session" (app-server con la sesión de ChatGPT) o "api" (API key).
+    public var runtime: String? = nil
 }
 
 public struct Conversation: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
