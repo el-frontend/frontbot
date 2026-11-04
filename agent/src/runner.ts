@@ -10,6 +10,8 @@ import { prepareSkillPlugin, readGuard, type RunSkill, type SkillPlugin } from "
 import { WORKDIR_TOOLS, isProtectedPath, sandboxSettings, workdirEnv, validateWorkdir, workdirDecision, type RunWorkdir } from "./workdir.js";
 import { buildSystemPrompt, buildUserPrompt, buildSummaryPrompt, type MemoryNote, localToday, timeZoneLabel, type HistoryTurn } from "./prompt.js";
 import { CodexRunner } from "./codex-runner.js";
+import { CodexAppRunner } from "./codex-app-runner.js";
+import { codexVersion, locateCodex } from "./codex/account.js";
 
 export type Brand = { id: string; name: string; guide: string | null };
 export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
@@ -39,7 +41,7 @@ export const toolContext = (params: RunParams): ToolContext => ({
   metrics: params.mode === "metrics" ? true : undefined,
 });
 
-const userPrompt = (params: RunParams) => params.mode === "image" || params.mode === "metrics"
+export const userPrompt = (params: RunParams) => params.mode === "image" || params.mode === "metrics"
   ? params.prompt
   : params.mode === "study" && params.study
   ? buildStudyPrompt(params.study, params.agent ?? { name: "Frontbot" })
@@ -80,16 +82,19 @@ export function redactSecrets(message: string): string {
 
 /** Selects the existing Claude implementation or the Codex runtime boundary. */
 export class ProviderRunner implements Runner {
-  constructor(private claude: Runner, private codex: Runner = new CodexUnavailableRunner()) {}
+  /** `codex`: bucle de la API key. `codexApp`: app-server con la sesión de ChatGPT (`codex_runtime: "session"`). */
+  constructor(private claude: Runner, private codex: Runner = new CodexUnavailableRunner(), private codexApp: Runner = new CodexUnavailableRunner()) {}
 
   run(params: RunParams, emit: (e: RunEvent) => void, signal: AbortSignal, context?: RunnerContext): Promise<RunDone> {
     if (params.provider !== undefined && params.provider !== "claude" && params.provider !== "codex") {
       return Promise.resolve({ run_id: params.run_id, ok: false, summary: "", input_tokens: 0, output_tokens: 0, cost_usd: 0,
         error: "Proveedor no compatible." });
     }
-    return (params.provider ?? "claude") === "codex"
-      ? this.codex.run(params, emit, signal, context)
-      : this.claude.run(params, emit, signal);
+    if ((params.provider ?? "claude") !== "codex") return this.claude.run(params, emit, signal);
+    // Sin reintentos cruzados: si falla la sesión, falla el run (nada se cobra a la API a escondidas).
+    const session = params.codex_runtime === "session";
+    return (session ? this.codexApp : this.codex).run(params, emit, signal, context)
+      .then((done) => ({ ...done, runtime: session ? "session" as const : "api" as const }));
   }
 }
 
@@ -192,6 +197,16 @@ function browserHooks(guard: BrowserGuard): Hooks {
   };
 }
 
+/** Prompt de sistema del run, igual para Claude y Codex (con `codex`, nombra las herramientas nativas de Codex). */
+export function runSystemPrompt(params: RunParams, opts: { today: string; browser: boolean; web?: boolean; codex?: boolean }): string {
+  const { mode } = params;
+  const summarize = mode === "summarize", image = mode === "image", metrics = mode === "metrics", study = mode === "study";
+  const workdir = (mode === undefined || mode === "chat") ? params.workdir : undefined;
+  return buildSystemPrompt({ today: opts.today, timeZone: timeZoneLabel(), brand: params.brand, browser: opts.browser, web: opts.web, codex: opts.codex, agent: params.agent,
+    trading: summarize || image || metrics ? undefined : params.trading, folders: summarize || study || image || metrics ? undefined : params.folders, workdir,
+    scheduledTask: mode === "scheduled" ? params.task?.name ?? "tarea" : undefined, study });
+}
+
 /** Opciones del SDK: solo web + herramientas propias, sin settings del usuario y sin guardar sesiones en ~/.claude.
  *  Con `browser`, añade el Chrome del usuario (Claude in Chrome) detrás del guardián. */
 export function buildQueryOptions(params: RunParams, server: ReturnType<typeof createSdkMcpServer>, abortController: AbortController, today: string, plugin?: SkillPlugin, meter: TokenMeter | undefined = undefined, call?: AppCall): Options {
@@ -221,7 +236,7 @@ export function buildQueryOptions(params: RunParams, server: ReturnType<typeof c
   return {
     // El hilo principal del estudio siempre corre en Sonnet (§8); los subagentes eligen el suyo.
     model: study ? STUDY_MODEL : params.model,
-    systemPrompt: buildSystemPrompt({ today, timeZone: timeZoneLabel(), brand: params.brand, browser, agent: params.agent, trading: summarize || image || metrics ? undefined : params.trading, folders: summarize || study || image || metrics ? undefined : params.folders, workdir, scheduledTask: params.mode === "scheduled" ? params.task?.name ?? "tarea" : undefined, study }),
+    systemPrompt: runSystemPrompt(params, { today, browser }),
     tools: [...new Set(summarize || image || metrics ? [] : study ? ["WebSearch", "WebFetch", "Agent"] : ["WebSearch", "WebFetch", ...(skills ? ["Skill", "Read"] : []), ...(workdir ? WORKDIR_TOOLS : [])])],
     allowedTools: [...new Set([...allowedToolsFor(toolContext(params)), ...(browser ? BROWSER_ALLOWED_TOOLS : []), ...(skills ? ["Skill", "Read"] : []), ...(workdir ? WORKDIR_TOOLS : []),
       // En estudio solo se lee el mercado: ni account_state ni trade_propose.
@@ -446,6 +461,7 @@ export function createProductionRunner(call: AppCall, env: NodeJS.ProcessEnv = p
   delete env.FRONTBOT_OPENAI_API_KEY;
   delete env.OPENAI_API_KEY;
   return fake
-    ? new ProviderRunner(new FakeRunner(call), new FakeRunner(call))
-    : new ProviderRunner(new RealRunner(call), new CodexRunner(codexConfig));
+    ? new ProviderRunner(new FakeRunner(call), new FakeRunner(call), new FakeRunner(call))
+    : new ProviderRunner(new RealRunner(call), new CodexRunner(codexConfig), new CodexAppRunner({
+      bin: env.FRONTBOT_CODEX_HOME ? locateCodex(env) : null, home: env.FRONTBOT_CODEX_HOME ?? "", version: codexVersion(locateCodex(env)) }));
 }

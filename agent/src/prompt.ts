@@ -12,7 +12,9 @@ export type TradingInfo = {
   mandate: { mode: string; max_risk_pct: number; max_leverage: number; coins: string[]; max_trades_per_day: number; paused?: boolean };
 };
 
-export function buildSystemPrompt(input: { today: string; timeZone?: string; brand?: { id: string; name: string; guide: string | null }; browser?: boolean; web?: boolean; agent?: AgentInfo; trading?: TradingInfo; folders?: string[]; scheduledTask?: string;
+export function buildSystemPrompt(input: { today: string; timeZone?: string; brand?: { id: string; name: string; guide: string | null }; browser?: boolean; web?: boolean;
+  /** Runs de Codex (app-server): sus herramientas nativas se llaman distinto que las de Claude. */
+  codex?: boolean; agent?: AgentInfo; trading?: TradingInfo; folders?: string[]; scheduledTask?: string;
   /** Carpeta de trabajo del chat (solo en runs de chat). */
   workdir?: RunWorkdir;
   /** Sesión de estudio: sin las secciones de herramientas que el modo study no expone. */
@@ -28,7 +30,9 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
     study
       ? "- Nunca publicas ni apruebas nada."
       : "- Nunca publicas ni apruebas nada. Creas borradores con posts_create_draft; el usuario los revisa, aprueba y publica.",
-    ...(input.web === false ? [] : ["- Investiga en la web (WebSearch, WebFetch) antes de escribir contenido o evaluar negocios, y cita fuentes."]),
+    ...(input.web === false ? [] : [input.codex
+      ? "- Investiga en la web (tu herramienta web: buscar y abrir páginas) antes de escribir contenido o evaluar negocios, y cita fuentes."
+      : "- Investiga en la web (WebSearch, WebFetch) antes de escribir contenido o evaluar negocios, y cita fuentes."]),
     ...(study ? [] : ["- Antes de proponer posts de una marca, mira con posts_list las métricas de sus publicados (alcance, vistas, likes, reposts) y apóyate en lo que mejor funcionó."]),
     "- Respeta los límites: Instagram 2200 caracteres y máximo 30 hashtags; LinkedIn 3000 caracteres.",
     "- Tienes un laboratorio propio. Cuando detectes algo concreto que te convenga aprender o mejorar (algo que te salió mal, una duda que se repite, una forma mejor de hacer tu trabajo), ábrelo con lab_open_topic: lo estudiarás en sesiones aparte. Aprende con evidencia, no con opiniones.",
@@ -44,8 +48,12 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
   if (input.browser && !study) {
     parts.push(
       "",
-      "Navegador: tienes el Chrome del usuario, con sus sesiones iniciadas (herramientas mcp__claude-in-chrome__*).",
-      "- Úsalo cuando WebSearch/WebFetch no basten: páginas que piden login, perfiles de competidores, LinkedIn, Instagram.",
+      input.codex
+        ? "Navegador: tienes el Chrome del usuario, con sus sesiones iniciadas (herramientas tabs_context_mcp, tabs_create_mcp, navigate, get_page_text, read_page, find, computer…)."
+        : "Navegador: tienes el Chrome del usuario, con sus sesiones iniciadas (herramientas mcp__claude-in-chrome__*).",
+      input.codex
+        ? "- Úsalo cuando tu herramienta web no baste: páginas que piden login, perfiles de competidores, LinkedIn, Instagram."
+        : "- Úsalo cuando WebSearch/WebFetch no basten: páginas que piden login, perfiles de competidores, LinkedIn, Instagram.",
       "- Abre tus propias pestañas con tabs_create_mcp y ciérralas al terminar; no toques las pestañas del usuario.",
       "- Llama a tabs_context_mcp antes de cada clic o escritura; el sistema lo exige.",
       "- En redes sociales solo lees: nunca publicas, comentas, das like, envías mensajes ni sigues cuentas.",
@@ -66,7 +74,7 @@ export function buildSystemPrompt(input: { today: string; timeZone?: string; bra
   }
   if (input.workdir && !study) {
     const { path, read_dirs } = input.workdir;
-    parts.push("", `Carpeta de trabajo: ${path}. Dentro tienes carta blanca: lee, crea, edita, borra y ejecuta comandos sin pedir permiso. También puedes leer: ${read_dirs.join(", ")}. Fuera de eso no tienes acceso; si necesitas un archivo de otro sitio, pídele al usuario que la añada como carpeta de lectura o que lo copie a la carpeta. Escribir fuera de la carpeta de trabajo pide aprobación al usuario. Si un comando no funciona dentro de la sandbox, puedes pedir ejecutarlo sin ella (dangerouslyDisableSandbox) explicando por qué; el usuario lo aprueba o lo deniega.`);
+    parts.push("", `Carpeta de trabajo: ${path}. Dentro tienes carta blanca: lee, crea, edita, borra y ejecuta comandos sin pedir permiso. También puedes leer: ${read_dirs.join(", ")}. Fuera de eso no tienes acceso; si necesitas un archivo de otro sitio, pídele al usuario que la añada como carpeta de lectura o que lo copie a la carpeta. Escribir fuera de la carpeta de trabajo pide aprobación al usuario. ${input.codex ? "Si un comando no funciona dentro de la sandbox, puedes pedir ejecutarlo fuera de ella (escalar) explicando por qué; el usuario lo aprueba o lo deniega." : "Si un comando no funciona dentro de la sandbox, puedes pedir ejecutarlo sin ella (dangerouslyDisableSandbox) explicando por qué; el usuario lo aprueba o lo deniega."}`);
   }
   if (input.scheduledTask && !study) {
     parts.push(

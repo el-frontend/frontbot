@@ -58,6 +58,9 @@ export function ensureCodexHome(home: string) {
   chmodSync(home, 0o700);
 }
 
+/** `codex --version` del binario (cadena vacía si no hay o falla). */
+export const codexVersion = (bin: string | null) => async (): Promise<string> => (bin ? runVersion(bin)() : "");
+
 const runVersion = (bin: string) => () => new Promise<string>((resolve) => {
   execFile(bin, ["--version"], { timeout: 10_000 }, (err, stdout) => resolve(err ? "" : String(stdout)));
 });

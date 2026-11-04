@@ -95,3 +95,14 @@ describe("metrics in the prompt", () => {
     expect(p).toContain("posts_list");
   });
 });
+
+describe("buildSystemPrompt para Codex", () => {
+  it("no nombra herramientas de Claude", () => {
+    const wd = { path: "/Users/u/p", read_dirs: [] };
+    const claude = buildSystemPrompt({ today: "2026-11-04", browser: true, workdir: wd });
+    const codex = buildSystemPrompt({ today: "2026-11-04", browser: true, workdir: wd, codex: true });
+    expect(claude).toContain("WebSearch");
+    for (const name of ["WebSearch", "WebFetch", "mcp__claude-in-chrome__", "dangerouslyDisableSandbox"]) expect(codex).not.toContain(name);
+    expect(codex).toContain("tabs_context_mcp");
+  });
+});
