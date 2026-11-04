@@ -93,7 +93,7 @@ const cutAtWildcard = (pattern: string) => {
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 
 /** Carpetas de lectura extra que no pueden anular lo denegado: ni home, ni la raíz, ni ancestros o hijos de rutas protegidas. */
-function safeReadRoots(paths: string[], home: string): string[] {
+export function safeReadRoots(paths: string[], home: string): string[] {
   const denied = alwaysDenied(home).map(realish);
   const h = realish(home);
   return paths.map(realish).filter((r) => r !== sep && !inside(h, r) && !denied.some((d) => inside(d, r) || inside(r, d)));
@@ -197,6 +197,13 @@ export const WORKDIR_ALLOWED_DOMAINS = [
 /** Igual que la validación de la app: `host.tld` o `*.host.tld`; sin `*` solo, esquemas, rutas ni puertos. */
 const DOMAIN_RE = /^(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
+/** Dominios que pueden alcanzar los comandos de la carpeta. Se filtra aquí: no se confía en lo que llegue por el protocolo. */
+export function workdirDomains(wd: RunWorkdir): string[] {
+  return Array.isArray(wd.allowed_domains)
+    ? wd.allowed_domains.filter((d) => typeof d === "string" && DOMAIN_RE.test(d))
+    : WORKDIR_ALLOWED_DOMAINS;
+}
+
 /** Cachés de los comandos dentro de la carpeta: así un run no puede envenenar `~/.npm` ni `~/.cache`. */
 export function workdirEnv(wd: RunWorkdir, base: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
   const c = join(wd.path, ".frontbot-cache");
@@ -209,10 +216,7 @@ export function workdirEnv(wd: RunWorkdir, base: NodeJS.ProcessEnv = process.env
  */
 export function sandboxSettings(wd: RunWorkdir, home: string, toolPaths: string[]): SandboxSettings {
   const reads = safeReadRoots([...wd.read_dirs, ...toolPaths], home);
-  // Se filtra aquí también: no se confía en lo que llegue por el protocolo.
-  const domains = Array.isArray(wd.allowed_domains)
-    ? wd.allowed_domains.filter((d) => typeof d === "string" && DOMAIN_RE.test(d))
-    : WORKDIR_ALLOWED_DOMAINS;
+  const domains = workdirDomains(wd);
   const tmps = [...new Set([realish(tmpdir()), "/private/tmp"])];
   const cache = [join(home, ".npm"), join(home, ".cache")];
   return {

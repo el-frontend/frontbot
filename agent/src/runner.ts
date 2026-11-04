@@ -15,7 +15,9 @@ export type Brand = { id: string; name: string; guide: string | null };
 export type RunAgent = { id: string; name: string; instructions: string; is_default: boolean; memory?: MemoryNote[] };
 /** mode "summarize": run en segundo plano que solo actualiza la memoria del agente.
  *  mode "scheduled": tarea programada, sin nadie mirando; puede avisar con notify_user. */
-export type RunParams = { run_id: string; prompt: string; model: string; provider?: "claude" | "codex"; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled" | "study" | "image" | "metrics"; image?: { kind: "html" | "ai"; count: number }; study?: RunStudy; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
+export type RunParams = { run_id: string; prompt: string; model: string; provider?: "claude" | "codex";
+  /** Solo Codex: "session" = app-server con la sesión de ChatGPT; "api" (o ausente) = bucle de la API key. */
+  codex_runtime?: "session" | "api"; agent?: RunAgent; brand?: Brand; history?: HistoryTurn[]; browser?: boolean; mode?: "chat" | "summarize" | "scheduled" | "study" | "image" | "metrics"; image?: { kind: "html" | "ai"; count: number }; study?: RunStudy; skills?: RunSkill[]; trading?: RunTrading; task?: { name: string };
   /** Carpetas del usuario autorizadas para este agente (rutas reales). */
   folders?: string[];
   /** Carpeta de trabajo del chat: herramientas de Claude Code dentro de la sandbox. Se ignora fuera de runs de chat. */
@@ -48,6 +50,8 @@ const userPrompt = (params: RunParams) => params.mode === "image" || params.mode
     : buildUserPrompt(params.history ?? [], params.prompt, params.agent?.name);
 export type RunEvent = { run_id: string; type: "text" | "tool_call" | "status"; text: string };
 export type RunDone = { run_id: string; ok: boolean; summary: string; input_tokens: number; output_tokens: number; cost_usd: number | null; error?: string;
+  /** Solo Codex: con qué se ejecutó. */
+  runtime?: "session" | "api";
   /** Solo en estudio: cortada por límite, tokens contados con la métrica del laboratorio y desglose por modelo. */
   cut?: boolean; cut_reason?: "tokens" | "clock"; lab_tokens?: number; models?: { model: string; tokens: number }[] };
 
